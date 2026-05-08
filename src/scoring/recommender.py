@@ -487,7 +487,7 @@ def allocate_portfolio(recommendations, budget, config):
         total_invested += actual_amount
 
         # Get order recommendation
-        order = suggest_order_type(rec, risk)
+        order = suggest_order_type(rec, risk, shares=shares)
 
         sl = risk.get("stop_loss", {})
         tp = risk.get("take_profit", {})
@@ -510,6 +510,9 @@ def allocate_portfolio(recommendations, budget, config):
             "order_type": order["type"],
             "order_detail": order["detail"],
             "order_price": order.get("price"),
+            "order_steps": order.get("steps", []),
+            "order_why": order.get("why", ""),
+            "order_risk_summary": order.get("risk_summary", ""),
         })
 
     cash_reserve = budget - total_invested
@@ -540,30 +543,54 @@ def allocate_portfolio(recommendations, budget, config):
     }
 
 
-def suggest_order_type(rec, risk):
+def suggest_order_type(rec, risk, shares=None):
     """
-    Suggest the best order type for entering a position.
-
-    Order types:
-        Market:         Buy immediately at current price
-        Limit:          Buy only at specified price or better
-        Stop:           Buy when price rises to trigger (breakout)
-        Stop Limit:     Stop trigger + limit price (precise breakout)
-        Trailing Stop:  For existing positions, protect gains
+    Suggest the best order type with step-by-step broker instructions.
 
     Args:
         rec: recommendation dict
         risk: risk_management dict from recommendation
+        shares: number of shares (optional, for concrete step instructions)
 
     Returns:
-        dict with type, detail, price (if applicable)
+        dict with type, detail, price, steps, why, risk_summary
     """
     action = rec["action"]
     signals = rec.get("all_signals", [])
     score = rec["composite_score"]
+    ticker = rec.get("ticker", "???")
     current_price = risk.get("current_price", 0)
     sl = risk.get("stop_loss", {})
     tp = risk.get("take_profit", {})
+    sl_price = sl.get("price")
+    tp_price = tp.get("price")
+
+    shares_label = f"{shares} share{'s' if shares != 1 else ''} of" if shares else "shares of"
+
+    # Helper: build risk summary string
+    def _risk_summary():
+        if not shares or not sl_price:
+            return ""
+        risk_per_share = abs(current_price - sl_price)
+        reward_per_share = abs(tp_price - current_price) if tp_price else 0
+        total_risk = round(risk_per_share * shares, 0)
+        total_reward = round(reward_per_share * shares, 0) if tp_price else 0
+        rr = risk.get("risk_reward_ratio", 0)
+        parts = [f"Risk: ${total_risk:,.0f}"]
+        if total_reward:
+            parts.append(f"Reward: ${total_reward:,.0f}")
+        if rr:
+            parts.append(f"Ratio: {rr:.0f}:1")
+        return " | ".join(parts)
+
+    # Helper: after-fill steps (stop-loss + take-profit)
+    def _after_fill_steps():
+        steps = []
+        if sl_price:
+            steps.append(f"Once filled, immediately set a Sell Stop Loss at ${sl_price:.2f}")
+        if tp_price:
+            steps.append(f"Set a Sell Limit (take profit) at ${tp_price:.2f}")
+        return steps
 
     # Classify the signal environment
     has_breakout = any(
@@ -588,64 +615,134 @@ def suggest_order_type(rec, risk):
 
     # --- SELL / STRONG SELL ---
     if action in ("SELL", "STRONG SELL"):
+        steps = [
+            f"Place a Market Sell Order for {shares_label} {ticker}",
+            "Order will fill immediately at best available price",
+        ]
         return {
             "type": "Market",
             "detail": "Sell at market - bearish signals, exit promptly",
+            "steps": steps,
+            "why": "Multiple bearish signals detected — exit promptly to limit losses",
+            "risk_summary": "",
         }
 
     # --- HOLD (already own) ---
     if action == "HOLD":
-        if sl.get("price"):
-            return {
-                "type": "Trailing Stop",
-                "detail": f"Set trailing stop at ${sl['price']:.2f} to protect gains",
-                "price": sl.get("price"),
-            }
+        steps = [f"Set a Trailing Stop order for {ticker}"]
+        if sl_price:
+            steps[0] = f"Set a Trailing Stop at ${sl_price:.2f} for {ticker}"
+            steps.append("This automatically follows the price up and sells if it drops back")
+        steps.append("No new purchase needed — monitor the position")
         return {
             "type": "Trailing Stop",
-            "detail": "Set trailing stop to protect existing position",
+            "detail": f"Set trailing stop at ${sl_price:.2f} to protect gains" if sl_price else "Set trailing stop to protect existing position",
+            "price": sl_price,
+            "steps": steps,
+            "why": "Position is in HOLD territory — protect existing gains with a trailing stop",
+            "risk_summary": "",
         }
 
     # --- BUY / STRONG BUY ---
 
-    # STRONG BUY + strong momentum + volume = Market Order (don't miss it)
+    # STRONG BUY + strong momentum + volume = Market Order
     if action == "STRONG BUY" and has_strong_momentum and has_volume_spike:
+        steps = [
+            f"Place a Market Buy Order for {shares_label} {ticker}",
+            "Order fills immediately at current market price",
+        ] + _after_fill_steps()
         return {
             "type": "Market",
             "detail": "Strong momentum + volume - enter at market to avoid missing the move",
+            "steps": steps,
+            "why": "Strong momentum confirmed by volume spike — enter now to avoid missing the move",
+            "risk_summary": _risk_summary(),
         }
 
-    # Breakout setup (squeeze, near resistance) = Stop Order above resistance
+    # Breakout setup = Stop Order above resistance
     if has_breakout or near_resistance:
-        # Trigger slightly above current price to confirm breakout
         trigger = round(current_price * 1.02, 2)
+        # Find resistance detail for explanation
+        resist_info = ""
+        for s in signals:
+            if s.get("source") == "Resistance":
+                resist_info = s.get("detail", "")
+                break
+
+        steps = [
+            f"Place a Buy Stop Order for {shares_label} {ticker} at ${trigger:.2f}",
+            f"Wait — order only fills if price breaks above ${trigger:.2f}",
+        ] + _after_fill_steps()
+        steps.append(f"If price never reaches ${trigger:.2f}, you don't buy and lose nothing")
+
+        why = f"Price is near resistance (${current_price:.2f}) — buying now risks a rejection. Waiting for a breakout above ${trigger:.2f} confirms buyers have overwhelmed sellers"
+        if resist_info:
+            why = f"{resist_info} — buying at resistance risks a rejection. The Stop Order waits for a confirmed breakout above ${trigger:.2f}"
+
         return {
             "type": "Stop",
             "detail": f"Breakout play - trigger at ${trigger:.2f} (2% above current) to confirm move",
             "price": trigger,
+            "steps": steps,
+            "why": why,
+            "risk_summary": _risk_summary(),
         }
 
     # Near support = Limit Order at support
     if has_support:
-        # Set limit slightly above the stop loss (which is below support)
         limit_price = round(current_price * 0.98, 2)
+        support_info = ""
+        for s in signals:
+            if s.get("source") == "Support":
+                support_info = s.get("detail", "")
+                break
+
+        steps = [
+            f"Place a Buy Limit Order for {shares_label} {ticker} at ${limit_price:.2f}",
+            f"Order only fills if price dips to ${limit_price:.2f} or lower",
+        ] + _after_fill_steps()
+        steps.append(f"If price never dips to ${limit_price:.2f}, you can adjust the limit higher or wait")
+
+        why = f"Price is near a support level — a Limit Order below current price gets you a better entry if it dips"
+        if support_info:
+            why = f"{support_info} — Limit Order catches a dip for a better entry price"
+
         return {
             "type": "Limit",
             "detail": f"Near support - set limit at ${limit_price:.2f} for better entry",
             "price": limit_price,
+            "steps": steps,
+            "why": why,
+            "risk_summary": _risk_summary(),
         }
 
     # STRONG BUY with high score = Market Order
     if action == "STRONG BUY" and score >= 80:
+        steps = [
+            f"Place a Market Buy Order for {shares_label} {ticker}",
+            "Order fills immediately at current market price",
+        ] + _after_fill_steps()
         return {
             "type": "Market",
             "detail": "High-conviction signal - enter at market price",
+            "steps": steps,
+            "why": f"High-conviction signal (score {score:.0f}/100) — no need to wait for a better price",
+            "risk_summary": _risk_summary(),
         }
 
     # Default BUY = Limit Order slightly below current
     limit_price = round(current_price * 0.97, 2)
+    steps = [
+        f"Place a Buy Limit Order for {shares_label} {ticker} at ${limit_price:.2f}",
+        f"Order only fills at ${limit_price:.2f} or lower — saves ~3% vs buying now",
+    ] + _after_fill_steps()
+    steps.append(f"If price doesn't dip to ${limit_price:.2f} within a few days, consider raising the limit")
+
     return {
         "type": "Limit",
         "detail": f"Set limit at ${limit_price:.2f} (3% below current) for better entry",
         "price": limit_price,
+        "steps": steps,
+        "why": f"No urgency signals — a Limit Order 3% below current (${current_price:.2f}) gives a better entry price",
+        "risk_summary": _risk_summary(),
     }

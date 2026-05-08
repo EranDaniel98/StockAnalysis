@@ -286,23 +286,44 @@ def display_investment_plan(plan):
 
     console.print(table)
 
-    # Order instructions detail
+    # Step-by-step order instruction cards
     console.print()
-    order_lines = []
     for a in allocations:
-        order_price_str = f" @ ${a['order_price']:.2f}" if a.get("order_price") else ""
-        order_lines.append(
-            f"  [bold cyan]{a['ticker']}[/bold cyan]: "
-            f"[bold]{a['order_type']} Order[/bold]{order_price_str} - "
-            f"{a['order_detail']}"
-        )
+        steps = a.get("order_steps", [])
+        if not steps:
+            # Fallback to old format
+            order_price_str = f" @ ${a['order_price']:.2f}" if a.get("order_price") else ""
+            console.print(Panel(
+                f"  [bold]{a['order_type']} Order[/bold]{order_price_str} - {a['order_detail']}",
+                title=f"[bold cyan]{a['ticker']}[/bold cyan]",
+                border_style="green",
+                box=box.ROUNDED,
+            ))
+            continue
 
-    console.print(Panel(
-        "\n".join(order_lines),
-        title="[bold]Order Instructions[/bold]",
-        border_style="green",
-        box=box.ROUNDED,
-    ))
+        lines = []
+        for i, step in enumerate(steps, 1):
+            lines.append(f"  [bold]Step {i}:[/bold] {step}")
+
+        if a.get("order_why"):
+            lines.append("")
+            lines.append(f"  [dim]Why {a['order_type']} Order:[/dim] {a['order_why']}")
+
+        if a.get("order_risk_summary"):
+            lines.append(f"  [bold]{a['order_risk_summary']}[/bold]")
+
+        border = "green" if a["order_type"] == "Market" else "cyan" if a["order_type"] == "Limit" else "yellow"
+
+        console.print(Panel(
+            "\n".join(lines),
+            title=(
+                f"[bold cyan]{a['ticker']}[/bold cyan] — "
+                f"{_style_action(a['action'])} — "
+                f"{a['shares']} shares @ ${a['price']:.2f}"
+            ),
+            border_style=border,
+            box=box.ROUNDED,
+        ))
 
     # Warnings
     if plan["warnings"]:
@@ -447,10 +468,18 @@ def display_portfolio(positions_data, enriched_positions=None, sector_exposure=N
             }.get(action, "white")
 
             lines = []
-            # P&L line
+
+            # Step-by-step action instructions (new format)
+            action_steps = pos.get("action_steps", [])
+            if action_steps:
+                for i, step in enumerate(action_steps, 1):
+                    lines.append(f"  [bold]Step {i}:[/bold] {step}")
+                lines.append("")
+
+            # P&L / Score / Weight context
             pnl_c = "green" if pos["pnl_pct"] >= 0 else "red"
             lines.append(
-                f"[bold]P&L:[/bold] [{pnl_c}]${pos['unrealized_pnl']:+,.2f} "
+                f"  [bold]P&L:[/bold] [{pnl_c}]${pos['unrealized_pnl']:+,.2f} "
                 f"({pos['pnl_pct']:+.1f}%)[/{pnl_c}]  |  "
                 f"[bold]Score:[/bold] {pos.get('analysis_score', 'N/A')}/100  |  "
                 f"[bold]Weight:[/bold] {pos['weight_pct']:.1f}%"
@@ -471,13 +500,10 @@ def display_portfolio(positions_data, enriched_positions=None, sector_exposure=N
                     sig_color = "green" if s.get("type") == "bullish" else "red" if s.get("type") == "bearish" else "yellow"
                     lines.append(f"  [{sig_color}]{s.get('source', '')}: {s.get('detail', '')}[/{sig_color}]")
 
-            # Stop-loss / take-profit for existing positions
-            if pos.get("stop_loss") or pos.get("take_profit"):
+            # Summary line
+            if pos.get("action_summary"):
                 lines.append("")
-                if pos.get("stop_loss"):
-                    lines.append(f"  [bold]Stop Loss:[/bold]   ${pos['stop_loss']:.2f}")
-                if pos.get("take_profit"):
-                    lines.append(f"  [bold]Take Profit:[/bold] ${pos['take_profit']:.2f}")
+                lines.append(f"  [bold dim]Summary:[/bold dim] {pos['action_summary']}")
 
             console.print(Panel(
                 "\n".join(lines),

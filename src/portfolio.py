@@ -163,6 +163,13 @@ class Portfolio:
             sl = risk.get("stop_loss", {})
             tp = risk.get("take_profit", {})
 
+            # Build concrete action details
+            action_details = self._build_action_details(
+                action, pos, rec, risk,
+                positions_data["total_portfolio_value"],
+                overweight,
+            )
+
             enriched.append({
                 **pos,
                 "analysis_score": round(score, 1),
@@ -175,6 +182,7 @@ class Portfolio:
                 "key_signals": [
                     s for s in signals[:6]
                 ],
+                **action_details,
             })
 
         return enriched
@@ -237,6 +245,132 @@ class Portfolio:
         if pnl_pct < -20:
             reasons.append(f"Significant loss ({pnl_pct:.1f}%) — set tight stop-loss")
         return "HOLD", reasons
+
+    def _build_action_details(self, action, pos, rec, risk, total_portfolio_value, overweight_pct):
+        """Build step-by-step action details with concrete share counts and prices."""
+        details = {
+            "action_steps": [],
+            "action_order": "",
+            "action_summary": "",
+        }
+
+        ticker = pos["ticker"]
+        shares = pos["shares"]
+        current_price = pos["current_price"]
+        avg_price = pos["avg_price"]
+        market_value = pos["market_value"]
+        weight = pos["weight_pct"]
+        sl_price = risk.get("stop_loss", {}).get("price")
+        tp_price = risk.get("take_profit", {}).get("price")
+        score = rec.get("composite_score", 50)
+
+        if action == "ADD":
+            # Calculate how many shares to add
+            max_add_value = (total_portfolio_value * overweight_pct / 100) - market_value
+            max_add_value = max(0, min(max_add_value, self.cash_available))
+            shares_to_add = int(max_add_value / current_price) if current_price > 0 else 0
+            shares_to_add = max(1, shares_to_add)
+
+            add_cost = shares_to_add * current_price
+            new_total_shares = shares + shares_to_add
+            new_avg = (shares * avg_price + shares_to_add * current_price) / new_total_shares
+            new_value = new_total_shares * current_price
+            limit_price = round(current_price * 0.97, 2)
+
+            details["shares_to_add"] = shares_to_add
+            details["new_avg_price"] = round(new_avg, 2)
+            details["add_cost"] = round(add_cost, 2)
+
+            s_label = "share" if shares_to_add == 1 else "shares"
+            details["action_steps"] = [
+                f"Buy {shares_to_add} more {s_label} of {ticker}",
+                f"Order: Limit @ ${limit_price:.2f} (3% below current ${current_price:.2f})",
+            ]
+            if sl_price:
+                details["action_steps"].append(
+                    f"After fill, set stop-loss at ${sl_price:.2f} for ALL {new_total_shares:.4g} shares"
+                )
+            details["action_steps"].append(
+                f"New avg price: ~${new_avg:.2f} | New total value: ~${new_value:,.0f}"
+            )
+            if tp_price:
+                risk_line = ""
+                if sl_price:
+                    risk_dollars = round(abs(current_price - sl_price) * new_total_shares, 0)
+                    risk_line = f"Risk: ${risk_dollars:,.0f} | "
+                target_pct = round((tp_price / current_price - 1) * 100, 1)
+                details["action_steps"].append(
+                    f"{risk_line}Target: ${tp_price:.2f} (+{target_pct}%)"
+                )
+
+            details["action_order"] = f"Limit @ ${limit_price:.2f}"
+            details["action_summary"] = (
+                f"Add {shares_to_add} {s_label} (~${add_cost:,.0f}), new avg ${new_avg:.2f}"
+            )
+
+        elif action == "TRIM":
+            target_value = total_portfolio_value * overweight_pct / 100
+            excess_value = market_value - target_value
+            shares_to_sell = max(1, int(excess_value / current_price)) if current_price > 0 else 1
+            # Don't sell more than we own minus 1
+            shares_to_sell = min(shares_to_sell, max(1, int(shares) - 1))
+
+            remaining = shares - shares_to_sell
+            new_weight = (remaining * current_price) / total_portfolio_value * 100 if total_portfolio_value > 0 else 0
+            proceeds = shares_to_sell * current_price
+
+            details["shares_to_sell"] = shares_to_sell
+            details["remaining_shares"] = round(remaining, 4)
+            details["proceeds"] = round(proceeds, 2)
+
+            score_note = "acceptable" if score >= 40 else "weak — monitor closely"
+            s_label = "share" if shares_to_sell == 1 else "shares"
+            details["action_steps"] = [
+                f"Sell {shares_to_sell} of your {shares:.4g} {s_label} of {ticker}",
+                f"Order: Market Order — reduce position now",
+                f"Keep {remaining:.4g} shares — score {score:.0f} is {score_note}",
+                f"New weight after trim: ~{new_weight:.1f}% (was {weight:.1f}%)",
+                f"Proceeds: ~${proceeds:,.0f} returned to cash",
+            ]
+            details["action_order"] = "Market Order"
+            details["action_summary"] = (
+                f"Sell {shares_to_sell} {s_label} (~${proceeds:,.0f}), "
+                f"keep {remaining:.4g}, weight {weight:.1f}% -> {new_weight:.1f}%"
+            )
+
+        elif action == "SELL":
+            proceeds = shares * current_price
+            pnl = pos["unrealized_pnl"]
+            pnl_note = f"locking in ${pnl:+,.0f} profit" if pnl >= 0 else f"cutting loss at ${pnl:+,.0f}"
+
+            details["proceeds"] = round(proceeds, 2)
+
+            details["action_steps"] = [
+                f"Sell ALL {shares:.4g} shares of {ticker}",
+                f"Order: Market Order — exit entire position",
+                f"Proceeds: ~${proceeds:,.0f} ({pnl_note})",
+                f"Frees up {weight:.1f}% of portfolio for better opportunities",
+            ]
+            details["action_order"] = "Market Order"
+            details["action_summary"] = f"Exit all {shares:.4g} shares (~${proceeds:,.0f})"
+
+        elif action == "HOLD":
+            details["action_steps"] = [
+                f"No action needed for {ticker}",
+            ]
+            if sl_price:
+                details["action_steps"].append(
+                    f"Ensure stop-loss is set at ${sl_price:.2f} to protect your position"
+                )
+            if tp_price:
+                details["action_steps"].append(
+                    f"Take-profit target: ${tp_price:.2f}"
+                )
+            details["action_steps"].append("Review again on next scan")
+            details["action_order"] = "None"
+            details["action_summary"] = "Maintain position, monitor"
+
+        return details
 
     def get_sector_exposure(self, positions_data, fundamentals_map):
         """Calculate sector exposure from existing holdings."""
