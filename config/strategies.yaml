@@ -1,0 +1,98 @@
+# =============================================================================
+# Trading & Investing Strategies
+# Each strategy defines its own scoring weights and parameters
+# =============================================================================
+
+default_strategy: "long_term_growth"
+
+strategies:
+  long_term_growth:
+    description: "Growth investing - strong revenue/earnings growth companies"
+    time_horizon: "6-24 months"
+    weights:
+      technical: 0.20
+      fundamental: 0.35
+      pattern: 0.05
+      statistical: 0.25
+      trend: 0.15
+    emphasis:
+      - "revenue_growth"
+      - "earnings_growth"
+      - "roe"
+      - "momentum_12m"
+    min_score: 70
+    min_market_cap: 5_000_000_000
+    prefer_profitable: true
+
+  short_term_momentum:
+    description: "Momentum trading - ride trends with risk management"
+    time_horizon: "1-30 days"
+    weights:
+      technical: 0.45
+      fundamental: 0.05
+      pattern: 0.25
+      statistical: 0.15
+      trend: 0.10
+    emphasis:
+      - "rsi"
+      - "macd"
+      - "volume_spike"
+      - "momentum_3m"
+    min_score: 65
+    min_market_cap: 1_000_000_000
+    prefer_profitable: false
+
+  value_investing:
+    description: "Value investing - undervalued companies with strong fundamentals"
+    time_horizon: "12-36 months"
+    weights:
+      technical: 0.10
+      fundamental: 0.45
+      pattern: 0.05
+      statistical: 0.30
+      trend: 0.10
+    emphasis:
+      - "pe_ratio"
+      - "pb_ratio"
+      - "debt_to_equity"
+      - "free_cash_flow"
+      - "mean_reversion"
+    min_score: 70
+    min_market_cap: 2_000_000_000
+    prefer_profitable: true
+
+  swing_trading:
+    description: "Swing trading - capture price swings using technical patterns"
+    time_horizon: "2-14 days"
+    weights:
+      technical: 0.35
+      fundamental: 0.05
+      pattern: 0.30
+      statistical: 0.20
+      trend: 0.10
+    emphasis:
+      - "bollinger"
+      - "support_resistance"
+      - "candlestick_patterns"
+      - "volume_spike"
+    min_score: 60
+    min_market_cap: 500_000_000
+    prefer_profitable: false
+
+  dividend_income:
+    description: "Dividend investing - stable companies with growing dividends"
+    time_horizon: "12+ months"
+    weights:
+      technical: 0.10
+      fundamental: 0.40
+      pattern: 0.05
+      statistical: 0.30
+      trend: 0.15
+    emphasis:
+      - "dividend_yield"
+      - "payout_ratio"
+      - "earnings_stability"
+      - "debt_to_equity"
+    min_score: 70
+    min_market_cap: 10_000_000_000
+    prefer_profitable: true

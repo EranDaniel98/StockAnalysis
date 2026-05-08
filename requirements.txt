@@ -1,0 +1,10 @@
+yfinance>=0.2.31
+pandas>=2.0.0
+numpy>=1.24.0
+pandas-ta>=0.3.14b
+finvizfinance>=0.14
+python-telegram-bot>=20.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+rich>=13.0.0
+requests>=2.31.0

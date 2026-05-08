@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile src/analysis/technical.py)",
+      "Bash(python -m py_compile src/analysis/fundamental.py)",
+      "Bash(python -m py_compile src/analysis/patterns.py)",
+      "Bash(python -m py_compile src/analysis/statistical.py)",
+      "Bash(python -m py_compile src/analysis/trend_detector.py)",
+      "Bash(python -m py_compile src/scoring/engine.py)",
+      "Bash(python -m py_compile src/scoring/recommender.py)",
+      "Bash(python -m py_compile src/display/cli_output.py)",
+      "Bash(python -m py_compile src/alerts/telegram_bot.py)",
+      "Bash(python -m py_compile src/main.py)",
+      "Bash(python -m pip install yfinance pandas numpy pyyaml python-dotenv rich requests finvizfinance)",
+      "Bash(python -m src.main strategies)",
+      "Bash(python -m src.main analyze NVDA AAPL --strategy short_term_momentum)",
+      "Bash(python -m src.main analyze NVDA --strategy long_term_growth)",
+      "Bash(python -m src.main cache --clear)",
+      "Bash(python -m src.main analyze NVDA AAPL MSFT AMD --strategy short_term_momentum)",
+      "Bash(python -m src.main help)",
+      "Bash(python -m src.main help strategies)",
+      "Bash(python -m src.main help overview)",
+      "Bash(python -m src.main help commands)",
+      "Bash(python -m src.main analyze NVDA AAPL MSFT AMD GOOGL --budget 50000 --strategy long_term_growth --no-alert)",
+      "Bash(python -m src.main analyze NVDA AAPL MSFT AMD GOOGL --budget 50000 --strategy long_term_growth)",
+      "Bash(python -m src.main watchlist --budget 25000 --strategy short_term_momentum)",
+      "Bash(python -m src.main watchlist --budget 25000 --strategy long_term_growth)",
+      "Bash(python -m py_compile src/data/cache.py)",
+      "Bash(python -m src.main cache --stats)",
+      "Bash(python -m py_compile src/portfolio.py)",
+      "Bash(python -m src.main portfolio)",
+      "Bash(python -m src.main portfolio --analyze)"
+    ]
+  }
+}

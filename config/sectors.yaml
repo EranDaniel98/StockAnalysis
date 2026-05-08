@@ -1,0 +1,241 @@
+# =============================================================================
+# Sector & Theme Definitions
+# Configurable sector classification, industry mappings, and watchlists
+# =============================================================================
+
+sectors:
+  technology:
+    display_name: "Technology"
+    finviz_filter: "Technology"
+    industries:
+      - "Software—Application"
+      - "Software—Infrastructure"
+      - "Information Technology Services"
+      - "Consumer Electronics"
+      - "Electronic Components"
+      - "Scientific & Technical Instruments"
+    keywords:
+      - "software"
+      - "cloud"
+      - "SaaS"
+      - "platform"
+      - "digital"
+
+  semiconductors:
+    display_name: "Semiconductors"
+    finviz_filter: "Technology"
+    industries:
+      - "Semiconductors"
+      - "Semiconductor Equipment & Materials"
+    keywords:
+      - "chip"
+      - "semiconductor"
+      - "fab"
+      - "GPU"
+      - "processor"
+      - "wafer"
+      - "lithography"
+
+  communication_services:
+    display_name: "Communication Services"
+    finviz_filter: "Communication Services"
+    industries:
+      - "Internet Content & Information"
+      - "Entertainment"
+      - "Electronic Gaming & Multimedia"
+      - "Advertising Agencies"
+    keywords:
+      - "streaming"
+      - "social media"
+      - "advertising"
+      - "content"
+
+  healthcare:
+    display_name: "Healthcare"
+    finviz_filter: "Healthcare"
+    industries:
+      - "Biotechnology"
+      - "Drug Manufacturers—General"
+      - "Medical Devices"
+      - "Health Information Services"
+      - "Diagnostics & Research"
+    keywords:
+      - "biotech"
+      - "pharma"
+      - "medical"
+      - "therapeutics"
+
+  financial:
+    display_name: "Financial Services"
+    finviz_filter: "Financial"
+    industries:
+      - "Banks—Diversified"
+      - "Capital Markets"
+      - "Financial Data & Stock Exchanges"
+      - "Insurance—Diversified"
+      - "Credit Services"
+    keywords:
+      - "banking"
+      - "fintech"
+      - "payments"
+      - "insurance"
+
+  consumer_cyclical:
+    display_name: "Consumer Cyclical"
+    finviz_filter: "Consumer Cyclical"
+    industries:
+      - "Internet Retail"
+      - "Auto Manufacturers"
+      - "Restaurants"
+      - "Travel Services"
+      - "Apparel Retail"
+    keywords:
+      - "retail"
+      - "e-commerce"
+      - "automotive"
+      - "EV"
+
+  industrials:
+    display_name: "Industrials"
+    finviz_filter: "Industrials"
+    industries:
+      - "Aerospace & Defense"
+      - "Specialty Industrial Machinery"
+      - "Railroads"
+      - "Building Products & Equipment"
+    keywords:
+      - "defense"
+      - "aerospace"
+      - "manufacturing"
+      - "infrastructure"
+
+  energy:
+    display_name: "Energy"
+    finviz_filter: "Energy"
+    industries:
+      - "Oil & Gas Integrated"
+      - "Oil & Gas E&P"
+      - "Solar"
+      - "Uranium"
+    keywords:
+      - "oil"
+      - "gas"
+      - "solar"
+      - "renewable"
+      - "nuclear"
+
+# --- Cross-Sector Themes ---
+# These themes span multiple sectors and are identified by keywords + known tickers
+themes:
+  artificial_intelligence:
+    display_name: "Artificial Intelligence"
+    keywords:
+      - "artificial intelligence"
+      - "machine learning"
+      - "deep learning"
+      - "neural network"
+      - "AI"
+      - "LLM"
+      - "generative AI"
+      - "computer vision"
+      - "NLP"
+    known_tickers:
+      - "NVDA"
+      - "MSFT"
+      - "GOOGL"
+      - "META"
+      - "AMD"
+      - "AMZN"
+      - "PLTR"
+      - "CRM"
+      - "NOW"
+      - "SNOW"
+      - "AI"
+      - "PATH"
+      - "DDOG"
+      - "MDB"
+      - "ESTC"
+
+  cloud_computing:
+    display_name: "Cloud Computing"
+    keywords:
+      - "cloud"
+      - "IaaS"
+      - "PaaS"
+      - "SaaS"
+      - "serverless"
+      - "multi-cloud"
+    known_tickers:
+      - "AMZN"
+      - "MSFT"
+      - "GOOGL"
+      - "CRM"
+      - "SNOW"
+      - "NET"
+      - "DDOG"
+      - "MDB"
+      - "CFLT"
+      - "DOCN"
+
+  cybersecurity:
+    display_name: "Cybersecurity"
+    keywords:
+      - "cybersecurity"
+      - "security"
+      - "zero trust"
+      - "threat detection"
+      - "endpoint"
+    known_tickers:
+      - "CRWD"
+      - "PANW"
+      - "FTNT"
+      - "ZS"
+      - "S"
+      - "OKTA"
+
+  electric_vehicles:
+    display_name: "Electric Vehicles"
+    keywords:
+      - "electric vehicle"
+      - "EV"
+      - "battery"
+      - "charging"
+      - "autonomous driving"
+    known_tickers:
+      - "TSLA"
+      - "RIVN"
+      - "LCID"
+      - "NIO"
+      - "LI"
+      - "XPEV"
+      - "QS"
+      - "CHPT"
+
+  robotics_automation:
+    display_name: "Robotics & Automation"
+    keywords:
+      - "robotics"
+      - "automation"
+      - "industrial automation"
+      - "humanoid"
+      - "cobot"
+    known_tickers:
+      - "ISRG"
+      - "ROK"
+      - "ABB"
+      - "FANUY"
+      - "TER"
+
+# --- Custom Watchlist ---
+# Add any tickers you want to always include in scans
+watchlist:
+  - "AAPL"
+  - "MSFT"
+  - "NVDA"
+  - "GOOGL"
+  - "AMZN"
+  - "META"
+  - "TSLA"
+  - "AMD"
+  - "AVGO"
+  - "TSM"

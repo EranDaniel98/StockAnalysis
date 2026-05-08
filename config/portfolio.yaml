@@ -1,0 +1,61 @@
+# =============================================================================
+# Your Portfolio - Current Holdings
+# Update this file with your actual positions
+# =============================================================================
+
+# Your total portfolio value (cash + investments)
+# Used for position sizing and diversification calculations
+total_cash_available: 28093          # cash available for NEW investments
+
+# Current holdings
+holdings:
+  # Example - replace with your actual positions:
+  #
+  # - ticker: NVDA
+  #   shares: 50
+  #   avg_price: 180.00              # your average cost per share
+  #   date_acquired: "2024-06-15"    # optional, for tracking hold duration
+  #   notes: "AI play, long term"    # optional, personal notes
+  #
+  # - ticker: AAPL
+  #   shares: 100
+  #   avg_price: 195.00
+  #   date_acquired: "2024-01-10"
+
+  - ticker: AVGO
+    shares: 14.6798
+    avg_price: 400.08
+
+  - ticker: SPY
+    shares: 4.9772
+    avg_price: 679.54
+
+  - ticker: NKE
+    shares: 32.6251
+    avg_price: 45.98
+  
+  - ticker: DNN
+    shares: 299.7
+    avg_price: 3.78
+    
+  - ticker: ALAB
+    shares: 3.417
+    avg_price: 208.42
+    
+  - ticker: CCJ
+    shares: 5
+    avg_price: 116.54
+   
+
+# Position action thresholds (configurable)
+# These control when the system recommends ADD / HOLD / TRIM / SELL for existing positions
+action_thresholds:
+  add_score: 65                      # score >= this AND position underweight -> ADD
+  hold_min_score: 40                 # score >= this -> HOLD
+  trim_score: 35                     # score < hold but >= this AND overweight -> TRIM
+  # below trim_score -> SELL
+
+  # When to consider a position "overweight" (% of portfolio)
+  overweight_pct: 15
+  # When to consider a position "underweight" (% of portfolio)
+  underweight_pct: 3
