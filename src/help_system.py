@@ -1170,6 +1170,11 @@ Realism flags (Tier 2):
 - `--earnings-blackout`   skip entries within ±N days of earnings (default 3, 0=disable)
 - `--accept-lookahead`    bypass fundamentals-lookahead guard (results invalid)
 
+Statistical validity flags (Tier 3):
+
+- `--oos-split`           fraction of window held out for OOS validation (default 0.30)
+- `--bootstrap-resamples` resamples for 95% CIs (default 2000, 0 disables)
+
 Output:
 
 - `--save`                JSON output path
@@ -1201,20 +1206,33 @@ If it beats buy-hold but lags the matched version, you got lucky on cash timing.
 
 ## How to read the output
 
-1. **Summary** - total return, vs SPY, win rate, expectancy. Beating SPY net of
-   trading is the bar.
-2. **Calibration table** - the actual decision-quality signal. The top row's
-   avg-return should clearly exceed the bottom rows. If it doesn't, no number
-   of trades will save you.
-3. **Verdict** - one-line summary comparing high (>=70) vs low (<60) buckets.
+1. **Returns by Section (Full | IS | OOS)** - the In-Sample and Out-of-Sample
+   numbers tell you whether the strategy generalizes. Big gap between them
+   (e.g. IS Sharpe +0.7, OOS Sharpe -0.6) = overfitting.
+2. **Risk-Adjusted Metrics** - annualized Sharpe / Sortino / Calmar from the
+   weekly equity curve. Max drawdown is the pain. Time-underwater shows how
+   much of your life you'd spend below high-water mark.
+3. **OOS Score-Bucket Calibration** - the ONLY calibration that matters. If
+   the top score bucket doesn't clearly beat the bottom out-of-sample, the
+   scoring is fitting noise.
+4. **Cost Sensitivity** - shows total return at 0/5/10/25/50 bps slippage.
+   The "breakeven bps" line tells you how much trading friction wipes the
+   edge. Below 10 bps = fragile edge.
+5. **Bootstrap 95% CIs** - confidence intervals on total return / win rate
+   from 2000 resamples of the trade list. Wide CI = small-sample noise.
+6. **Verdict (OOS)** - Spearman monotonicity test + power gate. Refuses to
+   declare "predictive" without statistical evidence.
 
 ## What to do with results
 
-- If high-bucket returns don't exceed low-bucket returns: the scoring is broken.
-  Don't increase position size. Look at #2-#6 deferred improvements
-  (regime filter, sector-relative scoring, RS, drop analyst, smooth curves).
-- If high-bucket returns clearly beat low-bucket: paper-trade for a month
-  to confirm it holds in live data, then size up cautiously.
+- **OOS Sharpe negative**: strategy doesn't generalize. Don't size up.
+- **Wide bootstrap CI**: more data needed before you can trust the headline.
+- **Underpowered (n<100/bucket)**: same — wider universe or longer window.
+- **Breakeven < 10 bps**: edge is fragile. Even modest real-world friction
+  will erase it.
+- **High-bucket OOS beats low-bucket OOS with p<0.05**: actual evidence.
+  Paper-trade for a month to confirm it holds in live data, then size up
+  cautiously.
 """
     console.print(Markdown(text))
 

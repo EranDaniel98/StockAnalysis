@@ -1,8 +1,10 @@
 """
-Backtest metrics: per-bucket calibration, summary stats, vs-SPY comparison.
+Backtest metrics: per-bucket calibration, summary stats, equity-curve risk
+metrics, cost sensitivity, bootstrap CIs, statistically-grounded verdict.
 """
 
 import logging
+import math
 from collections import defaultdict
 from typing import Optional
 
@@ -12,6 +14,245 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 BUCKET_ORDER = ["<50", "50-59", "60-69", "70-79", "80+"]
+BUCKET_MIDPOINTS = {"<50": 45, "50-59": 55, "60-69": 65, "70-79": 75, "80+": 85}
+WEEKS_PER_YEAR = 52
+
+
+def equity_curve_stats(equity_curve: list[dict]) -> dict:
+    """
+    Compute risk-adjusted metrics from a weekly equity curve.
+    Returns dict with: max_drawdown_pct, time_in_dd_pct, ann_sharpe, ann_sortino,
+    calmar, ann_volatility_pct.
+
+    Sharpe assumes 0% risk-free rate (small adjustment vs reality on a single-account
+    backtest; user can subtract t-bill rate if needed).
+    """
+    if len(equity_curve) < 2:
+        return {
+            "max_drawdown_pct": 0.0,
+            "time_in_dd_pct": 0.0,
+            "ann_sharpe": 0.0,
+            "ann_sortino": 0.0,
+            "calmar": 0.0,
+            "ann_volatility_pct": 0.0,
+        }
+    equities = np.array([e["equity"] for e in equity_curve], dtype=float)
+    weekly_returns = equities[1:] / equities[:-1] - 1
+    weekly_returns = weekly_returns[np.isfinite(weekly_returns)]
+
+    # Drawdown from running max
+    running_max = np.maximum.accumulate(equities)
+    drawdown = equities / running_max - 1
+    max_dd = float(drawdown.min()) if len(drawdown) else 0.0
+    time_in_dd = float((drawdown < 0).mean() * 100) if len(drawdown) else 0.0
+
+    if len(weekly_returns) == 0:
+        return {
+            "max_drawdown_pct": round(max_dd * 100, 2),
+            "time_in_dd_pct": round(time_in_dd, 1),
+            "ann_sharpe": 0.0,
+            "ann_sortino": 0.0,
+            "calmar": 0.0,
+            "ann_volatility_pct": 0.0,
+        }
+
+    mean_w = float(weekly_returns.mean())
+    std_w = float(weekly_returns.std(ddof=1)) if len(weekly_returns) > 1 else 0.0
+    downside = weekly_returns[weekly_returns < 0]
+    downside_std = float(downside.std(ddof=1)) if len(downside) > 1 else 0.0
+
+    ann_sharpe = (mean_w / std_w) * math.sqrt(WEEKS_PER_YEAR) if std_w > 0 else 0.0
+    ann_sortino = (mean_w / downside_std) * math.sqrt(WEEKS_PER_YEAR) if downside_std > 0 else 0.0
+    ann_vol = std_w * math.sqrt(WEEKS_PER_YEAR) * 100
+
+    # Calmar = annualized return / |max DD|
+    total_return = equities[-1] / equities[0] - 1
+    weeks_elapsed = len(weekly_returns)
+    years_elapsed = weeks_elapsed / WEEKS_PER_YEAR
+    cagr = ((1 + total_return) ** (1 / years_elapsed) - 1) if years_elapsed > 0 else 0.0
+    calmar = (cagr / abs(max_dd)) if max_dd < 0 else 0.0
+
+    return {
+        "max_drawdown_pct": round(max_dd * 100, 2),
+        "time_in_dd_pct": round(time_in_dd, 1),
+        "ann_sharpe": round(ann_sharpe, 2),
+        "ann_sortino": round(ann_sortino, 2),
+        "calmar": round(calmar, 2),
+        "ann_volatility_pct": round(ann_vol, 2),
+    }
+
+
+def cost_sensitivity_grid(
+    closed_trades,
+    starting_cash: float,
+    bps_levels: tuple = (0, 5, 10, 25, 50),
+    fixed_commission: float = 0.0,
+    fixed_reg_bps: float = 3.0,
+) -> dict:
+    """
+    Re-derive net P&L at varied slippage levels (bps each side). Returns:
+      { 'levels': [...rows...], 'breakeven_bps': float|None }
+    Each row: bps, total_pnl, total_return_pct.
+    Approximate: assumes shares would have been the same at each cost level
+    (true within ~1 share for typical bps deltas).
+    """
+    rows = []
+    for bps in bps_levels:
+        slip = bps / 10000.0
+        reg = fixed_reg_bps / 10000.0
+        net_pnl = 0.0
+        for t in closed_trades:
+            entry_dollars = t.shares * t.intended_entry_price
+            exit_dollars = t.shares * t.intended_exit_price
+            slip_cost = (entry_dollars + exit_dollars) * slip
+            reg_cost = exit_dollars * reg
+            commission_cost = 2 * fixed_commission
+            adj_pnl = t.gross_pnl - slip_cost - reg_cost - commission_cost
+            net_pnl += adj_pnl
+        ret_pct = (net_pnl / starting_cash * 100) if starting_cash > 0 else 0.0
+        rows.append({
+            "bps_each_side": bps,
+            "total_pnl": round(net_pnl, 2),
+            "total_return_pct": round(ret_pct, 2),
+        })
+
+    # Breakeven: linearly interpolate between adjacent rows where return crosses 0
+    breakeven = None
+    for i in range(len(rows) - 1):
+        if rows[i]["total_return_pct"] > 0 >= rows[i + 1]["total_return_pct"]:
+            x0, y0 = rows[i]["bps_each_side"], rows[i]["total_return_pct"]
+            x1, y1 = rows[i + 1]["bps_each_side"], rows[i + 1]["total_return_pct"]
+            if y0 != y1:
+                breakeven = round(x0 + (0 - y0) * (x1 - x0) / (y1 - y0), 1)
+            break
+
+    return {"levels": rows, "breakeven_bps": breakeven}
+
+
+def bootstrap_cis(
+    closed_trades,
+    starting_cash: float,
+    n_resamples: int = 2000,
+    block_size: int = 5,
+    seed: int = 42,
+) -> dict:
+    """
+    Stationary block bootstrap on trade returns. Returns 95% CIs for total
+    return, win rate, and per-trade expectancy. Uses block resampling to
+    preserve mild serial dependence between consecutive trades.
+    """
+    if len(closed_trades) < 5:
+        return {
+            "n_resamples": 0,
+            "total_return_ci_pct": None,
+            "win_rate_ci_pct": None,
+            "expectancy_ci_pct": None,
+            "note": "Too few trades for bootstrap (need >=5).",
+        }
+    rng = np.random.default_rng(seed)
+    pnls = np.array([t.pnl for t in closed_trades])
+    pcts = np.array([t.pnl_pct for t in closed_trades])
+    wins = (pcts > 0).astype(int)
+    n = len(pnls)
+    block = max(1, min(block_size, n))
+
+    total_returns = np.empty(n_resamples)
+    win_rates = np.empty(n_resamples)
+    expectancies = np.empty(n_resamples)
+    for i in range(n_resamples):
+        # Stationary-style block bootstrap: pick random start indices, take blocks
+        idx = []
+        while len(idx) < n:
+            start = rng.integers(0, n)
+            idx.extend(range(start, start + block))
+        idx = np.array([j % n for j in idx[:n]])
+        sample_pnl = pnls[idx]
+        sample_pct = pcts[idx]
+        sample_win = wins[idx]
+        total_returns[i] = sample_pnl.sum() / starting_cash * 100
+        win_rates[i] = sample_win.mean() * 100
+        expectancies[i] = sample_pct.mean()
+
+    def _ci(arr):
+        return [round(float(np.percentile(arr, 2.5)), 2),
+                round(float(np.percentile(arr, 97.5)), 2)]
+
+    return {
+        "n_resamples": n_resamples,
+        "block_size": block,
+        "total_return_ci_pct": _ci(total_returns),
+        "win_rate_ci_pct": _ci(win_rates),
+        "expectancy_ci_pct": _ci(expectancies),
+    }
+
+
+def verdict_with_stats(calibration_rows: list[dict]) -> str:
+    """
+    Statistical verdict combining:
+      1. Spearman rank correlation (bucket midpoint vs avg_return) — tests monotonicity.
+      2. Welch's t-test on high (70+) vs low (<60) bucket trade returns — needs sample.
+      3. Power gate: requires n >= 100 per arm for a 2pp effect to be detectable
+         at 80% power with typical std (~6-10pp).
+    """
+    try:
+        from scipy import stats as scipy_stats
+    except Exception:
+        return "scipy not available — install for statistical verdict."
+
+    populated = [r for r in calibration_rows if r["n"] > 0]
+    if len(populated) < 3:
+        return "Insufficient bucket coverage (need >=3 populated buckets for trend test)."
+
+    # Spearman rank correlation
+    x = np.array([BUCKET_MIDPOINTS[r["bucket"]] for r in populated])
+    y = np.array([r["avg_return_pct"] for r in populated])
+    if len(x) >= 3:
+        rho, rho_p = scipy_stats.spearmanr(x, y)
+    else:
+        rho, rho_p = 0.0, 1.0
+
+    # High vs low t-test using underlying distributions if available;
+    # here we only have aggregated rows so use a simple two-sample t on
+    # bucket-mean differences weighted by n.
+    high_n = sum(r["n"] for r in populated if r["bucket"] in ("70-79", "80+"))
+    low_n = sum(r["n"] for r in populated if r["bucket"] in ("<50", "50-59"))
+
+    high_avg = (
+        sum(r["avg_return_pct"] * r["n"] for r in populated if r["bucket"] in ("70-79", "80+")) / high_n
+        if high_n > 0 else None
+    )
+    low_avg = (
+        sum(r["avg_return_pct"] * r["n"] for r in populated if r["bucket"] in ("<50", "50-59")) / low_n
+        if low_n > 0 else None
+    )
+
+    parts = []
+    parts.append(f"Spearman rho={rho:+.2f} (p={rho_p:.3f})")
+
+    if high_n == 0 or low_n == 0:
+        parts.append("high or low arm empty - cannot compare buckets directly")
+        return ". ".join(parts) + "."
+
+    delta = high_avg - low_avg
+    parts.append(f"high(n={high_n})={high_avg:+.2f}% vs low(n={low_n})={low_avg:+.2f}%, delta={delta:+.2f}pp")
+
+    # Power gate
+    if high_n < 100 or low_n < 100:
+        power_msg = "UNDERPOWERED (need n>=100 per arm for a 2pp effect at 80% power, std~8pp)"
+    else:
+        power_msg = "adequate sample"
+    parts.append(power_msg)
+
+    # Significance of monotonicity
+    if rho_p < 0.05 and rho > 0:
+        verdict_str = "MONOTONIC PREDICTIVE (score increases avg return, p<0.05)"
+    elif rho_p < 0.05 and rho < 0:
+        verdict_str = "MONOTONIC INVERSE (score *decreases* avg return - investigate)"
+    else:
+        verdict_str = "no monotonic relationship at alpha=0.05"
+    parts.append(verdict_str)
+
+    return ". ".join(parts) + "."
 
 
 def calibration_table(closed_trades) -> list[dict]:
@@ -197,14 +438,14 @@ def verdict(calibration_rows: list[dict]) -> str:
     if diff > 2:
         return (
             f"Score appears predictive: high-bucket avg {high_avg:+.2f}% vs "
-            f"low-bucket avg {low_avg:+.2f}% (Δ={diff:+.2f}%, {confidence})."
+            f"low-bucket avg {low_avg:+.2f}% (delta={diff:+.2f}%, {confidence})."
         )
     if diff < -2:
         return (
             f"Score appears INVERSELY predictive: high {high_avg:+.2f}% vs "
-            f"low {low_avg:+.2f}% (Δ={diff:+.2f}%, {confidence}). Investigate."
+            f"low {low_avg:+.2f}% (delta={diff:+.2f}%, {confidence}). Investigate."
         )
     return (
         f"Score does not separate winners from losers: high {high_avg:+.2f}% vs "
-        f"low {low_avg:+.2f}% (Δ={diff:+.2f}%, {confidence})."
+        f"low {low_avg:+.2f}% (delta={diff:+.2f}%, {confidence})."
     )

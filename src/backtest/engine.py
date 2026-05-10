@@ -48,6 +48,9 @@ class BacktestConfig:
     slippage_bps: float = 5.0               # bps each side (entry pays more, exit receives less)
     earnings_blackout_days: int = 3         # skip entry if earnings within ±N days
     accept_lookahead: bool = False          # bypass fundamentals-lookahead guard
+    # Statistical validity — Tier 3
+    oos_split_pct: float = 0.30             # last X of window held out for OOS
+    bootstrap_resamples: int = 2000         # 0 disables bootstrap CIs
 
 
 class LookaheadGuardError(RuntimeError):
@@ -340,16 +343,19 @@ def run_backtest(
 
     # 6) Final metrics
     from src.backtest.metrics import (
+        bootstrap_cis,
         calibration_table,
+        cost_sensitivity_grid,
         deployment_matched_spy_return,
+        equity_curve_stats,
         exit_reason_breakdown,
         summary_stats,
         verdict,
+        verdict_with_stats,
     )
-    cal = calibration_table(portfolio.closed_trades)
-    exits = exit_reason_breakdown(portfolio.closed_trades)
     spy_ret = _spy_buy_hold_return(spy_df, start, end)
     spy_match_ret = deployment_matched_spy_return(equity_curve, spy_df, start, end)
+    exits = exit_reason_breakdown(portfolio.closed_trades)
 
     # Universal caveat: yfinance universe is current-snapshot — survivorship bias
     # is uncorrected. Delisted, bankrupt, and merged-away tickers are absent.
@@ -365,27 +371,84 @@ def run_backtest(
             f"±{bt_cfg.earnings_blackout_days} days."
         )
 
-    stats = summary_stats(
+    # OOS split: last X of window is the held-out validation set.
+    split_date = start + (end - start) * (1 - bt_cfg.oos_split_pct)
+    is_trades = [t for t in portfolio.closed_trades if t.entry_date < split_date]
+    oos_trades = [t for t in portfolio.closed_trades if t.entry_date >= split_date]
+    is_equity = [e for e in equity_curve if pd.Timestamp(e["date"]) < split_date]
+    oos_equity = [e for e in equity_curve if pd.Timestamp(e["date"]) >= split_date]
+
+    def _compute_section(trades, equity_subset, section_start, section_end, ending_equity_for_section):
+        return {
+            "summary": summary_stats(
+                trades,
+                starting_cash=bt_cfg.starting_cash,
+                ending_equity=ending_equity_for_section,
+                start_date=section_start,
+                end_date=section_end,
+                spy_return_pct=_spy_buy_hold_return(spy_df, section_start, section_end),
+                spy_deployment_matched_pct=deployment_matched_spy_return(
+                    equity_subset, spy_df, section_start, section_end
+                ),
+                total_costs=None,  # full-window costs only on the headline summary
+            ),
+            "equity_stats": equity_curve_stats(equity_subset),
+            "calibration": calibration_table(trades),
+        }
+
+    # Ending equity for IS = equity at split date; for OOS = final equity (= cash)
+    is_ending_equity = is_equity[-1]["equity"] if is_equity else bt_cfg.starting_cash
+    full_section = _compute_section(
+        portfolio.closed_trades, equity_curve, start, end, portfolio.cash
+    )
+    full_section["summary"].update({
+        "spy_return_pct": round(spy_ret, 2) if spy_ret is not None else None,
+        "alpha_vs_spy_pct": round(full_section["summary"]["total_return_pct"] - spy_ret, 2) if spy_ret is not None else None,
+        "spy_deployment_matched_pct": round(spy_match_ret, 2) if spy_match_ret is not None else None,
+        "alpha_vs_spy_matched_pct": round(full_section["summary"]["total_return_pct"] - spy_match_ret, 2) if spy_match_ret is not None else None,
+        "total_costs_paid": round(
+            portfolio.total_commissions + portfolio.total_slippage_cost + portfolio.total_regulatory_fees, 2
+        ),
+        "commissions_paid": round(portfolio.total_commissions, 2),
+        "slippage_cost": round(portfolio.total_slippage_cost, 2),
+        "regulatory_fees": round(portfolio.total_regulatory_fees, 2),
+    })
+    is_section = _compute_section(is_trades, is_equity, start, split_date, is_ending_equity)
+    oos_section = _compute_section(oos_trades, oos_equity, split_date, end, portfolio.cash)
+
+    # Verdict on OOS (the only trustworthy bucket)
+    oos_verdict = verdict_with_stats(oos_section["calibration"])
+
+    # Cost sensitivity (post-hoc on the trade list)
+    sensitivity = cost_sensitivity_grid(
         portfolio.closed_trades,
         starting_cash=bt_cfg.starting_cash,
-        ending_equity=portfolio.cash,  # all positions force-closed by here
-        start_date=start,
-        end_date=end,
-        spy_return_pct=spy_ret,
-        spy_deployment_matched_pct=spy_match_ret,
-        total_costs={
-            "commissions": portfolio.total_commissions,
-            "slippage": portfolio.total_slippage_cost,
-            "regulatory": portfolio.total_regulatory_fees,
-        },
+        fixed_commission=bt_cfg.commission_per_trade,
+        fixed_reg_bps=bt_cfg.regulatory_bps_on_sale,
     )
+
+    # Bootstrap CIs on OOS trades (or full if OOS too small)
+    boot_target = oos_trades if len(oos_trades) >= 20 else portfolio.closed_trades
+    boot_label = "OOS" if len(oos_trades) >= 20 else "full window"
+    bootstrap = bootstrap_cis(
+        boot_target,
+        starting_cash=bt_cfg.starting_cash,
+        n_resamples=bt_cfg.bootstrap_resamples,
+    ) if bt_cfg.bootstrap_resamples > 0 else None
+
     return {
-        "summary": stats,
-        "calibration": cal,
+        "full": full_section,
+        "in_sample": is_section,
+        "out_of_sample": oos_section,
+        "split_date": split_date.strftime("%Y-%m-%d"),
+        "verdict_oos": oos_verdict,
+        "verdict_legacy": verdict(full_section["calibration"]),
         "trades": [t.to_dict() for t in portfolio.closed_trades],
         "exit_reasons": exits,
         "equity_curve": equity_curve,
-        "verdict": verdict(cal),
+        "cost_sensitivity": sensitivity,
+        "bootstrap": bootstrap,
+        "bootstrap_label": boot_label,
         "warnings": warnings,
     }
 

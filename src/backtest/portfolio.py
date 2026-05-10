@@ -31,31 +31,37 @@ def score_bucket(score: float) -> str:
 class Position:
     ticker: str
     shares: int
-    entry_price: float           # filled price (post-slippage)
+    entry_price: float                # filled price (post-slippage)
     entry_date: pd.Timestamp
     stop_price: float
     target_price: float
     max_exit_date: pd.Timestamp
     score: float
     sector: str = "Unknown"
-    cost_basis: float = 0.0      # total cash spent at entry incl commission
+    cost_basis: float = 0.0           # total cash spent at entry incl commission
+    intended_entry_price: float = 0.0  # Open price pre-slippage (for sensitivity)
 
 
 @dataclass
 class ClosedTrade:
     ticker: str
     shares: int
-    entry_price: float
-    exit_price: float
+    entry_price: float                  # filled (post-slippage)
+    exit_price: float                   # filled (post-slippage)
     entry_date: pd.Timestamp
     exit_date: pd.Timestamp
     hold_days: int
-    pnl: float
+    pnl: float                          # net (after all costs)
     pnl_pct: float
     exit_reason: str
     score: float
     score_bucket: str
     sector: str
+    # For cost-sensitivity grid (Tier 3.5)
+    intended_entry_price: float = 0.0   # Open, pre-slippage
+    intended_exit_price: float = 0.0    # stop/target/close, pre-slippage
+    gross_pnl: float = 0.0              # shares * (intended_exit - intended_entry)
+    commissions_paid: float = 0.0       # round-trip commission
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +74,7 @@ class ClosedTrade:
             "hold_days": self.hold_days,
             "pnl": round(self.pnl, 2),
             "pnl_pct": round(self.pnl_pct, 2),
+            "gross_pnl": round(self.gross_pnl, 2),
             "exit_reason": self.exit_reason,
             "score": round(self.score, 2),
             "score_bucket": self.score_bucket,
@@ -164,6 +171,7 @@ class SimPortfolio:
             score=score,
             sector=sector,
             cost_basis=cost_basis,
+            intended_entry_price=entry_price,
         )
         self.positions[ticker] = pos
         return pos
@@ -235,6 +243,7 @@ class SimPortfolio:
         pnl = proceeds_net - pos.cost_basis
         pnl_pct = (pnl / pos.cost_basis * 100) if pos.cost_basis > 0 else 0.0
         hold_days = max(0, (day - pos.entry_date).days)
+        gross_pnl = pos.shares * (exit_price - pos.intended_entry_price) if pos.intended_entry_price > 0 else pnl
         trade = ClosedTrade(
             ticker=ticker,
             shares=pos.shares,
@@ -249,6 +258,10 @@ class SimPortfolio:
             score=pos.score,
             score_bucket=score_bucket(pos.score),
             sector=pos.sector,
+            intended_entry_price=pos.intended_entry_price,
+            intended_exit_price=exit_price,
+            gross_pnl=gross_pnl,
+            commissions_paid=2 * self.commission_per_trade,
         )
         self.closed_trades.append(trade)
         return trade

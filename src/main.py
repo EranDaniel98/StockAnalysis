@@ -188,6 +188,10 @@ def main():
                            help="Skip entries within +/- N days of earnings (default 3, 0=disable)")
     bt_parser.add_argument("--accept-lookahead", action="store_true", dest="accept_lookahead",
                            help="Bypass fundamentals lookahead guard (results invalid)")
+    bt_parser.add_argument("--oos-split", type=float, default=0.30, dest="oos_split",
+                           help="Fraction of window held out for OOS validation (default 0.30)")
+    bt_parser.add_argument("--bootstrap-resamples", type=int, default=2000, dest="bootstrap_resamples",
+                           help="Bootstrap resamples for CIs (default 2000, 0 disables)")
     bt_parser.add_argument("--save", type=str, default=None,
                            help="Optional JSON path to save full results")
 
@@ -700,6 +704,8 @@ def cmd_backtest(config, args):
         regulatory_bps_on_sale=args.regulatory_bps,
         earnings_blackout_days=args.earnings_blackout,
         accept_lookahead=args.accept_lookahead,
+        oos_split_pct=args.oos_split,
+        bootstrap_resamples=args.bootstrap_resamples,
     )
 
     try:
