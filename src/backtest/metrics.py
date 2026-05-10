@@ -18,6 +18,82 @@ BUCKET_MIDPOINTS = {"<50": 45, "50-59": 55, "60-69": 65, "70-79": 75, "80+": 85}
 WEEKS_PER_YEAR = 52
 
 
+def monte_carlo_shuffle(
+    closed_trades,
+    starting_cash: float,
+    n_shuffles: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """
+    Shuffle trade order N times, simulate sequential equity curve per shuffle,
+    return percentiles of terminal equity and max drawdown. Reveals path
+    dependence: if max-DD varies hugely across shuffles, the headline DD
+    you saw was a lucky/unlucky permutation, not an inherent strategy property.
+    """
+    if len(closed_trades) < 5:
+        return {"n_shuffles": 0, "note": "Too few trades for shuffle (need >=5)."}
+    rng = np.random.default_rng(seed)
+    pnls = np.array([t.pnl for t in closed_trades])
+    n = len(pnls)
+    terminal = np.empty(n_shuffles)
+    max_dds = np.empty(n_shuffles)
+    for i in range(n_shuffles):
+        order = rng.permutation(n)
+        equity = starting_cash + np.cumsum(pnls[order])
+        peak = np.maximum.accumulate(np.concatenate(([starting_cash], equity)))[1:]
+        dd = equity / peak - 1
+        terminal[i] = equity[-1]
+        max_dds[i] = float(dd.min()) if len(dd) else 0.0
+
+    def _pct(arr, q):
+        return round(float(np.percentile(arr, q)), 2)
+
+    return {
+        "n_shuffles": n_shuffles,
+        "terminal_equity_p5": _pct(terminal, 5),
+        "terminal_equity_p50": _pct(terminal, 50),
+        "terminal_equity_p95": _pct(terminal, 95),
+        "max_dd_p5_pct": round(float(np.percentile(max_dds, 5)) * 100, 2),  # worst 5%
+        "max_dd_p50_pct": round(float(np.percentile(max_dds, 50)) * 100, 2),
+        "max_dd_p95_pct": round(float(np.percentile(max_dds, 95)) * 100, 2),  # best 5%
+        "terminal_return_p5_pct": round((np.percentile(terminal, 5) / starting_cash - 1) * 100, 2),
+        "terminal_return_p50_pct": round((np.percentile(terminal, 50) / starting_cash - 1) * 100, 2),
+        "terminal_return_p95_pct": round((np.percentile(terminal, 95) / starting_cash - 1) * 100, 2),
+    }
+
+
+def recommend_live_threshold(
+    oos_calibration: list[dict],
+    min_n: int = 20,
+    min_avg_return_pct: float = 0.0,
+) -> Optional[dict]:
+    """
+    Pick the lowest score bucket on the OOS calibration table that meets
+    (n >= min_n AND avg_return_pct >= min_avg_return_pct). Returns a recommendation
+    dict or None if no bucket qualifies.
+    """
+    bucket_to_min_score = {"<50": 0, "50-59": 50, "60-69": 60, "70-79": 70, "80+": 80}
+    qualifying = []
+    for row in oos_calibration:
+        if row.get("n", 0) < min_n:
+            continue
+        avg = row.get("avg_return_pct")
+        if avg is None or avg < min_avg_return_pct:
+            continue
+        qualifying.append(row)
+    if not qualifying:
+        return None
+    qualifying.sort(key=lambda r: bucket_to_min_score.get(r["bucket"], 999))
+    chosen = qualifying[0]
+    return {
+        "min_score": bucket_to_min_score.get(chosen["bucket"], 0),
+        "bucket": chosen["bucket"],
+        "n_trades": chosen["n"],
+        "avg_return_pct": chosen["avg_return_pct"],
+        "win_rate_pct": chosen["win_rate"],
+    }
+
+
 def regime_split(
     closed_trades,
     spy_df: Optional[pd.DataFrame],

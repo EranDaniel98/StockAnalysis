@@ -354,7 +354,9 @@ def run_backtest(
         equity_curve_stats,
         excursion_stats,
         exit_reason_breakdown,
+        monte_carlo_shuffle,
         monthly_return_grid,
+        recommend_live_threshold,
         regime_split,
         summary_stats,
         verdict,
@@ -467,6 +469,12 @@ def run_backtest(
     regimes = regime_split(portfolio.closed_trades, spy_normalized, vix_normalized)
     monthly = monthly_return_grid(equity_curve)
 
+    # Tier 5: path-dependence + live-threshold recommendation
+    mc_shuffle = monte_carlo_shuffle(
+        portfolio.closed_trades, bt_cfg.starting_cash, n_shuffles=1000
+    ) if len(portfolio.closed_trades) >= 5 else None
+    live_rec = recommend_live_threshold(oos_section["calibration"])
+
     return {
         "full": full_section,
         "in_sample": is_section,
@@ -483,6 +491,8 @@ def run_backtest(
         "excursion": excursion,
         "regimes": regimes,
         "monthly_returns": monthly,
+        "monte_carlo": mc_shuffle,
+        "live_recommendation": live_rec,
         "warnings": warnings,
     }
 

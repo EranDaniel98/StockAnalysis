@@ -1181,6 +1181,16 @@ Analytics flags (Tier 4):
                           0 = fixed-fractional sizing on max-position-pct
 - `--compare`             run all strategies side-by-side on the same window
 
+Closing-the-loop flags (Tier 5):
+
+- `--sweep`               parameter sweep with default 4x4 grid over min_score
+                          and atr_stop_mult. Pass a string like
+                          'min_score=55,60;atr_stop_mult=1.5,2,2.5' for custom.
+                          Ranks combos by OOS Sharpe with Bonferroni warning.
+- `--html-report PATH`    render a self-contained HTML report (charts as
+                          base64 PNGs): equity curve, drawdown, monthly heatmap,
+                          OOS calibration, MFE/MAE scatter, R-distribution.
+
 Output:
 
 - `--save`                JSON output path

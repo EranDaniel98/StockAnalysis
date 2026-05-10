@@ -196,6 +196,11 @@ def main():
                            help="Risk fraction per trade (e.g. 0.01 = 1%%); 0 = fixed-fractional sizing")
     bt_parser.add_argument("--compare", action="store_true",
                            help="Run all strategies side-by-side on the same window/universe")
+    bt_parser.add_argument("--sweep", nargs="?", const="default", default=None,
+                           help="Parameter sweep. Pass nothing for default grid, or "
+                                "'min_score=55,60;atr_stop_mult=1.5,2'")
+    bt_parser.add_argument("--html-report", type=str, default=None, dest="html_report",
+                           help="Render charts as embedded base64 PNGs in a self-contained HTML file")
     bt_parser.add_argument("--save", type=str, default=None,
                            help="Optional JSON path to save full results")
 
@@ -714,6 +719,30 @@ def cmd_backtest(config, args):
         vol_target_risk_pct=args.vol_target_risk,
     )
 
+    if args.sweep is not None:
+        from src.backtest.sweep import parameter_sweep, parse_grid
+        from src.backtest.display import display_sweep_results
+        sweep_spec = None if args.sweep == "default" else args.sweep
+        try:
+            grid = parse_grid(sweep_spec)
+        except ValueError as e:
+            console.print(f"[red]Bad --sweep spec: {e}[/red]")
+            return
+        console.print(
+            f"\n[bold cyan]Sweeping {sum(1 for _ in __import__('itertools').product(*grid.values()))} "
+            f"combinations of {list(grid.keys())}[/bold cyan]\n"
+        )
+        rows = parameter_sweep(
+            price_data, fundamentals, config, strategy, bt_cfg, grid,
+            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+        )
+        display_sweep_results(rows, strategy_name, universe_label)
+        if args.save:
+            with open(Path(args.save), "w", encoding="utf-8") as f:
+                json.dump(rows, f, indent=2, default=str)
+            console.print(f"\n[dim]Sweep results saved to {args.save}[/dim]")
+        return
+
     if args.compare:
         from src.backtest.display import display_strategy_comparison
         comparison_rows = []
@@ -748,6 +777,11 @@ def cmd_backtest(config, args):
         return
 
     display_backtest_results(result, strategy_name, universe_label)
+
+    if args.html_report:
+        from src.backtest.report import render_html_report
+        report_path = render_html_report(result, strategy_name, universe_label, args.html_report)
+        console.print(f"\n[bold green]HTML report saved to {report_path}[/bold green]")
 
     if args.save:
         out_path = Path(args.save)

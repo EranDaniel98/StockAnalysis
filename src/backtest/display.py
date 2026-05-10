@@ -284,6 +284,55 @@ def display_backtest_results(result: dict, strategy_name: str, universe_label: s
             mh.add_row(*row)
         console.print(mh)
 
+    # Monte Carlo trade-shuffle (Tier 5.2)
+    mc = result.get("monte_carlo")
+    if mc and mc.get("n_shuffles", 0) > 0:
+        mct = Table(
+            title=f"Monte Carlo Trade-Order Shuffle ({mc['n_shuffles']} permutations)",
+            box=box.ROUNDED,
+        )
+        mct.add_column("Metric", style="bold")
+        mct.add_column("Worst 5%", justify="right", style="red")
+        mct.add_column("Median", justify="right")
+        mct.add_column("Best 5%", justify="right", style="green")
+        # Terminal return is invariant under shuffle (commutative sum) — skip it.
+        mct.add_row(
+            "Max drawdown",
+            _color_pct(mc["max_dd_p5_pct"]),
+            _color_pct(mc["max_dd_p50_pct"]),
+            _color_pct(mc["max_dd_p95_pct"]),
+        )
+        console.print(mct)
+        spread = mc["max_dd_p5_pct"] - mc["max_dd_p95_pct"]
+        if abs(spread) > 5:
+            console.print(
+                f"  [yellow]Wide DD spread ({spread:+.1f}pp) — headline max DD was "
+                f"highly path-dependent.[/yellow]"
+            )
+        else:
+            console.print(
+                "  [dim]Tight DD distribution — drawdown is intrinsic to the strategy, "
+                "not a lucky/unlucky permutation.[/dim]"
+            )
+
+    # Live-threshold recommendation (Tier 5.4)
+    rec = result.get("live_recommendation")
+    if rec:
+        console.print(Panel(
+            f"Suggested live [bold]min_score[/bold]: [bold green]{rec['min_score']}[/bold green]\n"
+            f"Based on OOS bucket [bold]{rec['bucket']}[/bold]: "
+            f"n={rec['n_trades']}, win rate {rec['win_rate_pct']:.1f}%, "
+            f"avg return {rec['avg_return_pct']:+.2f}%",
+            title="Live-trader Threshold Recommendation",
+            box=box.ROUNDED,
+            style="bold green",
+        ))
+    else:
+        console.print(
+            "  [dim]No OOS bucket meets (n>=20 AND avg_return>=0%) — "
+            "no live-threshold recommendation possible.[/dim]"
+        )
+
     # Verdict — uses OOS data only
     console.print(Panel(
         verdict_oos,
@@ -302,6 +351,73 @@ _SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 def _short_month(m: int) -> str:
     return _SHORT_MONTHS[m - 1] if 1 <= m <= 12 else str(m)
+
+
+def display_sweep_results(
+    rows: list[dict],
+    strategy_name: str,
+    universe_label: str,
+    n_show: int = 15,
+) -> None:
+    """Display parameter-sweep results ranked by OOS Sharpe."""
+    console.print()
+    console.print(Panel(
+        f"[bold cyan]Parameter Sweep[/bold cyan]   "
+        f"Strategy: [bold]{strategy_name}[/bold]   Universe: [bold]{universe_label}[/bold]\n"
+        f"Combinations tested: [bold]{len(rows)}[/bold]    "
+        f"Sorted by OOS Sharpe (the only honest metric)",
+        box=box.ROUNDED,
+    ))
+
+    successful = [r for r in rows if "error" not in r]
+    failures = [r for r in rows if "error" in r]
+
+    if not successful:
+        console.print("[red]No successful sweep runs.[/red]")
+        for f in failures[:10]:
+            console.print(f"  {f['params']} -> {f.get('error')}")
+        return
+
+    tbl = Table(title=f"Top {min(n_show, len(successful))} by OOS Sharpe", box=box.ROUNDED)
+    keys = list(successful[0]["params"].keys())
+    for k in keys:
+        tbl.add_column(k, style="bold cyan", justify="right")
+    tbl.add_column("Trades", justify="right")
+    tbl.add_column("OOS n", justify="right")
+    tbl.add_column("Full ret", justify="right")
+    tbl.add_column("OOS ret", justify="right", style="bold yellow")
+    tbl.add_column("Full Sharpe", justify="right")
+    tbl.add_column("OOS Sharpe", justify="right", style="bold yellow")
+    tbl.add_column("Max DD", justify="right")
+    tbl.add_column("Win rate", justify="right")
+    for r in successful[:n_show]:
+        row_cells = [str(r["params"][k]) for k in keys]
+        row_cells.extend([
+            str(r["n_trades"]),
+            str(r["n_oos_trades"]),
+            _color_pct(r["full_return_pct"]),
+            _color_pct(r["oos_return_pct"]),
+            f"{r['full_sharpe']:+.2f}",
+            f"{r['oos_sharpe']:+.2f}",
+            _color_pct(r["max_dd_pct"]),
+            f"{r['win_rate_pct']:.1f}%",
+        ])
+        tbl.add_row(*row_cells)
+    console.print(tbl)
+
+    n_runs = len(successful)
+    if n_runs > 5:
+        # Bonferroni note: adjusted alpha for picking the "best"
+        adjusted = 0.05 / n_runs
+        console.print(
+            f"  [yellow]Multiple-comparisons warning: {n_runs} configurations tested. "
+            f"Bonferroni-adjusted significance threshold = {adjusted:.4f} "
+            f"(vs naive 0.05). Top combo is likely a luck-of-draw winner unless its "
+            f"OOS Sharpe materially beats the rest.[/yellow]"
+        )
+
+    if failures:
+        console.print(f"\n[dim]{len(failures)} runs failed (lookahead-blocked or error).[/dim]")
 
 
 def display_strategy_comparison(rows: list[dict], universe_label: str) -> None:
