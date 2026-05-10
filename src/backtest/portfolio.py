@@ -31,13 +31,14 @@ def score_bucket(score: float) -> str:
 class Position:
     ticker: str
     shares: int
-    entry_price: float
+    entry_price: float           # filled price (post-slippage)
     entry_date: pd.Timestamp
     stop_price: float
     target_price: float
     max_exit_date: pd.Timestamp
     score: float
     sector: str = "Unknown"
+    cost_basis: float = 0.0      # total cash spent at entry incl commission
 
 
 @dataclass
@@ -80,10 +81,17 @@ class SimPortfolio:
     max_position_pct: float = 0.10
     max_open_positions: int = 20
     compound: bool = False
+    # Realism
+    commission_per_trade: float = 0.0
+    regulatory_bps_on_sale: float = 0.0   # SEC + FINRA on sales (~3bps)
+    slippage_bps: float = 0.0             # each side
     cash: float = field(init=False)
     positions: dict[str, Position] = field(default_factory=dict)
     closed_trades: list[ClosedTrade] = field(default_factory=list)
     skipped_for_cash: int = 0
+    total_commissions: float = 0.0
+    total_slippage_cost: float = 0.0
+    total_regulatory_fees: float = 0.0
 
     def __post_init__(self):
         self.cash = self.starting_cash
@@ -121,30 +129,41 @@ class SimPortfolio:
         score: float,
         sector: str = "Unknown",
     ) -> Optional[Position]:
-        """Open a new long position. Returns the Position or None if rejected."""
+        """
+        Open a new long position. `entry_price` is the intended fill (Open).
+        Slippage is applied so the actual fill is entry_price * (1 + slippage_bps/10000).
+        Commission is deducted from cash on top of share cost.
+        Returns the Position or None if rejected.
+        """
         if not self.can_open(ticker):
             self.skipped_for_cash += 1
             return None
         if entry_price <= 0:
             return None
+        slip = self.slippage_bps / 10000.0
+        fill_price = entry_price * (1 + slip)
         budget = self.position_budget()
-        shares = int(budget // entry_price)
+        shares = int(budget // fill_price)
         if shares <= 0:
             return None
-        cost = shares * entry_price
-        if cost > self.cash:
+        gross_cost = shares * fill_price
+        cost_basis = gross_cost + self.commission_per_trade
+        if cost_basis > self.cash:
             return None
-        self.cash -= cost
+        self.cash -= cost_basis
+        self.total_commissions += self.commission_per_trade
+        self.total_slippage_cost += (fill_price - entry_price) * shares
         pos = Position(
             ticker=ticker,
             shares=shares,
-            entry_price=entry_price,
+            entry_price=fill_price,
             entry_date=entry_date,
             stop_price=stop_price,
             target_price=target_price,
             max_exit_date=max_exit_date,
             score=score,
             sector=sector,
+            cost_basis=cost_basis,
         )
         self.positions[ticker] = pos
         return pos
@@ -198,17 +217,29 @@ class SimPortfolio:
             self._close(ticker, last_day, close_price, "backtest_end")
 
     def _close(self, ticker: str, day: pd.Timestamp, exit_price: float, reason: str) -> ClosedTrade:
+        """
+        Close a position. `exit_price` is the intended fill (stop_price, target_price,
+        or close). Slippage is applied so we actually receive exit_price*(1-slip);
+        regulatory bps and commission are subtracted from proceeds.
+        """
         pos = self.positions.pop(ticker)
-        proceeds = pos.shares * exit_price
-        self.cash += proceeds
-        pnl = proceeds - (pos.shares * pos.entry_price)
-        pnl_pct = (exit_price / pos.entry_price - 1) * 100 if pos.entry_price > 0 else 0
+        slip = self.slippage_bps / 10000.0
+        fill_price = exit_price * (1 - slip)
+        proceeds_gross = pos.shares * fill_price
+        reg_fee = proceeds_gross * (self.regulatory_bps_on_sale / 10000.0)
+        proceeds_net = proceeds_gross - reg_fee - self.commission_per_trade
+        self.cash += proceeds_net
+        self.total_commissions += self.commission_per_trade
+        self.total_slippage_cost += (exit_price - fill_price) * pos.shares
+        self.total_regulatory_fees += reg_fee
+        pnl = proceeds_net - pos.cost_basis
+        pnl_pct = (pnl / pos.cost_basis * 100) if pos.cost_basis > 0 else 0.0
         hold_days = max(0, (day - pos.entry_date).days)
         trade = ClosedTrade(
             ticker=ticker,
             shares=pos.shares,
             entry_price=pos.entry_price,
-            exit_price=exit_price,
+            exit_price=fill_price,
             entry_date=pos.entry_date,
             exit_date=day,
             hold_days=hold_days,

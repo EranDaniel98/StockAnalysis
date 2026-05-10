@@ -57,6 +57,52 @@ def exit_reason_breakdown(closed_trades) -> dict[str, int]:
     return dict(counts)
 
 
+def deployment_matched_spy_return(
+    equity_curve: list[dict],
+    spy_df: Optional[pd.DataFrame],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> Optional[float]:
+    """
+    Compound a SPY return weighted by the strategy's actual capital-deployment
+    ratio each week. Removes the "I was in cash" advantage SPY-buy-hold has over
+    a strategy that deploys gradually. The fair active-vs-passive comparison.
+    """
+    if not equity_curve or spy_df is None or spy_df.empty:
+        return None
+    spy = spy_df.copy()
+    if not isinstance(spy.index, pd.DatetimeIndex):
+        spy.index = pd.to_datetime(spy.index)
+    if spy.index.tz is not None:
+        spy.index = spy.index.tz_localize(None)
+    spy = spy.loc[(spy.index >= start) & (spy.index <= end)]
+    if len(spy) < 2:
+        return None
+
+    def _close_at_or_before(df, day):
+        sub = df.loc[df.index <= day]
+        if sub.empty:
+            return None
+        return float(sub["Close"].iloc[-1])
+
+    cum = 1.0
+    for i in range(len(equity_curve) - 1):
+        e_t = equity_curve[i]
+        e_next = equity_curve[i + 1]
+        equity_t = e_t.get("equity", 0)
+        cash_t = e_t.get("cash", 0)
+        if equity_t <= 0:
+            continue
+        deployment = max(0.0, min(1.0, (equity_t - cash_t) / equity_t))
+        spy_t = _close_at_or_before(spy, pd.Timestamp(e_t["date"]))
+        spy_next = _close_at_or_before(spy, pd.Timestamp(e_next["date"]))
+        if spy_t is None or spy_next is None or spy_t == 0:
+            continue
+        period_return = (spy_next / spy_t - 1) * deployment
+        cum *= (1 + period_return)
+    return (cum - 1) * 100
+
+
 def summary_stats(
     closed_trades,
     starting_cash: float,
@@ -64,6 +110,8 @@ def summary_stats(
     start_date: pd.Timestamp,
     end_date: pd.Timestamp,
     spy_return_pct: Optional[float] = None,
+    spy_deployment_matched_pct: Optional[float] = None,
+    total_costs: Optional[dict] = None,
 ) -> dict:
     """Top-level backtest summary."""
     n = len(closed_trades)
@@ -91,6 +139,11 @@ def summary_stats(
         avg_hold = 0.0
         sharpe = 0.0
 
+    costs = total_costs or {}
+    total_cost_paid = round(
+        costs.get("commissions", 0.0) + costs.get("slippage", 0.0) + costs.get("regulatory", 0.0), 2
+    )
+
     return {
         "n_trades": n,
         "starting_cash": round(starting_cash, 2),
@@ -106,6 +159,12 @@ def summary_stats(
         "sharpe_per_trade": round(sharpe, 2),
         "spy_return_pct": round(spy_return_pct, 2) if spy_return_pct is not None else None,
         "alpha_vs_spy_pct": round(total_return_pct - spy_return_pct, 2) if spy_return_pct is not None else None,
+        "spy_deployment_matched_pct": round(spy_deployment_matched_pct, 2) if spy_deployment_matched_pct is not None else None,
+        "alpha_vs_spy_matched_pct": round(total_return_pct - spy_deployment_matched_pct, 2) if spy_deployment_matched_pct is not None else None,
+        "total_costs_paid": total_cost_paid,
+        "commissions_paid": round(costs.get("commissions", 0.0), 2),
+        "slippage_cost": round(costs.get("slippage", 0.0), 2),
+        "regulatory_fees": round(costs.get("regulatory", 0.0), 2),
         "start_date": start_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
     }

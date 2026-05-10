@@ -42,6 +42,67 @@ class BacktestConfig:
     workers: int = 8
     compound: bool = False
     max_staleness_days: int = 10
+    # Realism — Tier 2
+    commission_per_trade: float = 0.0       # $ per trade (0 for $0-commission brokers)
+    regulatory_bps_on_sale: float = 3.0     # SEC + FINRA fees on sale, ~3bps
+    slippage_bps: float = 5.0               # bps each side (entry pays more, exit receives less)
+    earnings_blackout_days: int = 3         # skip entry if earnings within ±N days
+    accept_lookahead: bool = False          # bypass fundamentals-lookahead guard
+
+
+class LookaheadGuardError(RuntimeError):
+    """Raised when a strategy's fundamental weight would silently leak future knowledge."""
+
+
+def fetch_earnings_dates(tickers: list[str], workers: int = 8) -> dict[str, list[pd.Timestamp]]:
+    """
+    Fetch historical + upcoming earnings dates for each ticker via yfinance.
+    Returns {ticker: sorted list of tz-naive Timestamps}. Empty list on failure.
+    Parallelized — each yfinance call is network-bound.
+    """
+    import yfinance as yf
+
+    def _fetch_one(t):
+        try:
+            df = yf.Ticker(t).get_earnings_dates(limit=40)
+            if df is None or df.empty:
+                return t, []
+            idx = df.index
+            if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
+                idx = idx.tz_localize(None)
+            return t, sorted(pd.to_datetime(idx).tolist())
+        except Exception as e:
+            logger.debug(f"Earnings fetch failed for {t}: {e}")
+            return t, []
+
+    results: dict[str, list[pd.Timestamp]] = {}
+    workers = max(1, min(workers, len(tickers)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_fetch_one, t) for t in tickers]
+        for fut in as_completed(futures):
+            try:
+                t, dates = fut.result()
+                results[t] = dates
+            except Exception:
+                pass
+    return results
+
+
+def _is_in_earnings_blackout(
+    ticker: str,
+    day: pd.Timestamp,
+    earnings_dates: dict[str, list[pd.Timestamp]],
+    blackout_days: int,
+) -> bool:
+    if blackout_days <= 0:
+        return False
+    dates = earnings_dates.get(ticker)
+    if not dates:
+        return False
+    for ed in dates:
+        if abs((day - ed).days) <= blackout_days:
+            return True
+    return False
 
 
 def _atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -114,12 +175,15 @@ def run_backtest(
     strategy: dict,
     bt_cfg: BacktestConfig,
     spy_df: Optional[pd.DataFrame] = None,
+    earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
       summary, calibration, trades, exit_reasons, equity_curve, warnings
     """
     warnings: list[str] = []
+    earnings_dates = earnings_dates or {}
+    skipped_earnings = 0
 
     # Normalize all indices once
     price_data = {t: _normalize_index(df) for t, df in price_data.items() if df is not None and not df.empty}
@@ -144,16 +208,28 @@ def run_backtest(
         max_position_pct=bt_cfg.max_position_pct,
         max_open_positions=bt_cfg.max_open_positions,
         compound=bt_cfg.compound,
+        commission_per_trade=bt_cfg.commission_per_trade,
+        regulatory_bps_on_sale=bt_cfg.regulatory_bps_on_sale,
+        slippage_bps=bt_cfg.slippage_bps,
     )
 
     equity_curve: list[dict] = []
 
     fundamental_weight = strategy.get("weights", {}).get("fundamental", 0)
-    if fundamental_weight > 0.10:
+    if fundamental_weight > 0.05:
+        msg = (
+            f"Strategy weights fundamentals at {fundamental_weight*100:.0f}%. "
+            f"yfinance exposes only current fundamentals (not point-in-time historical), "
+            f"so the score function reads 2026 financials at every historical Monday — "
+            f"a hard look-ahead leak that produces fictitious alpha."
+        )
+        if not bt_cfg.accept_lookahead:
+            raise LookaheadGuardError(
+                msg + " Re-run with --accept-lookahead to override (results will be invalid)."
+            )
         warnings.append(
-            f"Strategy weights fundamentals at {fundamental_weight*100:.0f}%. yfinance "
-            f"fundamentals are point-in-time-NOW, not historical — backtest results are "
-            f"likely optimistic. Treat fundamental-heavy results with skepticism."
+            "LOOKAHEAD ACCEPTED: " + msg + " Output is for exploration only; do not "
+            "trust headline numbers."
         )
 
     with Progress(
@@ -213,6 +289,11 @@ def run_backtest(
                 next_day = _next_trading_day_inclusive(df, as_of)
                 if next_day is None:
                     continue
+                # Skip if earnings within blackout window — ATR stops are useless
+                # against earnings-day gaps.
+                if _is_in_earnings_blackout(ticker, next_day, earnings_dates, bt_cfg.earnings_blackout_days):
+                    skipped_earnings += 1
+                    continue
                 next_bar = df.loc[next_day]
                 entry_price = float(next_bar["Open"])
                 if entry_price <= 0:
@@ -258,10 +339,32 @@ def run_backtest(
     )
 
     # 6) Final metrics
-    from src.backtest.metrics import calibration_table, exit_reason_breakdown, summary_stats, verdict
+    from src.backtest.metrics import (
+        calibration_table,
+        deployment_matched_spy_return,
+        exit_reason_breakdown,
+        summary_stats,
+        verdict,
+    )
     cal = calibration_table(portfolio.closed_trades)
     exits = exit_reason_breakdown(portfolio.closed_trades)
     spy_ret = _spy_buy_hold_return(spy_df, start, end)
+    spy_match_ret = deployment_matched_spy_return(equity_curve, spy_df, start, end)
+
+    # Universal caveat: yfinance universe is current-snapshot — survivorship bias
+    # is uncorrected. Delisted, bankrupt, and merged-away tickers are absent.
+    warnings.append(
+        "Survivorship bias: universe is built from current-snapshot ticker lists. "
+        "Stocks that delisted, went bankrupt, or were acquired before today are "
+        "excluded entirely — results are biased upward by an unknown amount "
+        "(typically 1-3%/yr for large-cap windows, more for small-cap or longer windows)."
+    )
+    if skipped_earnings > 0:
+        warnings.append(
+            f"Skipped {skipped_earnings} potential entries due to earnings within "
+            f"±{bt_cfg.earnings_blackout_days} days."
+        )
+
     stats = summary_stats(
         portfolio.closed_trades,
         starting_cash=bt_cfg.starting_cash,
@@ -269,6 +372,12 @@ def run_backtest(
         start_date=start,
         end_date=end,
         spy_return_pct=spy_ret,
+        spy_deployment_matched_pct=spy_match_ret,
+        total_costs={
+            "commissions": portfolio.total_commissions,
+            "slippage": portfolio.total_slippage_cost,
+            "regulatory": portfolio.total_regulatory_fees,
+        },
     )
     return {
         "summary": stats,

@@ -43,7 +43,16 @@ def display_backtest_results(result: dict, strategy_name: str, universe_label: s
     sm.add_row("Sharpe (per-trade)", f"{summary['sharpe_per_trade']:.2f}")
     if summary.get("spy_return_pct") is not None:
         sm.add_row("SPY buy-hold", _color_pct(summary["spy_return_pct"]))
-        sm.add_row("Alpha vs SPY", _color_pct(summary["alpha_vs_spy_pct"]))
+        sm.add_row("Alpha vs SPY (full window)", _color_pct(summary["alpha_vs_spy_pct"]))
+    if summary.get("spy_deployment_matched_pct") is not None:
+        sm.add_row("SPY (deployment-matched)", _color_pct(summary["spy_deployment_matched_pct"]))
+        sm.add_row("Alpha vs SPY (matched)", _color_pct(summary["alpha_vs_spy_matched_pct"]))
+    if summary.get("total_costs_paid", 0) > 0:
+        sm.add_row(
+            "Costs (commission/slippage/reg)",
+            f"${summary['total_costs_paid']:,.2f}  "
+            f"(${summary['commissions_paid']:.0f} / ${summary['slippage_cost']:.0f} / ${summary['regulatory_fees']:.0f})",
+        )
     console.print(sm)
 
     # Calibration table — the actual answer to "is the score predictive?"

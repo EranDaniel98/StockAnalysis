@@ -1150,17 +1150,54 @@ uv run python -m src.main backtest --save data/backtest_results.json
 
 ## Knobs
 
-- `--strategy`        which strategy's weights to use
-- `--universe`        watchlist | portfolio | themes
-- `--tickers`         override universe with comma-separated list
-- `--years`           backtest window length (default 3)
-- `--start / --end`   explicit dates instead of --years
-- `--min-score`       minimum composite score to enter a trade
-- `--hold-days`       max days to hold before timeout exit (default 90)
-- `--cash`            starting simulated cash (default $10000)
-- `--max-positions`   max simultaneous open positions (default 20)
-- `--position-pct`    % of starting cash per position (default 0.10)
-- `--save`            JSON output path
+- `--strategy`            which strategy's weights to use
+- `--universe`            watchlist | portfolio | themes
+- `--tickers`             override universe with comma-separated list
+- `--years`               backtest window length (default 3)
+- `--start / --end`       explicit dates instead of --years
+- `--min-score`           minimum composite score to enter a trade
+- `--hold-days`           max days to hold before timeout exit (default 90)
+- `--cash`                starting simulated cash (default $10000)
+- `--max-positions`       max simultaneous open positions (default 20)
+- `--position-pct`        % of starting cash per position (default 0.10)
+- `--compound`            grow position size with book equity (default off)
+
+Realism flags (Tier 2):
+
+- `--commission`          $ per trade (default 0 for $0-commission brokers)
+- `--slippage-bps`        bps each side (default 5)
+- `--regulatory-bps`      SEC+FINRA bps on sales (default 3)
+- `--earnings-blackout`   skip entries within ±N days of earnings (default 3, 0=disable)
+- `--accept-lookahead`    bypass fundamentals-lookahead guard (results invalid)
+
+Output:
+
+- `--save`                JSON output path
+
+## The lookahead guard
+
+Strategies with fundamental weight > 5% are HARD-BLOCKED by default — yfinance
+exposes only current fundamentals, so the score function reads 2026 financials
+at every historical Monday. That's a leak.
+
+Workarounds:
+- Use a low-fundamental strategy: `short_term_momentum`, `swing_trading`.
+- For exploration only, pass `--accept-lookahead` and **do not trust the headline numbers**.
+- For trustworthy fundamental-weighted backtests, upgrade to a paid point-in-time
+  data provider (Sharadar, FMP).
+
+## The deployment-matched SPY benchmark
+
+Two SPY comparisons appear in the output:
+- **SPY buy-hold (full window)** — what passive 100%-in-SPY would have returned.
+  Useful for "could I have just bought SPY?".
+- **SPY (deployment-matched)** — SPY weighted by your strategy's actual capital
+  deployment each week. The fair active-vs-passive comparison: removes the "I
+  was 50% in cash" advantage SPY-buy-hold has over a strategy that deploys
+  gradually.
+
+If your strategy beats the deployment-matched SPY, your selection added value.
+If it beats buy-hold but lags the matched version, you got lucky on cash timing.
 
 ## How to read the output
 

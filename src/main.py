@@ -178,6 +178,16 @@ def main():
                            help="Fraction of starting cash per position (default 0.10)")
     bt_parser.add_argument("--compound", action="store_true",
                            help="Compound: budget = (cash + book value) * position-pct (default off)")
+    bt_parser.add_argument("--commission", type=float, default=0.0,
+                           help="$ commission per trade (default 0)")
+    bt_parser.add_argument("--slippage-bps", type=float, default=5.0, dest="slippage_bps",
+                           help="Slippage in bps each side (default 5)")
+    bt_parser.add_argument("--regulatory-bps", type=float, default=3.0, dest="regulatory_bps",
+                           help="Regulatory bps on sale, SEC+FINRA (default 3)")
+    bt_parser.add_argument("--earnings-blackout", type=int, default=3, dest="earnings_blackout",
+                           help="Skip entries within +/- N days of earnings (default 3, 0=disable)")
+    bt_parser.add_argument("--accept-lookahead", action="store_true", dest="accept_lookahead",
+                           help="Bypass fundamentals lookahead guard (results invalid)")
     bt_parser.add_argument("--save", type=str, default=None,
                            help="Optional JSON path to save full results")
 
@@ -610,7 +620,7 @@ def cmd_backtest(config, args):
     import json
     import pandas as pd
 
-    from src.backtest.engine import BacktestConfig, run_backtest
+    from src.backtest.engine import BacktestConfig, LookaheadGuardError, fetch_earnings_dates, run_backtest
     from src.backtest.display import display_backtest_results
 
     strategy_name = args.strategy or config.strategies.get("default_strategy", "long_term_growth")
@@ -667,6 +677,14 @@ def cmd_backtest(config, args):
     spy_map = fetcher.fetch_batch(["SPY"], period=fetch_period)
     spy_df = spy_map.get("SPY")
 
+    # Earnings dates for blackout (skip if disabled)
+    earnings_dates = {}
+    if args.earnings_blackout > 0:
+        console.print(f"[bold]Fetching earnings dates (±{args.earnings_blackout}d blackout)...[/bold]")
+        earnings_dates = fetch_earnings_dates(list(price_data.keys()))
+        with_dates = sum(1 for v in earnings_dates.values() if v)
+        console.print(f"  Got earnings dates for {with_dates}/{len(price_data)} tickers\n")
+
     # Build engine config
     bt_cfg = BacktestConfig(
         start_date=start,
@@ -677,9 +695,26 @@ def cmd_backtest(config, args):
         starting_cash=args.cash,
         max_hold_days=args.hold_days,
         compound=getattr(args, "compound", False),
+        commission_per_trade=args.commission,
+        slippage_bps=args.slippage_bps,
+        regulatory_bps_on_sale=args.regulatory_bps,
+        earnings_blackout_days=args.earnings_blackout,
+        accept_lookahead=args.accept_lookahead,
     )
 
-    result = run_backtest(price_data, fundamentals, config, strategy, bt_cfg, spy_df=spy_df)
+    try:
+        result = run_backtest(
+            price_data, fundamentals, config, strategy, bt_cfg,
+            spy_df=spy_df, earnings_dates=earnings_dates,
+        )
+    except LookaheadGuardError as e:
+        console.print(f"\n[red]LOOKAHEAD GUARD:[/red] {e}\n")
+        console.print(
+            "[yellow]Pick a strategy with low fundamental weight (e.g. short_term_momentum, "
+            "swing_trading) or pass --accept-lookahead to override.[/yellow]\n"
+        )
+        return
+
     display_backtest_results(result, strategy_name, universe_label)
 
     if args.save:
