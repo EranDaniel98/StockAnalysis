@@ -378,12 +378,18 @@ def run_backtest(
     is_equity = [e for e in equity_curve if pd.Timestamp(e["date"]) < split_date]
     oos_equity = [e for e in equity_curve if pd.Timestamp(e["date"]) >= split_date]
 
-    def _compute_section(trades, equity_subset, section_start, section_end, ending_equity_for_section):
+    def _compute_section(trades, equity_subset, section_start, section_end,
+                         starting_capital, ending_equity):
+        """
+        Build a section's metrics. starting_capital is the equity at the
+        section's start (= bt_cfg.starting_cash for Full and IS; = IS-end equity
+        for OOS, so OOS measures returns on the capital actually deployed there).
+        """
         return {
             "summary": summary_stats(
                 trades,
-                starting_cash=bt_cfg.starting_cash,
-                ending_equity=ending_equity_for_section,
+                starting_cash=starting_capital,
+                ending_equity=ending_equity,
                 start_date=section_start,
                 end_date=section_end,
                 spy_return_pct=_spy_buy_hold_return(spy_df, section_start, section_end),
@@ -396,10 +402,14 @@ def run_backtest(
             "calibration": calibration_table(trades),
         }
 
-    # Ending equity for IS = equity at split date; for OOS = final equity (= cash)
+    # IS section starts at $starting_cash and ends at the equity-at-split.
+    # OOS section starts at IS-end equity and ends at final cash. Without this,
+    # OOS total return spuriously equals Full because both are anchored to
+    # bt_cfg.starting_cash.
     is_ending_equity = is_equity[-1]["equity"] if is_equity else bt_cfg.starting_cash
     full_section = _compute_section(
-        portfolio.closed_trades, equity_curve, start, end, portfolio.cash
+        portfolio.closed_trades, equity_curve, start, end,
+        bt_cfg.starting_cash, portfolio.cash,
     )
     full_section["summary"].update({
         "spy_return_pct": round(spy_ret, 2) if spy_ret is not None else None,
@@ -413,8 +423,14 @@ def run_backtest(
         "slippage_cost": round(portfolio.total_slippage_cost, 2),
         "regulatory_fees": round(portfolio.total_regulatory_fees, 2),
     })
-    is_section = _compute_section(is_trades, is_equity, start, split_date, is_ending_equity)
-    oos_section = _compute_section(oos_trades, oos_equity, split_date, end, portfolio.cash)
+    is_section = _compute_section(
+        is_trades, is_equity, start, split_date,
+        bt_cfg.starting_cash, is_ending_equity,
+    )
+    oos_section = _compute_section(
+        oos_trades, oos_equity, split_date, end,
+        is_ending_equity, portfolio.cash,
+    )
 
     # Verdict on OOS (the only trustworthy bucket)
     oos_verdict = verdict_with_stats(oos_section["calibration"])
