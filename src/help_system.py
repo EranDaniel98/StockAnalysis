@@ -1175,6 +1175,12 @@ Statistical validity flags (Tier 3):
 - `--oos-split`           fraction of window held out for OOS validation (default 0.30)
 - `--bootstrap-resamples` resamples for 95% CIs (default 2000, 0 disables)
 
+Analytics flags (Tier 4):
+
+- `--vol-target-risk`     risk fraction per trade (e.g. 0.01 = 1% risk/trade);
+                          0 = fixed-fractional sizing on max-position-pct
+- `--compare`             run all strategies side-by-side on the same window
+
 Output:
 
 - `--save`                JSON output path
@@ -1209,6 +1215,15 @@ If it beats buy-hold but lags the matched version, you got lucky on cash timing.
 1. **Returns by Section (Full | IS | OOS)** - the In-Sample and Out-of-Sample
    numbers tell you whether the strategy generalizes. Big gap between them
    (e.g. IS Sharpe +0.7, OOS Sharpe -0.6) = overfitting.
+
+   Excursion analytics: MFE = max favorable excursion (how high the trade got
+   before close), MAE = max adverse (how deep underwater). MFE capture % is
+   the fraction of MFE retained as P&L — low capture means stops/targets are
+   leaving money on the table.
+
+   Regime split: shows performance by SPY 200-SMA regime (bull/bear) and VIX
+   level. If a strategy only works in bull or only in low-VIX, that's the
+   biggest single warning sign.
 2. **Risk-Adjusted Metrics** - annualized Sharpe / Sortino / Calmar from the
    weekly equity curve. Max drawdown is the pain. Time-underwater shows how
    much of your life you'd spend below high-water mark.

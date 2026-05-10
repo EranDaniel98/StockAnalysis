@@ -18,6 +18,141 @@ BUCKET_MIDPOINTS = {"<50": 45, "50-59": 55, "60-69": 65, "70-79": 75, "80+": 85}
 WEEKS_PER_YEAR = 52
 
 
+def regime_split(
+    closed_trades,
+    spy_df: Optional[pd.DataFrame],
+    vix_df: Optional[pd.DataFrame],
+) -> dict:
+    """
+    Group trades by SPY regime (bull/bear via 200-SMA at entry) and VIX regime
+    (low/normal/high). Returns per-regime stats: n, win_rate, avg_return,
+    expectancy, total_pnl. Reveals 'works only in bull markets' failure mode.
+    """
+    def _spy_regime(day):
+        if spy_df is None or spy_df.empty:
+            return None
+        sub = spy_df.loc[spy_df.index <= day]
+        if len(sub) < 200:
+            return None
+        sma200 = sub["Close"].iloc[-200:].mean()
+        return "bull" if sub["Close"].iloc[-1] > sma200 else "bear"
+
+    def _vix_regime(day):
+        if vix_df is None or vix_df.empty:
+            return None
+        sub = vix_df.loc[vix_df.index <= day]
+        if sub.empty:
+            return None
+        v = float(sub["Close"].iloc[-1])
+        if v < 15:
+            return "low_vix"
+        if v <= 25:
+            return "normal_vix"
+        return "high_vix"
+
+    spy_groups: dict[str, list] = defaultdict(list)
+    vix_groups: dict[str, list] = defaultdict(list)
+    for t in closed_trades:
+        sr = _spy_regime(t.entry_date)
+        vr = _vix_regime(t.entry_date)
+        if sr is not None:
+            spy_groups[sr].append(t)
+        if vr is not None:
+            vix_groups[vr].append(t)
+
+    def _summarize(trades):
+        if not trades:
+            return {"n": 0, "win_rate_pct": 0.0, "avg_return_pct": 0.0,
+                    "expectancy_pct": 0.0, "total_pnl": 0.0}
+        pcts = np.array([t.pnl_pct for t in trades])
+        wins = (pcts > 0).sum()
+        return {
+            "n": len(trades),
+            "win_rate_pct": round(float(wins / len(trades) * 100), 1),
+            "avg_return_pct": round(float(pcts.mean()), 2),
+            "expectancy_pct": round(float(pcts.mean()), 2),
+            "total_pnl": round(float(sum(t.pnl for t in trades)), 2),
+        }
+
+    return {
+        "spy_bull": _summarize(spy_groups["bull"]),
+        "spy_bear": _summarize(spy_groups["bear"]),
+        "vix_low": _summarize(vix_groups["low_vix"]),
+        "vix_normal": _summarize(vix_groups["normal_vix"]),
+        "vix_high": _summarize(vix_groups["high_vix"]),
+    }
+
+
+def monthly_return_grid(equity_curve: list[dict]) -> dict:
+    """
+    Aggregate weekly equity curve into monthly returns. Returns a nested dict
+    of {year: {month: pct_return}} suitable for a year-vs-month heatmap.
+    """
+    if len(equity_curve) < 2:
+        return {}
+    df = pd.DataFrame(equity_curve)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    # Resample to month-end: take the last equity of each month
+    monthly_eq = df["equity"].resample("ME").last().dropna()
+    monthly_ret = monthly_eq.pct_change().dropna() * 100
+    grid: dict = {}
+    for ts, val in monthly_ret.items():
+        y = int(ts.year)
+        m = int(ts.month)
+        grid.setdefault(y, {})[m] = round(float(val), 2)
+    return grid
+
+
+def excursion_stats(closed_trades) -> dict:
+    """
+    MFE/MAE diagnostics. avg_mfe says 'on average, how much in our favor did
+    the price move during the trade?'. avg_mae says 'how deep underwater did
+    we go?'. mfe_capture = how much of MFE we kept = pnl_pct / avg_mfe_pct.
+    R-distribution buckets winning vs losing trades by R-multiple.
+    """
+    if not closed_trades:
+        return {
+            "avg_mfe_pct": 0.0, "avg_mae_pct": 0.0, "mfe_capture_pct": 0.0,
+            "avg_r_multiple": 0.0, "r_distribution": {},
+            "stop_proximity_pct": 0.0,
+        }
+    mfes = np.array([t.mfe_pct for t in closed_trades])
+    maes = np.array([t.mae_pct for t in closed_trades])
+    rs = np.array([t.r_multiple for t in closed_trades])
+    pnls = np.array([t.pnl_pct for t in closed_trades])
+
+    avg_mfe = float(mfes.mean())
+    avg_mae = float(maes.mean())
+    avg_pnl = float(pnls.mean())
+    capture = (avg_pnl / avg_mfe * 100) if avg_mfe > 0 else 0.0
+
+    # R-distribution: buckets <-2R, -2 to -1, -1 to 0, 0 to 1, 1-2, 2-3, 3+
+    edges = [-float("inf"), -2, -1, 0, 1, 2, 3, float("inf")]
+    labels = ["<-2R", "-2 to -1R", "-1 to 0R", "0 to 1R", "1 to 2R", "2 to 3R", ">=3R"]
+    dist = {labels[i]: 0 for i in range(len(labels))}
+    for r in rs:
+        for i in range(len(edges) - 1):
+            if edges[i] <= r < edges[i + 1]:
+                dist[labels[i]] += 1
+                break
+
+    # Stop proximity: average distance from MAE to stop, normalized.
+    # If avg MAE on losing trades is near -1R, stops fire just as price reaches them.
+    # If avg MAE is much deeper than -1R, slippage / gap-throughs are eating the trade.
+    losing_rs = rs[pnls < 0]
+    stop_prox = float(losing_rs.mean()) if len(losing_rs) > 0 else 0.0
+
+    return {
+        "avg_mfe_pct": round(avg_mfe, 2),
+        "avg_mae_pct": round(avg_mae, 2),
+        "mfe_capture_pct": round(capture, 1),  # % of MFE retained as pnl
+        "avg_r_multiple": round(float(rs.mean()), 2),
+        "r_distribution": dist,
+        "stop_proximity_pct": round(stop_prox, 2),
+    }
+
+
 def equity_curve_stats(equity_curve: list[dict]) -> dict:
     """
     Compute risk-adjusted metrics from a weekly equity curve.

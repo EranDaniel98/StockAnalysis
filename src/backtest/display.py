@@ -214,6 +214,76 @@ def display_backtest_results(result: dict, strategy_name: str, universe_label: s
             ex.add_row(reason, str(count))
         console.print(ex)
 
+    # Excursion analytics (Tier 4.3)
+    excursion = result.get("excursion")
+    if excursion and excursion.get("avg_mfe_pct") != 0:
+        ex = Table(title="Trade Excursion Diagnostics (full window)", box=box.ROUNDED)
+        ex.add_column("Metric", style="bold")
+        ex.add_column("Value", justify="right")
+        ex.add_row("Avg MFE (max favorable excursion)", _color_pct(excursion["avg_mfe_pct"]))
+        ex.add_row("Avg MAE (max adverse excursion)", _color_pct(excursion["avg_mae_pct"]))
+        ex.add_row("MFE capture (% retained as P&L)", f"{excursion['mfe_capture_pct']:.0f}%")
+        ex.add_row("Avg R-multiple", f"{excursion['avg_r_multiple']:+.2f}R")
+        ex.add_row("Avg R on losing trades (stop proximity)", f"{excursion['stop_proximity_pct']:+.2f}R")
+        console.print(ex)
+
+        # R-multiple distribution
+        rdist = excursion.get("r_distribution", {})
+        if rdist and any(v > 0 for v in rdist.values()):
+            rd = Table(title="R-Multiple Distribution", box=box.ROUNDED)
+            rd.add_column("Bucket", style="bold")
+            rd.add_column("Count", justify="right")
+            for label, count in rdist.items():
+                rd.add_row(label, str(count))
+            console.print(rd)
+
+    # Regime split (Tier 4.2)
+    regimes = result.get("regimes")
+    if regimes:
+        rg = Table(title="Performance by Regime (at trade entry)", box=box.ROUNDED)
+        rg.add_column("Regime", style="bold")
+        rg.add_column("N", justify="right")
+        rg.add_column("Win rate", justify="right")
+        rg.add_column("Avg return", justify="right")
+        rg.add_column("Total P&L", justify="right")
+        regime_order = [
+            ("SPY > 200-SMA (bull)", regimes.get("spy_bull")),
+            ("SPY < 200-SMA (bear)", regimes.get("spy_bear")),
+            ("VIX < 15 (low)", regimes.get("vix_low")),
+            ("VIX 15-25 (normal)", regimes.get("vix_normal")),
+            ("VIX > 25 (high)", regimes.get("vix_high")),
+        ]
+        for label, data in regime_order:
+            if not data or data["n"] == 0:
+                rg.add_row(label, "0", "-", "-", "-")
+                continue
+            rg.add_row(
+                label,
+                str(data["n"]),
+                f"{data['win_rate_pct']:.1f}%",
+                _color_pct(data["avg_return_pct"]),
+                f"${data['total_pnl']:,.0f}",
+            )
+        console.print(rg)
+
+    # Monthly return heatmap (Tier 4.1)
+    monthly = result.get("monthly_returns") or {}
+    if monthly:
+        mh = Table(title="Monthly Returns (% from equity curve)", box=box.ROUNDED)
+        mh.add_column("Year", style="bold")
+        for m in range(1, 13):
+            mh.add_column(_short_month(m), justify="right")
+        for year in sorted(monthly.keys()):
+            row = [str(year)]
+            months = monthly[year]
+            for m in range(1, 13):
+                if m in months:
+                    row.append(_color_pct(months[m]))
+                else:
+                    row.append("-")
+            mh.add_row(*row)
+        console.print(mh)
+
     # Verdict — uses OOS data only
     console.print(Panel(
         verdict_oos,
@@ -224,6 +294,59 @@ def display_backtest_results(result: dict, strategy_name: str, universe_label: s
 
     for w in warnings:
         console.print(f"[yellow]WARNING: {w}[/yellow]")
+
+
+_SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _short_month(m: int) -> str:
+    return _SHORT_MONTHS[m - 1] if 1 <= m <= 12 else str(m)
+
+
+def display_strategy_comparison(rows: list[dict], universe_label: str) -> None:
+    """Display side-by-side comparison of all strategies (4.4)."""
+    console.print()
+    console.print(Panel(
+        f"[bold cyan]Strategy Comparison[/bold cyan]   Universe: [bold]{universe_label}[/bold]",
+        box=box.ROUNDED,
+    ))
+    tbl = Table(title="Headline Metrics by Strategy", box=box.ROUNDED, show_lines=True)
+    tbl.add_column("Strategy", style="bold cyan")
+    tbl.add_column("Trades", justify="right")
+    tbl.add_column("Total return", justify="right")
+    tbl.add_column("OOS return", justify="right", style="bold yellow")
+    tbl.add_column("Sharpe", justify="right")
+    tbl.add_column("OOS Sharpe", justify="right", style="bold yellow")
+    tbl.add_column("Max DD", justify="right")
+    tbl.add_column("Win rate", justify="right")
+    tbl.add_column("Alpha vs SPY (matched)", justify="right")
+
+    for row in rows:
+        if "error" in row:
+            tbl.add_row(row["strategy"], "—", f"[red]blocked[/red]", "", "", "", "", "", "")
+            continue
+        r = row["result"]
+        full = r["full"]["summary"]
+        oos = r["out_of_sample"]["summary"]
+        full_eq = r["full"]["equity_stats"]
+        oos_eq = r["out_of_sample"]["equity_stats"]
+        tbl.add_row(
+            row["strategy"],
+            str(full["n_trades"]),
+            _color_pct(full["total_return_pct"]),
+            _color_pct(oos["total_return_pct"]),
+            f"{full_eq['ann_sharpe']:+.2f}",
+            f"{oos_eq['ann_sharpe']:+.2f}",
+            _color_pct(full_eq["max_drawdown_pct"]),
+            f"{full['win_rate_pct']:.1f}%",
+            _color_pct(full.get("alpha_vs_spy_matched_pct")),
+        )
+    console.print(tbl)
+    console.print(
+        "  [dim]Tip: rank by OOS Sharpe — that column tells you which strategy "
+        "actually generalized.[/dim]\n"
+    )
 
 
 def _color_pct(value) -> str:

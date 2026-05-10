@@ -40,6 +40,9 @@ class Position:
     sector: str = "Unknown"
     cost_basis: float = 0.0           # total cash spent at entry incl commission
     intended_entry_price: float = 0.0  # Open price pre-slippage (for sensitivity)
+    # MFE/MAE tracking (4.3) — running over the position's life
+    running_high: float = 0.0         # max High since entry (exclusive of entry bar)
+    running_low: float = float("inf")  # min Low since entry
 
 
 @dataclass
@@ -62,6 +65,10 @@ class ClosedTrade:
     intended_exit_price: float = 0.0    # stop/target/close, pre-slippage
     gross_pnl: float = 0.0              # shares * (intended_exit - intended_entry)
     commissions_paid: float = 0.0       # round-trip commission
+    # Excursion analytics (Tier 4.3)
+    mfe_pct: float = 0.0                # max favorable excursion: max_high/entry - 1
+    mae_pct: float = 0.0                # max adverse excursion: min_low/entry - 1
+    r_multiple: float = 0.0             # pnl_pct / |stop distance pct|
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +86,9 @@ class ClosedTrade:
             "score": round(self.score, 2),
             "score_bucket": self.score_bucket,
             "sector": self.sector,
+            "mfe_pct": round(self.mfe_pct, 2),
+            "mae_pct": round(self.mae_pct, 2),
+            "r_multiple": round(self.r_multiple, 2),
         }
 
 
@@ -92,6 +102,8 @@ class SimPortfolio:
     commission_per_trade: float = 0.0
     regulatory_bps_on_sale: float = 0.0   # SEC + FINRA on sales (~3bps)
     slippage_bps: float = 0.0             # each side
+    # Volatility-targeted sizing (Tier 4.5)
+    vol_target_risk_pct: float = 0.0      # 0 = use max_position_pct sizing; e.g. 0.01 = risk 1%/trade
     cash: float = field(init=False)
     positions: dict[str, Position] = field(default_factory=dict)
     closed_trades: list[ClosedTrade] = field(default_factory=list)
@@ -150,7 +162,18 @@ class SimPortfolio:
         slip = self.slippage_bps / 10000.0
         fill_price = entry_price * (1 + slip)
         budget = self.position_budget()
-        shares = int(budget // fill_price)
+        # Position sizing: vol-target if enabled (each trade risks the same dollar
+        # amount), else fixed-fractional (each trade gets the same dollar budget).
+        if self.vol_target_risk_pct > 0:
+            risk_per_share = fill_price - stop_price
+            if risk_per_share <= 0:
+                return None
+            risk_dollars = self.starting_cash * self.vol_target_risk_pct
+            shares_by_risk = int(risk_dollars / risk_per_share)
+            shares_by_budget = int(budget // fill_price)
+            shares = min(shares_by_risk, shares_by_budget)  # cap so we never overspend
+        else:
+            shares = int(budget // fill_price)
         if shares <= 0:
             return None
         gross_cost = shares * fill_price
@@ -198,6 +221,12 @@ class SimPortfolio:
         low = float(day_bar["Low"])
         close = float(day_bar["Close"])
 
+        # Track running extremes for MFE/MAE
+        if high > pos.running_high:
+            pos.running_high = high
+        if low < pos.running_low:
+            pos.running_low = low
+
         exit_price: Optional[float] = None
         exit_reason: Optional[str] = None
 
@@ -244,6 +273,21 @@ class SimPortfolio:
         pnl_pct = (pnl / pos.cost_basis * 100) if pos.cost_basis > 0 else 0.0
         hold_days = max(0, (day - pos.entry_date).days)
         gross_pnl = pos.shares * (exit_price - pos.intended_entry_price) if pos.intended_entry_price > 0 else pnl
+
+        # Excursion analytics (4.3)
+        ref_price = pos.intended_entry_price if pos.intended_entry_price > 0 else pos.entry_price
+        if pos.running_high > 0 and ref_price > 0:
+            mfe_pct = (pos.running_high / ref_price - 1) * 100
+        else:
+            mfe_pct = 0.0
+        if pos.running_low < float("inf") and ref_price > 0:
+            mae_pct = (pos.running_low / ref_price - 1) * 100
+        else:
+            mae_pct = 0.0
+        # R-multiple: pnl as multiple of intended risk per share
+        risk_per_share = ref_price - pos.stop_price
+        r_multiple = ((exit_price - ref_price) / risk_per_share) if risk_per_share > 0 else 0.0
+
         trade = ClosedTrade(
             ticker=ticker,
             shares=pos.shares,
@@ -262,6 +306,9 @@ class SimPortfolio:
             intended_exit_price=exit_price,
             gross_pnl=gross_pnl,
             commissions_paid=2 * self.commission_per_trade,
+            mfe_pct=mfe_pct,
+            mae_pct=mae_pct,
+            r_multiple=r_multiple,
         )
         self.closed_trades.append(trade)
         return trade

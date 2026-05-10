@@ -192,6 +192,10 @@ def main():
                            help="Fraction of window held out for OOS validation (default 0.30)")
     bt_parser.add_argument("--bootstrap-resamples", type=int, default=2000, dest="bootstrap_resamples",
                            help="Bootstrap resamples for CIs (default 2000, 0 disables)")
+    bt_parser.add_argument("--vol-target-risk", type=float, default=0.0, dest="vol_target_risk",
+                           help="Risk fraction per trade (e.g. 0.01 = 1%%); 0 = fixed-fractional sizing")
+    bt_parser.add_argument("--compare", action="store_true",
+                           help="Run all strategies side-by-side on the same window/universe")
     bt_parser.add_argument("--save", type=str, default=None,
                            help="Optional JSON path to save full results")
 
@@ -676,10 +680,11 @@ def cmd_backtest(config, args):
     fundamentals = fund_fetcher.fetch_batch(tickers)
     console.print(f"  Got fundamentals for {len(fundamentals)}/{len(tickers)} tickers\n")
 
-    # SPY benchmark
-    console.print("[bold]Fetching SPY benchmark...[/bold]")
-    spy_map = fetcher.fetch_batch(["SPY"], period=fetch_period)
-    spy_df = spy_map.get("SPY")
+    # SPY + VIX (regime tagging)
+    console.print("[bold]Fetching SPY + VIX...[/bold]")
+    bench_map = fetcher.fetch_batch(["SPY", "^VIX"], period=fetch_period)
+    spy_df = bench_map.get("SPY")
+    vix_df = bench_map.get("^VIX")
 
     # Earnings dates for blackout (skip if disabled)
     earnings_dates = {}
@@ -706,12 +711,33 @@ def cmd_backtest(config, args):
         accept_lookahead=args.accept_lookahead,
         oos_split_pct=args.oos_split,
         bootstrap_resamples=args.bootstrap_resamples,
+        vol_target_risk_pct=args.vol_target_risk,
     )
+
+    if args.compare:
+        from src.backtest.display import display_strategy_comparison
+        comparison_rows = []
+        for name in config.get_strategy_names():
+            strat = config.get_strategy(name)
+            try:
+                r = run_backtest(
+                    price_data, fundamentals, config, strat, bt_cfg,
+                    spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+                )
+                comparison_rows.append({"strategy": name, "result": r})
+            except LookaheadGuardError as e:
+                comparison_rows.append({"strategy": name, "error": str(e)[:80]})
+        display_strategy_comparison(comparison_rows, universe_label)
+        if args.save:
+            with open(Path(args.save), "w", encoding="utf-8") as f:
+                json.dump(comparison_rows, f, indent=2, default=str)
+            console.print(f"\n[dim]Comparison saved to {args.save}[/dim]")
+        return
 
     try:
         result = run_backtest(
             price_data, fundamentals, config, strategy, bt_cfg,
-            spy_df=spy_df, earnings_dates=earnings_dates,
+            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
         )
     except LookaheadGuardError as e:
         console.print(f"\n[red]LOOKAHEAD GUARD:[/red] {e}\n")

@@ -51,6 +51,8 @@ class BacktestConfig:
     # Statistical validity — Tier 3
     oos_split_pct: float = 0.30             # last X of window held out for OOS
     bootstrap_resamples: int = 2000         # 0 disables bootstrap CIs
+    # Analytics — Tier 4
+    vol_target_risk_pct: float = 0.0        # 0 = fixed-fractional sizing; e.g. 0.01 = risk 1%/trade
 
 
 class LookaheadGuardError(RuntimeError):
@@ -178,6 +180,7 @@ def run_backtest(
     strategy: dict,
     bt_cfg: BacktestConfig,
     spy_df: Optional[pd.DataFrame] = None,
+    vix_df: Optional[pd.DataFrame] = None,
     earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
 ) -> dict:
     """
@@ -214,6 +217,7 @@ def run_backtest(
         commission_per_trade=bt_cfg.commission_per_trade,
         regulatory_bps_on_sale=bt_cfg.regulatory_bps_on_sale,
         slippage_bps=bt_cfg.slippage_bps,
+        vol_target_risk_pct=bt_cfg.vol_target_risk_pct,
     )
 
     equity_curve: list[dict] = []
@@ -348,11 +352,17 @@ def run_backtest(
         cost_sensitivity_grid,
         deployment_matched_spy_return,
         equity_curve_stats,
+        excursion_stats,
         exit_reason_breakdown,
+        monthly_return_grid,
+        regime_split,
         summary_stats,
         verdict,
         verdict_with_stats,
     )
+    # Normalize VIX index for regime lookups
+    vix_normalized = _normalize_index(vix_df) if vix_df is not None and not vix_df.empty else None
+    spy_normalized = _normalize_index(spy_df) if spy_df is not None and not spy_df.empty else None
     spy_ret = _spy_buy_hold_return(spy_df, start, end)
     spy_match_ret = deployment_matched_spy_return(equity_curve, spy_df, start, end)
     exits = exit_reason_breakdown(portfolio.closed_trades)
@@ -452,6 +462,11 @@ def run_backtest(
         n_resamples=bt_cfg.bootstrap_resamples,
     ) if bt_cfg.bootstrap_resamples > 0 else None
 
+    # Tier 4 analytics
+    excursion = excursion_stats(portfolio.closed_trades)
+    regimes = regime_split(portfolio.closed_trades, spy_normalized, vix_normalized)
+    monthly = monthly_return_grid(equity_curve)
+
     return {
         "full": full_section,
         "in_sample": is_section,
@@ -465,6 +480,9 @@ def run_backtest(
         "cost_sensitivity": sensitivity,
         "bootstrap": bootstrap,
         "bootstrap_label": boot_label,
+        "excursion": excursion,
+        "regimes": regimes,
+        "monthly_returns": monthly,
         "warnings": warnings,
     }
 
