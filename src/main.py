@@ -104,6 +104,51 @@ def main():
     cache_parser.add_argument("--clear", action="store_true", help="Clear all cached data")
     cache_parser.add_argument("--stats", action="store_true", help="Show cache statistics")
 
+    # --- paper command (Alpaca paper trading + validation loop) ---
+    paper_parser = subparsers.add_parser(
+        "paper", help="Alpaca paper trading: status, sync, trade, evaluate"
+    )
+    paper_sub = paper_parser.add_subparsers(dest="paper_cmd", help="Paper trading subcommand")
+
+    paper_sub.add_parser("status", help="Show Alpaca account, positions, market clock")
+
+    p_sync = paper_sub.add_parser(
+        "sync", help="Pull positions from Alpaca and rewrite portfolio.yaml"
+    )
+    p_sync.add_argument(
+        "--no-write", action="store_true",
+        help="Display only — do not modify portfolio.yaml",
+    )
+
+    p_trade = paper_sub.add_parser(
+        "trade", help="Run scan and submit paper bracket orders for top recommendations"
+    )
+    add_common_args(p_trade)
+    p_trade.add_argument("--sector", type=str, default=None)
+    p_trade.add_argument("--theme", type=str, default=None)
+    p_trade.add_argument("--top", type=int, default=None, help="Max orders to submit (default 10)")
+    p_trade.add_argument("--min-score", type=float, default=None, dest="min_score",
+                         help="Minimum composite score (default 55)")
+    p_trade.add_argument("--earnings-blackout", type=int, default=None, dest="earnings_blackout",
+                         help="Skip stocks with earnings within N days (default 5)")
+    p_trade.add_argument("--max-per-order", type=float, default=None, dest="max_per_order",
+                         help="Max USD per single bracket order (default 1000)")
+    p_trade.add_argument("--dry-run", action="store_true", dest="dry_run",
+                         help="Evaluate + log decisions but do not submit orders")
+
+    p_eval = paper_sub.add_parser(
+        "evaluate", help="Reconcile closed trades and show score calibration"
+    )
+    p_eval.add_argument("--days", type=int, default=None,
+                        help="Lookback window for Alpaca order history (default 90)")
+
+    p_boot = paper_sub.add_parser(
+        "bootstrap",
+        help="Submit market buy orders to recreate portfolio.yaml holdings in Alpaca",
+    )
+    p_boot.add_argument("--yes", action="store_true",
+                        help="Actually submit (default is preview-only)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -139,6 +184,8 @@ def main():
         cmd_strategies(config)
     elif args.command == "cache":
         cmd_cache(config, args)
+    elif args.command == "paper":
+        cmd_paper(config, args)
 
 
 def _build_cache(config, args):
@@ -343,15 +390,20 @@ def cmd_portfolio(config, args):
     fetcher = DataFetcher(config, cache)
     fund_fetcher = FundamentalsFetcher(config, cache)
 
-    # Get current prices for P&L
+    # Get current prices for P&L (parallel)
     current_prices = {}
+    rt_map = fetcher.fetch_realtime_batch(tickers)
+    missing = []
     for ticker in tickers:
-        rt = fetcher.fetch_realtime_price(ticker)
+        rt = rt_map.get(ticker)
         if rt and rt.get("last_price"):
             current_prices[ticker] = rt["last_price"]
         else:
-            # Fallback to latest close from history
-            df = fetcher.fetch_price_data(ticker, period="5d")
+            missing.append(ticker)
+    # Fallback to latest close from history for any that didn't return realtime
+    if missing:
+        fallback = fetcher.fetch_batch(missing, period="5d")
+        for ticker, df in fallback.items():
             if df is not None and not df.empty:
                 current_prices[ticker] = float(df["Close"].iloc[-1])
 
@@ -466,6 +518,57 @@ def cmd_cache(config, args):
         console.print(f"  Expired entries: {stats['expired_entries']}\n")
     else:
         console.print("Use --clear to clear cache or --stats to view statistics")
+
+
+def cmd_paper(config, args):
+    """Dispatch `paper` subcommands."""
+    sub = getattr(args, "paper_cmd", None)
+    if sub is None:
+        console.print(
+            "[yellow]Usage: paper {status|sync|bootstrap|trade|evaluate}[/yellow]\n"
+            "  status    — show Alpaca account & positions\n"
+            "  sync      — pull positions into portfolio.yaml\n"
+            "  bootstrap — recreate portfolio.yaml holdings as paper orders\n"
+            "  trade     — run scan + submit bracket orders\n"
+            "  evaluate  — calibration report from closed trades\n"
+        )
+        return
+
+    from src.broker.alpaca_client import AlpacaClient, AlpacaClientError
+
+    if sub == "status":
+        try:
+            client = AlpacaClient()
+        except AlpacaClientError as e:
+            console.print(f"[red]Alpaca: {e}[/red]")
+            return
+        from src.paper.sync import _display_account, _display_positions
+        account = client.get_account()
+        positions = client.get_positions()
+        clock = client.get_clock()
+        _display_account(account)
+        _display_positions(positions)
+        market = "[green]OPEN[/green]" if clock["is_open"] else "[dim]CLOSED[/dim]"
+        console.print(f"  Market: {market}  (next open: {clock['next_open']})\n")
+
+    elif sub == "sync":
+        from src.paper.sync import sync_portfolio
+        try:
+            sync_portfolio(config, write=not getattr(args, "no_write", False))
+        except AlpacaClientError as e:
+            console.print(f"[red]Alpaca: {e}[/red]")
+
+    elif sub == "trade":
+        from src.paper.trader import run_paper_trade
+        run_paper_trade(config, args)
+
+    elif sub == "evaluate":
+        from src.paper.evaluator import run_paper_evaluate
+        run_paper_evaluate(config, args)
+
+    elif sub == "bootstrap":
+        from src.paper.bootstrap import run_paper_bootstrap
+        run_paper_bootstrap(config, args)
 
 
 def _analyze_and_score(price_data_map, fundamentals_map, config, strategy):

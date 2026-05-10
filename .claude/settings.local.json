@@ -29,7 +29,10 @@
       "Bash(python -m src.main cache --stats)",
       "Bash(python -m py_compile src/portfolio.py)",
       "Bash(python -m src.main portfolio)",
-      "Bash(python -m src.main portfolio --analyze)"
+      "Bash(python -m src.main portfolio --analyze)",
+      "Bash(rtk python *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk git *)"
     ]
   }
 }

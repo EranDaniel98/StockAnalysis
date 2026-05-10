@@ -4,8 +4,10 @@ Price data fetcher - downloads OHLCV data from yfinance with caching.
 
 import yfinance as yf
 import pandas as pd
-import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +16,9 @@ class DataFetcher:
     def __init__(self, config, cache):
         self.config = config
         self.cache = cache
-        self.delay = config.get("data", "request_delay_seconds", default=0.5)
         self.history_years = config.get("data", "history_years", default=5)
         self.interval = config.get("data", "interval", default="1d")
+        self.max_workers = max(1, int(config.get("data", "max_concurrent_downloads", default=10)))
 
     def fetch_price_data(self, ticker, period=None, interval=None):
         """
@@ -34,7 +36,6 @@ class DataFetcher:
             try:
                 df = pd.DataFrame(cached)
                 df.index = pd.to_datetime(df.index, utc=True)
-                # Ensure numeric columns
                 for col in ["Open", "High", "Low", "Close", "Volume"]:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -50,15 +51,12 @@ class DataFetcher:
                 logger.warning(f"No price data returned for {ticker}")
                 return None
 
-            # Standardize column names
             df.columns = [c.strip() for c in df.columns]
 
-            # Cache the data (convert to serializable format)
             cache_data = df.copy()
             cache_data.index = cache_data.index.astype(str)
             self.cache.set(cache_key, cache_data.to_dict())
 
-            time.sleep(self.delay)
             return df
 
         except Exception as e:
@@ -67,23 +65,47 @@ class DataFetcher:
 
     def fetch_batch(self, tickers, period=None, interval=None):
         """
-        Fetch price data for multiple tickers.
+        Fetch price data for multiple tickers in parallel.
         Returns dict of {ticker: DataFrame}.
         """
         results = {}
         total = len(tickers)
-        for i, ticker in enumerate(tickers, 1):
-            logger.info(f"Fetching price data [{i}/{total}]: {ticker}")
-            df = self.fetch_price_data(ticker, period=period, interval=interval)
-            if df is not None and not df.empty:
-                results[ticker] = df
-        logger.info(f"Successfully fetched data for {len(results)}/{total} tickers")
+        if total == 0:
+            return results
+
+        workers = min(self.max_workers, total)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]Price data[/bold]"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("{task.fields[ticker]}"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("fetching", total=total, ticker="")
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                future_to_ticker = {
+                    ex.submit(self.fetch_price_data, t, period, interval): t
+                    for t in tickers
+                }
+                for fut in as_completed(future_to_ticker):
+                    ticker = future_to_ticker[fut]
+                    progress.update(task, ticker=ticker)
+                    try:
+                        df = fut.result()
+                    except Exception as e:
+                        logger.error(f"Worker error for {ticker}: {e}")
+                        df = None
+                    if df is not None and not df.empty:
+                        results[ticker] = df
+                    progress.advance(task)
+
+        logger.info(f"Fetched price data for {len(results)}/{total} tickers (workers={workers})")
         return results
 
     def fetch_realtime_price(self, ticker):
         """
         Fetch the latest real-time (or near real-time) price info.
-        Uses 1-minute interval for most recent data.
         """
         try:
             stock = yf.Ticker(ticker)
@@ -100,6 +122,25 @@ class DataFetcher:
         except Exception as e:
             logger.error(f"Error fetching real-time data for {ticker}: {e}")
             return None
+
+    def fetch_realtime_batch(self, tickers):
+        """Fetch realtime prices for multiple tickers in parallel."""
+        results = {}
+        if not tickers:
+            return results
+        workers = min(self.max_workers, len(tickers))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            future_to_ticker = {ex.submit(self.fetch_realtime_price, t): t for t in tickers}
+            for fut in as_completed(future_to_ticker):
+                ticker = future_to_ticker[fut]
+                try:
+                    rt = fut.result()
+                except Exception as e:
+                    logger.error(f"Realtime worker error for {ticker}: {e}")
+                    rt = None
+                if rt:
+                    results[ticker] = rt
+        return results
 
     def fetch_intraday(self, ticker, period="1d", interval="5m"):
         """Fetch intraday data for short-term analysis."""

@@ -3,8 +3,10 @@ Fundamental data fetcher - downloads financial metrics from yfinance.
 """
 
 import yfinance as yf
-import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +15,7 @@ class FundamentalsFetcher:
     def __init__(self, config, cache):
         self.config = config
         self.cache = cache
-        self.delay = config.get("data", "request_delay_seconds", default=0.5)
+        self.max_workers = max(1, int(config.get("data", "max_concurrent_downloads", default=10)))
 
     def fetch(self, ticker):
         """
@@ -94,7 +96,6 @@ class FundamentalsFetcher:
             }
 
             self.cache.set(cache_key, fundamentals)
-            time.sleep(self.delay)
             return fundamentals
 
         except Exception as e:
@@ -102,15 +103,40 @@ class FundamentalsFetcher:
             return None
 
     def fetch_batch(self, tickers):
-        """Fetch fundamentals for multiple tickers."""
+        """
+        Fetch fundamentals for multiple tickers in parallel.
+        Returns dict of {ticker: fundamentals_dict}.
+        """
         results = {}
         total = len(tickers)
-        for i, ticker in enumerate(tickers, 1):
-            logger.info(f"Fetching fundamentals [{i}/{total}]: {ticker}")
-            data = self.fetch(ticker)
-            if data is not None:
-                results[ticker] = data
-        logger.info(f"Fetched fundamentals for {len(results)}/{total} tickers")
+        if total == 0:
+            return results
+
+        workers = min(self.max_workers, total)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]Fundamentals[/bold]"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("{task.fields[ticker]}"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("fetching", total=total, ticker="")
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                future_to_ticker = {ex.submit(self.fetch, t): t for t in tickers}
+                for fut in as_completed(future_to_ticker):
+                    ticker = future_to_ticker[fut]
+                    progress.update(task, ticker=ticker)
+                    try:
+                        data = fut.result()
+                    except Exception as e:
+                        logger.error(f"Worker error for {ticker}: {e}")
+                        data = None
+                    if data is not None:
+                        results[ticker] = data
+                    progress.advance(task)
+
+        logger.info(f"Fetched fundamentals for {len(results)}/{total} tickers (workers={workers})")
         return results
 
     def passes_filters(self, fundamentals):

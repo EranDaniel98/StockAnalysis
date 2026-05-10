@@ -25,6 +25,8 @@ TOPICS = {
     "missing":     "What's currently missing and known limitations",
     "commands":    "All CLI commands with examples",
     "glossary":    "Key financial terms explained",
+    "paper":       "Alpaca paper trading: closed-loop validation of decision quality",
+    "schedule":    "Run paper commands automatically via Windows Task Scheduler",
 }
 
 
@@ -931,6 +933,171 @@ def _help_glossary():
 
 
 # =============================================================================
+# TOPIC: Paper Trading
+# =============================================================================
+def _help_paper():
+    text = """
+# Paper Trading & Decision-Quality Validation
+
+## What this is
+
+A closed-loop system that uses **Alpaca's paper trading API** to test whether
+the scanner's scores actually predict future returns. No real money — fake
+account, real prices.
+
+The validation question: *does score 70 actually beat score 50 on average?*
+
+## The four commands
+
+### `paper status`
+Shows your Alpaca paper account: equity, cash, buying power, open positions,
+and whether the market is currently open.
+
+### `paper sync`
+Pulls open positions from Alpaca and overwrites `config/portfolio.yaml` so
+`portfolio --analyze` always reflects what was actually filled. The original
+portfolio.yaml is backed up to `portfolio.yaml.bak` before any rewrite.
+Pass `--no-write` to display only.
+
+### `paper trade [--top N] [--min-score X] [--dry-run]`
+1. Runs a market scan
+2. Filters: score >= min_score (default 55), action in BUY/STRONG BUY/HOLD,
+   no earnings within 5 days, no overlap with existing positions
+3. For top N (default 10), submits Alpaca **bracket orders** with the
+   stop-loss and take-profit from the recommendation's risk_management
+4. Logs every decision (submitted or skipped) to `data/paper_trading.db`
+
+`--dry-run` evaluates and logs but does NOT submit.
+
+### `paper evaluate [--days N]`
+Reconciles closed Alpaca positions with our recommendation log, then prints:
+
+  - Win rate per score bucket (<50, 50-59, 60-69, 70-79, 80+)
+  - Avg & median realized P&L % per bucket
+  - One-line **verdict**: "score appears predictive / anti-predictive / inconclusive"
+
+If score 70+ doesn't beat score 50-59 across enough trades, the strategy
+weights need to be re-thought. That's the entire point of this loop.
+
+## Setup
+
+Add to `.env`:
+
+```
+ALPACA_API_KEY=your_paper_api_key
+ALPACA_API_SECRET=your_paper_api_secret
+```
+
+Get keys at https://app.alpaca.markets/paper/dashboard/overview (free, no funding).
+
+## Workflow
+
+```
+# Initial setup — daily/weekly:
+python -m src.main paper trade --strategy momentum --top 10
+# ...wait days/weeks for trades to close via stop or target...
+python -m src.main paper sync          # mirror current state
+python -m src.main paper evaluate      # see if scoring is predictive
+```
+
+## Constraints to know
+
+- **Whole-share qty only**: Alpaca bracket orders don't support fractional
+  shares. Stocks too expensive for 1 share within `--max-per-order` are skipped.
+- **Earnings blackout**: paper trade refuses to enter trades within 5 days of
+  earnings (configurable via `--earnings-blackout`). Earnings volatility would
+  pollute the calibration data.
+- **Slippage is simulated**: paper fills won't match real-world execution.
+  Use this for *decision-quality* validation, not execution validation.
+
+## Database location
+
+`data/paper_trading.db` — separate from `data/cache.db`, so clearing analysis
+cache never wipes your validation history.
+"""
+    console.print(Markdown(text))
+
+
+# =============================================================================
+# TOPIC: Schedule
+# =============================================================================
+def _help_schedule():
+    text = """
+# Automated Scheduling (Windows Task Scheduler)
+
+## Why automate
+
+The validation loop only delivers a verdict after enough trades have closed.
+Running `paper trade` weekly accumulates ~50 trades in 2-3 months — a sample
+size where the calibration buckets actually mean something.
+
+## Default schedule
+
+Three Windows Scheduled Tasks under `\\StockScanner\\`:
+
+| Task                   | When                           | Command          |
+|------------------------|--------------------------------|------------------|
+| StockScanner-Trade     | Sunday 18:00 (local)           | paper trade      |
+| StockScanner-Sync      | Mon-Fri 23:30 (post US close)  | paper sync       |
+| StockScanner-Evaluate  | Mon-Fri 09:00                  | paper evaluate   |
+
+23:30 local is ~30 min after US market close in summer (Israel time, UTC+3).
+Adjust to your timezone if needed.
+
+## Install
+
+```powershell
+# From the project root, in PowerShell:
+.\\scripts\\install_schedule.ps1
+
+# Customize the trade strategy/gating:
+.\\scripts\\install_schedule.ps1 -Strategy short_term_momentum -Top 5 -MinScore 65
+
+# Replace existing tasks:
+.\\scripts\\install_schedule.ps1 -Force
+```
+
+No admin rights required — tasks run as the current user.
+
+## Inspect / control
+
+```powershell
+# List the tasks
+Get-ScheduledTask -TaskPath '\\StockScanner\\'
+
+# Run a task on demand (no waiting for the trigger)
+Start-ScheduledTask -TaskPath '\\StockScanner\\' -TaskName 'StockScanner-Trade'
+
+# View last run result
+Get-ScheduledTaskInfo -TaskPath '\\StockScanner\\' -TaskName 'StockScanner-Trade'
+```
+
+## Logs
+
+Every run writes to `logs/paper_<subcmd>_<timestamp>.log` with full stdout +
+stderr. Review them after a scheduled run to verify orders submitted and
+nothing crashed.
+
+## Uninstall
+
+```powershell
+.\\scripts\\uninstall_schedule.ps1
+```
+
+## Notes & caveats
+
+- **Your PC must be awake** at trigger time. Tasks have `-StartWhenAvailable`
+  set, so a missed run fires when the machine wakes — but only within ~72h.
+- **Network required** for Alpaca + yfinance API calls.
+- The wrapper script forces `PYTHONIOENCODING=utf-8` so logs render readable
+  on Windows (Rich's box-drawing chars otherwise crash cp1252).
+- If you ever want a different cadence, edit `scripts/install_schedule.ps1`
+  and re-run with `-Force`.
+"""
+    console.print(Markdown(text))
+
+
+# =============================================================================
 # Handler map
 # =============================================================================
 TOPIC_HANDLERS = {
@@ -946,4 +1113,6 @@ TOPIC_HANDLERS = {
     "missing": _help_missing,
     "commands": _help_commands,
     "glossary": _help_glossary,
+    "paper": _help_paper,
+    "schedule": _help_schedule,
 }

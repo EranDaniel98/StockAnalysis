@@ -8,3 +8,4 @@ pyyaml>=6.0
 python-dotenv>=1.0.0
 rich>=13.0.0
 requests>=2.31.0
+alpaca-py>=0.30.0
