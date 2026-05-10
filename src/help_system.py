@@ -27,6 +27,7 @@ TOPICS = {
     "glossary":    "Key financial terms explained",
     "paper":       "Alpaca paper trading: closed-loop validation of decision quality",
     "schedule":    "Run paper commands automatically via Windows Task Scheduler",
+    "backtest":    "Walk-forward backtest: replay scoring engine over historical data",
 }
 
 
@@ -1098,6 +1099,90 @@ nothing crashed.
 
 
 # =============================================================================
+# TOPIC: Backtest
+# =============================================================================
+def _help_backtest():
+    text = """
+# Backtest - Replay the scoring engine on historical data
+
+## Why backtest
+
+Paper trading answers "is the score predictive?" but takes months to build a
+sample. **Backtest** runs the same scoring engine against past data and gets
+hundreds of trades overnight - the only realistic way to tune the system.
+
+The output is the **calibration table**: average return per score bucket
+(<50, 50-59, 60-69, 70-79, 80+). If higher buckets don't have higher returns,
+the scoring rules need work, not the universe.
+
+## Look-ahead prevention
+
+For every "as-of" date in the backtest, each ticker's DataFrame is sliced to
+`df.loc[:as_of_date]` BEFORE being passed to analyzers. The analyzers literally
+cannot see future bars.
+
+## What is NOT prevented (yet)
+
+`yfinance` only exposes **current** fundamentals - not historical point-in-time.
+A 2023 backtest reads 2026 fundamentals, which makes results **optimistic** when
+the strategy weights fundamentals heavily. The output prints a warning when this
+applies. Workaround: stick to technical-heavy strategies, or upgrade to a paid
+data provider (Sharadar, FMP) for true point-in-time fundamentals.
+
+## Quick start
+
+```bash
+# Default: long_term_growth strategy on watchlist, last 3 years
+uv run python -m src.main backtest
+
+# Pick strategy and window
+uv run python -m src.main backtest --strategy short_term_momentum --years 2
+
+# Custom tickers
+uv run python -m src.main backtest --tickers AAPL,MSFT,GOOG,NVDA --years 5
+
+# Tweak gating
+uv run python -m src.main backtest --min-score 70 --hold-days 60
+
+# Save full results JSON
+uv run python -m src.main backtest --save data/backtest_results.json
+```
+
+## Knobs
+
+- `--strategy`        which strategy's weights to use
+- `--universe`        watchlist | portfolio | themes
+- `--tickers`         override universe with comma-separated list
+- `--years`           backtest window length (default 3)
+- `--start / --end`   explicit dates instead of --years
+- `--min-score`       minimum composite score to enter a trade
+- `--hold-days`       max days to hold before timeout exit (default 90)
+- `--cash`            starting simulated cash (default $10000)
+- `--max-positions`   max simultaneous open positions (default 20)
+- `--position-pct`    % of starting cash per position (default 0.10)
+- `--save`            JSON output path
+
+## How to read the output
+
+1. **Summary** - total return, vs SPY, win rate, expectancy. Beating SPY net of
+   trading is the bar.
+2. **Calibration table** - the actual decision-quality signal. The top row's
+   avg-return should clearly exceed the bottom rows. If it doesn't, no number
+   of trades will save you.
+3. **Verdict** - one-line summary comparing high (>=70) vs low (<60) buckets.
+
+## What to do with results
+
+- If high-bucket returns don't exceed low-bucket returns: the scoring is broken.
+  Don't increase position size. Look at #2-#6 deferred improvements
+  (regime filter, sector-relative scoring, RS, drop analyst, smooth curves).
+- If high-bucket returns clearly beat low-bucket: paper-trade for a month
+  to confirm it holds in live data, then size up cautiously.
+"""
+    console.print(Markdown(text))
+
+
+# =============================================================================
 # Handler map
 # =============================================================================
 TOPIC_HANDLERS = {
@@ -1115,4 +1200,5 @@ TOPIC_HANDLERS = {
     "glossary": _help_glossary,
     "paper": _help_paper,
     "schedule": _help_schedule,
+    "backtest": _help_backtest,
 }

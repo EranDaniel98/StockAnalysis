@@ -149,6 +149,38 @@ def main():
     p_boot.add_argument("--yes", action="store_true",
                         help="Actually submit (default is preview-only)")
 
+    # --- backtest command ---
+    bt_parser = subparsers.add_parser(
+        "backtest",
+        help="Walk-forward backtest of the scoring engine over historical data",
+    )
+    bt_parser.add_argument("--strategy", "-s", type=str, default=None)
+    bt_parser.add_argument("--universe", type=str, default="watchlist",
+                           choices=["watchlist", "portfolio", "themes"],
+                           help="Ticker universe to test against")
+    bt_parser.add_argument("--tickers", type=str, default=None,
+                           help="Comma-separated tickers (overrides --universe)")
+    bt_parser.add_argument("--years", type=float, default=3.0,
+                           help="Backtest window length (default 3 years)")
+    bt_parser.add_argument("--start", type=str, default=None,
+                           help="Start date YYYY-MM-DD (overrides --years)")
+    bt_parser.add_argument("--end", type=str, default=None,
+                           help="End date YYYY-MM-DD (default: today)")
+    bt_parser.add_argument("--min-score", type=float, default=None, dest="min_score",
+                           help="Minimum composite to enter a trade")
+    bt_parser.add_argument("--hold-days", type=int, default=90, dest="hold_days",
+                           help="Max days to hold before timeout exit (default 90)")
+    bt_parser.add_argument("--cash", type=float, default=10000.0,
+                           help="Starting simulated cash (default $10000)")
+    bt_parser.add_argument("--max-positions", type=int, default=20, dest="max_positions",
+                           help="Max simultaneous open positions (default 20)")
+    bt_parser.add_argument("--position-pct", type=float, default=0.10, dest="position_pct",
+                           help="Fraction of starting cash per position (default 0.10)")
+    bt_parser.add_argument("--compound", action="store_true",
+                           help="Compound: budget = (cash + book value) * position-pct (default off)")
+    bt_parser.add_argument("--save", type=str, default=None,
+                           help="Optional JSON path to save full results")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -186,6 +218,8 @@ def main():
         cmd_cache(config, args)
     elif args.command == "paper":
         cmd_paper(config, args)
+    elif args.command == "backtest":
+        cmd_backtest(config, args)
 
 
 def _build_cache(config, args):
@@ -569,6 +603,91 @@ def cmd_paper(config, args):
     elif sub == "bootstrap":
         from src.paper.bootstrap import run_paper_bootstrap
         run_paper_bootstrap(config, args)
+
+
+def cmd_backtest(config, args):
+    """Walk-forward backtest of the scoring engine over historical data."""
+    import json
+    import pandas as pd
+
+    from src.backtest.engine import BacktestConfig, run_backtest
+    from src.backtest.display import display_backtest_results
+
+    strategy_name = args.strategy or config.strategies.get("default_strategy", "long_term_growth")
+    strategy = config.get_strategy(strategy_name)
+
+    # Resolve universe
+    if args.tickers:
+        tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        universe_label = f"custom ({len(tickers)} tickers)"
+    elif args.universe == "portfolio":
+        from src.portfolio import Portfolio
+        tickers = Portfolio(config).get_tickers()
+        universe_label = f"portfolio ({len(tickers)})"
+    elif args.universe == "themes":
+        tickers = config.get_theme_tickers()
+        universe_label = f"themes ({len(tickers)})"
+    else:
+        tickers = config.get_watchlist()
+        universe_label = f"watchlist ({len(tickers)})"
+
+    if not tickers:
+        console.print(f"[red]No tickers found for universe '{args.universe}'[/red]")
+        return
+
+    # Resolve dates
+    end = pd.Timestamp(args.end) if args.end else pd.Timestamp.now().normalize()
+    start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=int(365.25 * args.years))
+
+    # Need extra history before start_date for SMA200 etc.
+    fetch_period_years = max(args.years + 2, 5)
+    fetch_period = f"{int(fetch_period_years)}y"
+
+    console.print(f"\n[bold cyan]Backtest[/bold cyan]")
+    console.print(f"  Strategy: [bold]{strategy_name}[/bold]")
+    console.print(f"  Universe: [bold]{universe_label}[/bold]")
+    console.print(f"  Window:   {start.strftime('%Y-%m-%d')} -> {end.strftime('%Y-%m-%d')}")
+    console.print(f"  Min score: {args.min_score or strategy.get('min_score', 65)}\n")
+
+    # Fetch data
+    cache = _build_cache(config, args)
+    fetcher = DataFetcher(config, cache)
+    fund_fetcher = FundamentalsFetcher(config, cache)
+
+    console.print("[bold]Fetching price history...[/bold]")
+    price_data = fetcher.fetch_batch(tickers, period=fetch_period)
+    console.print(f"  Got price data for {len(price_data)}/{len(tickers)} tickers")
+
+    console.print("[bold]Fetching fundamentals (current snapshot)...[/bold]")
+    fundamentals = fund_fetcher.fetch_batch(tickers)
+    console.print(f"  Got fundamentals for {len(fundamentals)}/{len(tickers)} tickers\n")
+
+    # SPY benchmark
+    console.print("[bold]Fetching SPY benchmark...[/bold]")
+    spy_map = fetcher.fetch_batch(["SPY"], period=fetch_period)
+    spy_df = spy_map.get("SPY")
+
+    # Build engine config
+    bt_cfg = BacktestConfig(
+        start_date=start,
+        end_date=end,
+        min_score=args.min_score if args.min_score is not None else strategy.get("min_score", 65),
+        max_open_positions=args.max_positions,
+        max_position_pct=args.position_pct,
+        starting_cash=args.cash,
+        max_hold_days=args.hold_days,
+        compound=getattr(args, "compound", False),
+    )
+
+    result = run_backtest(price_data, fundamentals, config, strategy, bt_cfg, spy_df=spy_df)
+    display_backtest_results(result, strategy_name, universe_label)
+
+    if args.save:
+        out_path = Path(args.save)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, default=str)
+        console.print(f"\n[dim]Full results saved to {out_path}[/dim]")
 
 
 def _analyze_and_score(price_data_map, fundamentals_map, config, strategy):
