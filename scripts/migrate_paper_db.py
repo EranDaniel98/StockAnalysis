@@ -209,6 +209,16 @@ async def migrate(source: Path, dry_run: bool) -> None:
         sys.exit(2)
 
 
+async def _run(source: Path, dry_run: bool) -> None:
+    """Single async context — covers migration AND engine disposal so we don't
+    spin up a second event loop just to dispose() (which trips a known asyncpg
+    + Windows ProactorEventLoop close race)."""
+    try:
+        await migrate(source, dry_run)
+    finally:
+        await dispose_engine()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -223,11 +233,7 @@ def main() -> None:
         help="Read source counts; do not write to Postgres",
     )
     args = parser.parse_args()
-
-    try:
-        asyncio.run(migrate(args.source, args.dry_run))
-    finally:
-        asyncio.run(dispose_engine())
+    asyncio.run(_run(args.source, args.dry_run))
 
 
 if __name__ == "__main__":
