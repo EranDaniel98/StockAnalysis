@@ -20,8 +20,8 @@ import yfinance as yf
 from rich.table import Table
 from rich import box
 
-from src.broker.alpaca_client import AlpacaClient, AlpacaClientError
-from src.paper.db import PaperDB
+from src.execution.alpaca import AlpacaClient, AlpacaClientError
+from src.execution.paper_db import PaperDB
 from src.display.cli_output import console
 from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher

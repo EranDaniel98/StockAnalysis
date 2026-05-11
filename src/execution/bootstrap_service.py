@@ -17,7 +17,7 @@ import logging
 from rich.table import Table
 from rich import box
 
-from src.broker.alpaca_client import AlpacaClient, AlpacaClientError
+from src.execution.alpaca import AlpacaClient, AlpacaClientError
 from src.portfolio import Portfolio
 from src.data.fetcher import DataFetcher
 from src.data.cache import DataCache

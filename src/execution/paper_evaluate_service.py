@@ -17,8 +17,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from src.broker.alpaca_client import AlpacaClient, AlpacaClientError
-from src.paper.db import PaperDB
+from src.execution.alpaca import AlpacaClient, AlpacaClientError
+from src.execution.paper_db import PaperDB
 from src.display.cli_output import console
 
 logger = logging.getLogger(__name__)
