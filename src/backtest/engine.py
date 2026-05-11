@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-from src.analysis import technical, fundamental, patterns, statistical
+from src.analysis import technical, fundamental, patterns, statistical, alpha158
+from src.analysis import pead as pead_module
 from src.analysis.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.backtest.portfolio import SimPortfolio
@@ -93,6 +94,39 @@ def fetch_earnings_dates(tickers: list[str], workers: int = 8) -> dict[str, list
     return results
 
 
+def fetch_earnings_history(tickers: list[str], workers: int = 8) -> dict[str, pd.DataFrame]:
+    """
+    Fetch full earnings-history DataFrames (with surprise %) per ticker. Used
+    by PEAD detector. Parallelized; falls back to empty DataFrame on failure.
+    """
+    import yfinance as yf
+
+    def _fetch_one(t):
+        try:
+            df = yf.Ticker(t).get_earnings_dates(limit=40)
+            if df is None or df.empty:
+                return t, pd.DataFrame()
+            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+                df = df.copy()
+                df.index = df.index.tz_localize(None)
+            return t, df
+        except Exception as e:
+            logger.debug(f"Earnings history fetch failed for {t}: {e}")
+            return t, pd.DataFrame()
+
+    results: dict[str, pd.DataFrame] = {}
+    workers = max(1, min(workers, len(tickers)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_fetch_one, t) for t in tickers]
+        for fut in as_completed(futures):
+            try:
+                t, df = fut.result()
+                results[t] = df
+            except Exception:
+                pass
+    return results
+
+
 def _is_in_earnings_blackout(
     ticker: str,
     day: pd.Timestamp,
@@ -125,8 +159,16 @@ def _atr(df: pd.DataFrame, period: int = 14) -> float:
     return float(val) if pd.notna(val) else 0.0
 
 
-def _score_ticker(ticker: str, df_slice: pd.DataFrame, fund: dict, config, strategy: dict) -> Optional[dict]:
-    """Run all 5 analyzers on a sliced df and return composite score result + ATR."""
+def _score_ticker(
+    ticker: str,
+    df_slice: pd.DataFrame,
+    fund: dict,
+    config,
+    strategy: dict,
+    earnings_hist: Optional[pd.DataFrame] = None,
+    as_of_date: Optional[pd.Timestamp] = None,
+) -> Optional[dict]:
+    """Run all analyzers on a sliced df and return composite score result + ATR."""
     if df_slice is None or len(df_slice) < 50:
         return None
     try:
@@ -135,7 +177,17 @@ def _score_ticker(ticker: str, df_slice: pd.DataFrame, fund: dict, config, strat
         pat = patterns.analyze(df_slice, config)
         stat = statistical.analyze(df_slice, config)
         trnd = analyze_stock_trend(df_slice, fund, config)
-        score_result = calculate_composite_score(tech, fnd, pat, stat, trnd, strategy)
+        # Alpha158 needs 260+ bars; gracefully degrades to None when too short
+        a158 = alpha158.analyze(df_slice, config) if len(df_slice) >= 260 else None
+        # PEAD if we have earnings history; otherwise None (no bonus)
+        pd_result = None
+        if earnings_hist is not None and not earnings_hist.empty:
+            pd_result = pead_module.analyze(ticker, earnings_hist, as_of_date=as_of_date)
+        score_result = calculate_composite_score(
+            tech, fnd, pat, stat, trnd, strategy,
+            alpha158_result=a158,
+            pead_result=pd_result,
+        )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
         return score_result
@@ -182,6 +234,7 @@ def run_backtest(
     spy_df: Optional[pd.DataFrame] = None,
     vix_df: Optional[pd.DataFrame] = None,
     earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
+    earnings_history: Optional[dict[str, pd.DataFrame]] = None,
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
@@ -189,6 +242,7 @@ def run_backtest(
     """
     warnings: list[str] = []
     earnings_dates = earnings_dates or {}
+    earnings_history = earnings_history or {}
     skipped_earnings = 0
 
     # Normalize all indices once
@@ -268,7 +322,11 @@ def run_backtest(
                     if len(df_slice) < bt_cfg.min_history_bars:
                         continue
                     fund = fundamentals.get(ticker, {}) or {}
-                    futures[ex.submit(_score_ticker, ticker, df_slice, fund, config, strategy)] = ticker
+                    eh = earnings_history.get(ticker)
+                    futures[ex.submit(
+                        _score_ticker, ticker, df_slice, fund, config, strategy,
+                        eh, as_of,
+                    )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]
                     try:

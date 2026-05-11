@@ -58,6 +58,10 @@ def analyze(df, config):
     stoch_score = _calc_stochastic(high, low, close, config, indicators, signals)
     scores.append(stoch_score)
 
+    # --- Clenow regression-slope momentum (slope * R^2) ---
+    clenow_score = _calc_regression_slope_momentum(close, config, indicators, signals)
+    scores.append(clenow_score)
+
     # --- ATR (for risk management, not scored) ---
     _calc_atr(high, low, close, config, indicators)
 
@@ -328,3 +332,64 @@ def _calc_atr(high, low, close, config, indicators):
 
     indicators["atr"] = round(float(atr.iloc[-1]), 2)
     indicators["atr_pct"] = round(float(atr.iloc[-1] / close.iloc[-1] * 100), 2)
+
+
+def _calc_regression_slope_momentum(close, config, indicators, signals):
+    """
+    Clenow's "Stocks on the Move" momentum: annualized exponential regression
+    slope multiplied by R^2 of the fit. Penalizes choppy moves, rewards smooth
+    trends. Audited via Alpha Architect's QMOM ETF methodology family and
+    independently replicated on QuantConnect.
+
+    Returns a score in [0, 100]; 50 is neutral.
+    """
+    period = config.get("technical_indicators", "regression_momentum", "period", default=90)
+    if len(close) < period + 1:
+        return None
+
+    series = close.iloc[-period:].astype(float).to_numpy()
+    if (series <= 0).any():
+        return None
+
+    log_prices = np.log(series)
+    x = np.arange(period)
+    # Least-squares slope and intercept
+    x_mean = x.mean()
+    y_mean = log_prices.mean()
+    slope = ((x - x_mean) * (log_prices - y_mean)).sum() / ((x - x_mean) ** 2).sum()
+    # R^2
+    y_pred = y_mean + slope * (x - x_mean)
+    ss_res = ((log_prices - y_pred) ** 2).sum()
+    ss_tot = ((log_prices - y_mean) ** 2).sum()
+    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    # Annualized continuously-compounded return
+    annualized_slope_pct = (np.exp(slope * 252) - 1) * 100
+    clenow_score_raw = annualized_slope_pct * r_squared
+
+    indicators["regression_slope_pct"] = round(float(annualized_slope_pct), 2)
+    indicators["regression_r_squared"] = round(float(r_squared), 3)
+    indicators["clenow_momentum"] = round(float(clenow_score_raw), 2)
+
+    # Map raw Clenow score to 0-100. A score of 0 = 50. A score of +50 = ~80.
+    # Empirically S&P 500 leaders cluster in the +20 to +100 range.
+    if clenow_score_raw <= 0:
+        score = max(20.0, 50.0 + clenow_score_raw)  # negative trends pull below 50
+    else:
+        # Diminishing-returns mapping: 50 + 30 * (1 - exp(-x/40))
+        score = 50.0 + 30.0 * (1.0 - np.exp(-clenow_score_raw / 40.0))
+
+    if clenow_score_raw > 40 and r_squared > 0.7:
+        signals.append({
+            "type": "bullish",
+            "source": "ClenowMomentum",
+            "detail": f"Smooth uptrend: slope {annualized_slope_pct:.0f}%/yr, R^2 {r_squared:.2f}",
+        })
+    elif clenow_score_raw < -40 and r_squared > 0.7:
+        signals.append({
+            "type": "bearish",
+            "source": "ClenowMomentum",
+            "detail": f"Smooth downtrend: slope {annualized_slope_pct:.0f}%/yr, R^2 {r_squared:.2f}",
+        })
+
+    return float(score)

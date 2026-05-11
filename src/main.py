@@ -26,7 +26,7 @@ from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher
 from src.data.fundamentals import FundamentalsFetcher
 from src.data.screener import StockScreener
-from src.analysis import technical, fundamental, patterns, statistical
+from src.analysis import technical, fundamental, patterns, statistical, alpha158
 from src.analysis.trend_detector import analyze_stock_trend, detect_trending_sectors
 from src.scoring.engine import calculate_composite_score, batch_score
 from src.scoring.recommender import generate_recommendation, check_diversification, allocate_portfolio
@@ -201,8 +201,31 @@ def main():
                                 "'min_score=55,60;atr_stop_mult=1.5,2'")
     bt_parser.add_argument("--html-report", type=str, default=None, dest="html_report",
                            help="Render charts as embedded base64 PNGs in a self-contained HTML file")
+    bt_parser.add_argument("--quantstats-report", type=str, default=None, dest="quantstats_report",
+                           help="Render a quantstats tearsheet (canonical retail tearsheet library) to HTML path")
     bt_parser.add_argument("--save", type=str, default=None,
                            help="Optional JSON path to save full results")
+
+    # --- diagnose command (alphalens IC analysis) ---
+    diag_parser = subparsers.add_parser(
+        "diagnose",
+        help="Alphalens IC diagnostic — does our composite score predict forward returns?",
+    )
+    diag_parser.add_argument("--strategy", "-s", type=str, default=None)
+    diag_parser.add_argument("--universe", type=str, default="themes",
+                             choices=["watchlist", "portfolio", "themes"])
+    diag_parser.add_argument("--tickers", type=str, default=None,
+                             help="Comma-separated tickers (overrides --universe)")
+    diag_parser.add_argument("--years", type=float, default=3.0)
+    diag_parser.add_argument("--factor", type=str, default="composite",
+                             choices=["composite", "technical", "fundamental", "pattern",
+                                      "statistical", "trend", "alpha158"],
+                             help="Which sub-score to analyze (default composite)")
+    diag_parser.add_argument("--quantiles", type=int, default=5)
+    diag_parser.add_argument("--periods", type=str, default="1,5,21",
+                             help="Forward-return periods in days, comma-separated")
+    diag_parser.add_argument("--html-report", type=str, default=None, dest="html_report")
+    diag_parser.add_argument("--accept-lookahead", action="store_true", dest="accept_lookahead")
 
     args = parser.parse_args()
 
@@ -243,6 +266,8 @@ def main():
         cmd_paper(config, args)
     elif args.command == "backtest":
         cmd_backtest(config, args)
+    elif args.command == "diagnose":
+        cmd_diagnose(config, args)
 
 
 def _build_cache(config, args):
@@ -322,7 +347,7 @@ def cmd_scan(config, args):
     # Portfolio allocation if budget specified
     budget = getattr(args, "budget", None)
     if budget:
-        plan = allocate_portfolio(recommendations, budget, config)
+        plan = allocate_portfolio(recommendations, budget, config, strategy=strategy)
         display_investment_plan(plan)
     else:
         # Just show diversification warnings
@@ -359,7 +384,7 @@ def cmd_analyze(config, args):
 
     budget = getattr(args, "budget", None)
     if budget:
-        plan = allocate_portfolio(recommendations, budget, config)
+        plan = allocate_portfolio(recommendations, budget, config, strategy=strategy)
         display_investment_plan(plan)
 
 
@@ -425,7 +450,7 @@ def cmd_watchlist(config, args):
 
     budget = getattr(args, "budget", None)
     if budget:
-        plan = allocate_portfolio(recommendations, budget, config)
+        plan = allocate_portfolio(recommendations, budget, config, strategy=strategy)
         display_investment_plan(plan)
     else:
         warnings = check_diversification(recommendations, config)
@@ -500,7 +525,7 @@ def cmd_portfolio(config, args):
 
         if budget and budget > 0:
             # Portfolio-aware allocation: factor in existing sector exposure
-            plan = allocate_portfolio(recommendations, budget, config)
+            plan = allocate_portfolio(recommendations, budget, config, strategy=strategy)
             if plan["allocations"]:
                 console.print(
                     "\n  [bold cyan]How to invest your available cash"
@@ -633,7 +658,10 @@ def cmd_backtest(config, args):
     import json
     import pandas as pd
 
-    from src.backtest.engine import BacktestConfig, LookaheadGuardError, fetch_earnings_dates, run_backtest
+    from src.backtest.engine import (
+        BacktestConfig, LookaheadGuardError,
+        fetch_earnings_dates, fetch_earnings_history, run_backtest,
+    )
     from src.backtest.display import display_backtest_results
 
     strategy_name = args.strategy or config.strategies.get("default_strategy", "long_term_growth")
@@ -691,13 +719,22 @@ def cmd_backtest(config, args):
     spy_df = bench_map.get("SPY")
     vix_df = bench_map.get("^VIX")
 
-    # Earnings dates for blackout (skip if disabled)
+    # Earnings dates for blackout + earnings history for PEAD detector
     earnings_dates = {}
-    if args.earnings_blackout > 0:
-        console.print(f"[bold]Fetching earnings dates (±{args.earnings_blackout}d blackout)...[/bold]")
-        earnings_dates = fetch_earnings_dates(list(price_data.keys()))
-        with_dates = sum(1 for v in earnings_dates.values() if v)
-        console.print(f"  Got earnings dates for {with_dates}/{len(price_data)} tickers\n")
+    earnings_history = {}
+    need_earnings = args.earnings_blackout > 0
+    console.print("[bold]Fetching earnings history (PEAD + blackout)...[/bold]")
+    earnings_history = fetch_earnings_history(list(price_data.keys()))
+    with_history = sum(1 for v in earnings_history.values() if v is not None and not v.empty)
+    console.print(f"  Got earnings history for {with_history}/{len(price_data)} tickers")
+    # Derive blackout date list from history (avoids second yfinance call)
+    if need_earnings:
+        for t, df_h in earnings_history.items():
+            if df_h is None or df_h.empty:
+                earnings_dates[t] = []
+            else:
+                earnings_dates[t] = sorted(df_h.index.tolist())
+    print()
 
     # Build engine config
     bt_cfg = BacktestConfig(
@@ -766,7 +803,9 @@ def cmd_backtest(config, args):
     try:
         result = run_backtest(
             price_data, fundamentals, config, strategy, bt_cfg,
-            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+            spy_df=spy_df, vix_df=vix_df,
+            earnings_dates=earnings_dates,
+            earnings_history=earnings_history,
         )
     except LookaheadGuardError as e:
         console.print(f"\n[red]LOOKAHEAD GUARD:[/red] {e}\n")
@@ -783,12 +822,169 @@ def cmd_backtest(config, args):
         report_path = render_html_report(result, strategy_name, universe_label, args.html_report)
         console.print(f"\n[bold green]HTML report saved to {report_path}[/bold green]")
 
+    if args.quantstats_report:
+        from src.diagnostic.quantstats_runner import render_quantstats_report
+        try:
+            qs_path = render_quantstats_report(
+                result.get("equity_curve", []),
+                args.quantstats_report,
+                title=f"{strategy_name} on {universe_label}",
+            )
+            console.print(f"[bold green]Quantstats tearsheet saved to {qs_path}[/bold green]")
+        except Exception as e:
+            console.print(f"[red]Quantstats report failed: {e}[/red]")
+
     if args.save:
         out_path = Path(args.save)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, default=str)
         console.print(f"\n[dim]Full results saved to {out_path}[/dim]")
+
+
+def cmd_diagnose(config, args):
+    """Alphalens IC diagnostic — does the composite score predict forward returns?"""
+    import json
+    import pandas as pd
+    from src.diagnostic.alphalens_runner import (
+        build_score_panel, build_price_matrix, run_alphalens, render_html_report,
+    )
+    from src.backtest.engine import (
+        BacktestConfig, LookaheadGuardError, fetch_earnings_history,
+    )
+
+    strategy_name = args.strategy or config.strategies.get("default_strategy", "swing_trading")
+    strategy = config.get_strategy(strategy_name)
+
+    # Gate fundamentals lookahead — same guard as backtest
+    fund_weight = strategy.get("weights", {}).get("fundamental", 0)
+    if fund_weight > 0.05 and not args.accept_lookahead:
+        console.print(
+            f"\n[red]LOOKAHEAD GUARD:[/red] strategy weights fundamentals at "
+            f"{fund_weight*100:.0f}%. yfinance is current-snapshot.\n"
+            "[yellow]Use a low-fundamental strategy (short_term_momentum, swing_trading) "
+            "or pass --accept-lookahead.[/yellow]\n"
+        )
+        return
+
+    # Resolve universe
+    if args.tickers:
+        tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+        universe_label = f"custom ({len(tickers)})"
+    elif args.universe == "portfolio":
+        from src.portfolio import Portfolio
+        tickers = Portfolio(config).get_tickers()
+        universe_label = f"portfolio ({len(tickers)})"
+    elif args.universe == "themes":
+        tickers = config.get_theme_tickers()
+        universe_label = f"themes ({len(tickers)})"
+    else:
+        tickers = config.get_watchlist()
+        universe_label = f"watchlist ({len(tickers)})"
+
+    if not tickers:
+        console.print(f"[red]No tickers found for universe '{args.universe}'[/red]")
+        return
+
+    end = pd.Timestamp.now().normalize()
+    start = end - pd.Timedelta(days=int(365.25 * args.years))
+    fetch_period_years = max(args.years + 2, 5)
+    fetch_period = f"{int(fetch_period_years)}y"
+
+    console.print(f"\n[bold cyan]Alphalens IC Diagnostic[/bold cyan]")
+    console.print(f"  Strategy: [bold]{strategy_name}[/bold]")
+    console.print(f"  Universe: [bold]{universe_label}[/bold]")
+    console.print(f"  Window:   {start.strftime('%Y-%m-%d')} -> {end.strftime('%Y-%m-%d')}")
+    console.print(f"  Factor:   [bold]{args.factor}[/bold]   Quantiles: {args.quantiles}\n")
+
+    cache = _build_cache(config, args)
+    fetcher = DataFetcher(config, cache)
+    fund_fetcher = FundamentalsFetcher(config, cache)
+
+    console.print("[bold]Fetching price history...[/bold]")
+    price_data = fetcher.fetch_batch(tickers, period=fetch_period)
+    console.print(f"  Got prices for {len(price_data)}/{len(tickers)} tickers")
+
+    console.print("[bold]Fetching fundamentals (snapshot)...[/bold]")
+    fundamentals = fund_fetcher.fetch_batch(tickers)
+
+    console.print("[bold]Fetching earnings history...[/bold]")
+    earnings_history = fetch_earnings_history(list(price_data.keys()))
+
+    console.print("[bold]Building score panel (this is the slow part)...[/bold]")
+    try:
+        panel = build_score_panel(
+            price_data, fundamentals, earnings_history,
+            config, strategy, start, end,
+        )
+    except LookaheadGuardError as e:
+        console.print(f"[red]Lookahead blocked: {e}[/red]")
+        return
+
+    console.print(f"  Built panel: {len(panel)} (date, ticker) rows")
+
+    if panel.empty:
+        console.print("[red]Empty panel — nothing to analyze[/red]")
+        return
+
+    console.print("[bold]Building price matrix...[/bold]")
+    prices = build_price_matrix(price_data, panel["date"].min(), end + pd.Timedelta(days=30))
+    console.print(f"  Price matrix: {prices.shape}")
+
+    periods = tuple(int(p.strip()) for p in args.periods.split(","))
+
+    console.print("[bold]Running alphalens IC analysis...[/bold]\n")
+    stats = run_alphalens(panel, prices, factor_column=args.factor,
+                          periods=periods, quantiles=args.quantiles)
+
+    # Display
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    ic_table = Table(title=f"Information Coefficient — factor: {args.factor}", box=box.ROUNDED)
+    ic_table.add_column("Horizon", style="bold")
+    ic_table.add_column("IC mean", justify="right")
+    ic_table.add_column("IC std", justify="right")
+    ic_table.add_column("IC IR", justify="right", style="bold yellow")
+    for h in stats["ic_mean"]:
+        ic_table.add_row(
+            h,
+            f"{stats['ic_mean'][h]:+.4f}",
+            f"{stats['ic_std'][h]:.4f}",
+            f"{stats['ic_ir'][h]:+.3f}",
+        )
+    console.print(ic_table)
+
+    spread_table = Table(title="Top-Minus-Bottom Quantile Spread", box=box.ROUNDED)
+    spread_table.add_column("Horizon", style="bold")
+    spread_table.add_column("Spread (%)", justify="right", style="bold yellow")
+    for h, v in stats["top_minus_bottom_pct"].items():
+        spread_table.add_row(h, f"{v:+.3f}%")
+    console.print(spread_table)
+
+    # Verdict
+    best_ic = max(stats["ic_mean"].values()) if stats["ic_mean"] else 0
+    if best_ic > 0.05:
+        verdict = f"STRONG signal (best IC {best_ic:+.4f}). Worth scaling capital."
+        style = "bold green"
+    elif best_ic > 0.03:
+        verdict = f"MODEST signal (best IC {best_ic:+.4f}). Edge exists; manage costs."
+        style = "bold yellow"
+    elif best_ic > 0.01:
+        verdict = f"WEAK signal (best IC {best_ic:+.4f}). Probably not exploitable after costs."
+        style = "bold red"
+    else:
+        verdict = f"NO signal (best IC {best_ic:+.4f}). Composite score is noise; redesign needed."
+        style = "bold red"
+    console.print(Panel(verdict, title="IC Verdict", box=box.ROUNDED, style=style))
+    console.print(f"\n[dim]Sample size: {stats['n_observations']:,} observations.[/dim]")
+
+    if args.html_report:
+        out = render_html_report(panel, prices, args.html_report,
+                                  factor_column=args.factor, periods=periods,
+                                  quantiles=args.quantiles)
+        console.print(f"\n[bold green]Full report saved to {out}[/bold green]")
 
 
 def _analyze_and_score(price_data_map, fundamentals_map, config, strategy):
@@ -809,9 +1005,11 @@ def _analyze_and_score(price_data_map, fundamentals_map, config, strategy):
             pattern_result = patterns.analyze(df, config)
             stat_result = statistical.analyze(df, config)
             trend_result = analyze_stock_trend(df, fund, config)
+            alpha158_result = alpha158.analyze(df, config)
 
             analysis_results[ticker] = {
                 "technical": tech_result,
+                "alpha158": alpha158_result,
                 "fundamental": fund_result,
                 "pattern": pattern_result,
                 "statistical": stat_result,
@@ -834,6 +1032,7 @@ def _analyze_and_score(price_data_map, fundamentals_map, config, strategy):
             price_data_map.get(ticker),
             fundamentals_map.get(ticker),
             config,
+            strategy=strategy,
         )
         recommendations.append(rec)
 

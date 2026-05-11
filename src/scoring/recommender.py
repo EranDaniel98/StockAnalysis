@@ -10,7 +10,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def generate_recommendation(ticker, score_result, price_data, fundamentals, config):
+def generate_recommendation(ticker, score_result, price_data, fundamentals, config, strategy=None):
     """
     Generate a full investment recommendation for a stock.
 
@@ -20,12 +20,16 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
         price_data: DataFrame with OHLCV
         fundamentals: dict of fundamental data
         config: Config object
+        strategy: optional strategy dict — if it contains a `thresholds` block,
+                  those values override the global ones (per-strategy calibration)
 
     Returns:
         dict with action, confidence, reasoning, risk management params
     """
     composite = score_result["composite_score"]
-    thresholds = config.get_scoring_thresholds()
+    thresholds = dict(config.get_scoring_thresholds())
+    if strategy:
+        thresholds.update(strategy.get("thresholds", {}) or {})
 
     # --- Determine Action ---
     action, confidence = _determine_action(composite, thresholds)
@@ -364,7 +368,7 @@ def check_diversification(recommendations, config):
     return warnings
 
 
-def allocate_portfolio(recommendations, budget, config):
+def allocate_portfolio(recommendations, budget, config, strategy=None):
     """
     Allocate a budget across BUY/STRONG BUY stocks using score-weighted sizing.
 
@@ -372,6 +376,7 @@ def allocate_portfolio(recommendations, budget, config):
         recommendations: list of recommendation dicts (sorted by score)
         budget: total dollar amount to invest
         config: Config object
+        strategy: optional strategy dict for per-strategy threshold overrides
 
     Returns:
         dict with:
@@ -416,7 +421,10 @@ def allocate_portfolio(recommendations, budget, config):
 
     # Calculate raw weights based on composite score
     # Higher score = more allocation
-    min_threshold = config.get_scoring_thresholds().get("buy", 65)
+    thresholds = dict(config.get_scoring_thresholds())
+    if strategy:
+        thresholds.update(strategy.get("thresholds", {}) or {})
+    min_threshold = thresholds.get("buy", 65)
     raw_weights = {}
     for rec in buy_recs:
         # Weight = how far above the buy threshold (squared for stronger emphasis)

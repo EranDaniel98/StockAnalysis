@@ -9,6 +9,8 @@ build/
 .env
 data/cache.db
 data/*.db
+data/*.html
+data/*.json
 .venv/
 venv/
 env/
