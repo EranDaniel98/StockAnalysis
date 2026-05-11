@@ -11,6 +11,8 @@ data/cache.db
 data/*.db
 data/*.html
 data/*.json
+# Phase 0 Stream D — Parquet OHLCV store (generated from migration script)
+data/ohlcv/
 .venv/
 venv/
 env/
