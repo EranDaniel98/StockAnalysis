@@ -14,7 +14,7 @@ import yaml
 from rich.table import Table
 from rich import box
 
-from src.broker.alpaca_client import AlpacaClient
+from src.execution.alpaca import AlpacaClient
 from src.display.cli_output import console
 
 logger = logging.getLogger(__name__)
