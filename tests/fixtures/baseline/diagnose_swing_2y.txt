@@ -1,0 +1,45 @@
+
+Alphalens IC Diagnostic
+  Strategy: swing_trading
+  Universe: themes (37)
+  Window:   2024-05-11 -> 2026-05-11
+  Factor:   composite   Quantiles: 4
+
+  Market is OPEN — price cache expires every 5 minutes
+Fetching price history...
+2026-05-11 20:11:56 [ERROR] yfinance: $ABB: possibly delisted; no price data found  (period=5y) (Yahoo error = "No data found, symbol may be delisted")
+2026-05-11 20:11:56 [WARNING] src.data.fetcher: No price data returned for ABB
+
+2026-05-11 20:11:56 [INFO] src.data.fetcher: Fetched price data for 36/37 tickers (workers=10)
+  Got prices for 36/37 tickers
+Fetching fundamentals (snapshot)...
+2026-05-11 20:11:57 [WARNING] src.data.fundamentals: No fundamental data for ABB
+
+2026-05-11 20:11:57 [INFO] src.data.fundamentals: Fetched fundamentals for 36/37 tickers (workers=10)
+Fetching earnings history...
+Building score panel (this is the slow part)...
+
+  Built panel: 3780 (date, ticker) rows
+Building price matrix...
+  Price matrix: (1000, 36)
+Running alphalens IC analysis...
+
+Dropped 2.1% entries from factor data: 2.1% in forward returns computation and 0.0% in binning phase (set max_loss=0 to see potentially suppressed Exceptions).
+max_loss is 50.0%, not exceeded: OK!
+  Information Coefficient — factor:   
+              composite               
+┌─────────┬─────────┬────────┬───────┐
+│ Horizon │ IC mean │ IC std │ IC IR │
+├─────────┼─────────┼────────┼───────┤
+└─────────┴─────────┴────────┴───────┘
+    Top-Minus-Bottom    
+    Quantile Spread     
+┌─────────┬────────────┐
+│ Horizon │ Spread (%) │
+├─────────┼────────────┤
+└─────────┴────────────┘
+┌──────────────────────────────── IC Verdict ─────────────────────────────────┐
+│ NO signal (best IC +0.0000). Composite score is noise; redesign needed.     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Sample size: 25,446 observations.

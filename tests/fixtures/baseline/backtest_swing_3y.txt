@@ -1,0 +1,163 @@
+
+Backtest
+  Strategy: swing_trading
+  Universe: themes (37)
+  Window:   2023-05-12 -> 2026-05-11
+  Min score: 50.0
+
+  Market is OPEN — price cache expires every 5 minutes
+Fetching price history...
+2026-05-11 20:05:18 [ERROR] yfinance: $ABB: possibly delisted; no price data found  (period=5y) (Yahoo error = "No data found, symbol may be delisted")
+2026-05-11 20:05:18 [WARNING] src.data.fetcher: No price data returned for ABB
+
+2026-05-11 20:05:18 [INFO] src.data.fetcher: Fetched price data for 36/37 tickers (workers=10)
+  Got price data for 36/37 tickers
+Fetching fundamentals (current snapshot)...
+2026-05-11 20:05:19 [WARNING] src.data.fundamentals: No fundamental data for ABB
+
+2026-05-11 20:05:20 [INFO] src.data.fundamentals: Fetched fundamentals for 36/37 tickers (workers=10)
+  Got fundamentals for 36/37 tickers
+
+Fetching SPY + VIX...
+
+2026-05-11 20:05:21 [INFO] src.data.fetcher: Fetched price data for 2/2 tickers (workers=2)
+Fetching earnings history (PEAD + blackout)...
+  Got earnings history for 36/36 tickers
+
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Backtest Complete                                                           │
+│ Strategy: swing_trading   Universe: themes (37)                             │
+│ Window: 2023-05-12 -> 2026-05-11    OOS split at: 2025-06-16                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                             Returns by Section                              
+┌────────────────────────┬──────────┬─────────────────┬─────────────────────┐
+│ Metric                 │     Full │ In-Sample (70%) │ Out-of-Sample (30%) │
+├────────────────────────┼──────────┼─────────────────┼─────────────────────┤
+│ Trades                 │      488 │             308 │                 180 │
+│ Total return           │ +133.76% │         +87.11% │             +24.93% │
+│ CAGR                   │  +32.74% │         +34.82% │             +28.13% │
+│ Win rate               │    39.8% │           41.2% │               37.2% │
+│ Expectancy / trade     │   +2.96% │          +3.20% │              +2.55% │
+│ Alpha vs SPY (matched) │  +52.91% │         +38.85% │              +2.80% │
+└────────────────────────┴──────────┴─────────────────┴─────────────────────┘
+        Risk-Adjusted Metrics (from weekly equity curve)         
+┌─────────────────────────┬─────────┬───────────┬───────────────┐
+│ Metric                  │    Full │ In-Sample │ Out-of-Sample │
+├─────────────────────────┼─────────┼───────────┼───────────────┤
+│ Annualized Sharpe       │    1.20 │      1.18 │          1.32 │
+│ Annualized Sortino      │    2.17 │      2.25 │          2.06 │
+│ Calmar (CAGR / |MaxDD|) │    1.45 │      1.53 │          1.67 │
+│ Max drawdown            │ -22.16% │   -22.16% │       -17.13% │
+│ Time underwater         │     74% │       74% │           68% │
+│ Annualized volatility   │   26.0% │     28.1% │         20.7% │
+└─────────────────────────┴─────────┴───────────┴───────────────┘
+
+Costs paid (full window): $584.57  (commission $0 / slippage $448 / regulatory 
+$136)
+                 OOS Score-Bucket Calibration (verdict basis)                  
+┌────────┬─────┬──────────┬────────────┬───────────────┬──────────┬───────────┐
+│ Bucket │   N │ Win rate │ Avg return │ Median return │ Avg hold │ Total P&L │
+├────────┼─────┼──────────┼────────────┼───────────────┼──────────┼───────────┤
+│ <50    │   0 │        - │          - │             - │        - │         - │
+│ 50-59  │ 170 │    35.9% │     +2.10% │        -5.48% │      28d │    $3,364 │
+│ 60-69  │  10 │    60.0% │    +10.24% │        +5.37% │      48d │      $889 │
+│ 70-79  │   0 │        - │          - │             - │        - │         - │
+│ 80+    │   0 │        - │          - │             - │        - │         - │
+└────────┴─────┴──────────┴────────────┴───────────────┴──────────┴───────────┘
+  Cost Sensitivity (slippage bps each  
+          side, full window)           
+┌──────────┬───────────┬──────────────┐
+│ Slippage │ Total P&L │ Total return │
+├──────────┼───────────┼──────────────┤
+│    0 bps │   $13,824 │     +138.24% │
+│    5 bps │   $13,376 │     +133.76% │
+│   10 bps │   $12,928 │     +129.28% │
+│   25 bps │   $11,583 │     +115.83% │
+│   50 bps │    $9,343 │      +93.43% │
+└──────────┴───────────┴──────────────┘
+  Breakeven not in tested range — strategy was already negative at 0 bps or 
+still positive at 50 bps.
+      Bootstrap 95% CIs (OOS, n=2000)      
+┌────────────────────┬─────────┬──────────┐
+│ Metric             │  CI low │  CI high │
+├────────────────────┼─────────┼──────────┤
+│ Total return       │ -17.76% │ +101.34% │
+│ Win rate           │   27.2% │    46.7% │
+│ Expectancy / trade │  -1.19% │   +6.23% │
+└────────────────────┴─────────┴──────────┘
+  Exit Reasons (full window)  
+┌────────────────────┬───────┐
+│ Reason             │ Count │
+├────────────────────┼───────┤
+│ stop_hit           │   280 │
+│ target_hit         │   148 │
+│ max_hold           │    39 │
+│ backtest_end       │    20 │
+│ delisted_or_halted │     1 │
+└────────────────────┴───────┘
+      Trade Excursion Diagnostics (full window)      
+┌─────────────────────────────────────────┬─────────┐
+│ Metric                                  │   Value │
+├─────────────────────────────────────────┼─────────┤
+│ Avg MFE (max favorable excursion)       │ +13.23% │
+│ Avg MAE (max adverse excursion)         │  -7.08% │
+│ MFE capture (% retained as P&L)         │     22% │
+│ Avg R-multiple                          │  +0.41R │
+│ Avg R on losing trades (stop proximity) │  -1.06R │
+└─────────────────────────────────────────┴─────────┘
+     R-Multiple      
+    Distribution     
+┌───────────┬───────┐
+│ Bucket    │ Count │
+├───────────┼───────┤
+│ <-2R      │     8 │
+│ -2 to -1R │    49 │
+│ -1 to 0R  │   236 │
+│ 0 to 1R   │    28 │
+│ 1 to 2R   │     9 │
+│ 2 to 3R   │    52 │
+│ >=3R      │   106 │
+└───────────┴───────┘
+              Performance by Regime (at trade entry)              
+┌──────────────────────┬─────┬──────────┬────────────┬───────────┐
+│ Regime               │   N │ Win rate │ Avg return │ Total P&L │
+├──────────────────────┼─────┼──────────┼────────────┼───────────┤
+│ SPY > 200-SMA (bull) │ 438 │    38.4% │     +2.44% │    $9,851 │
+│ SPY < 200-SMA (bear) │  50 │    52.0% │     +7.53% │    $3,525 │
+│ VIX < 15 (low)       │ 136 │    31.6% │     -0.00% │      $-97 │
+│ VIX 15-25 (normal)   │ 303 │    39.3% │     +2.69% │    $7,606 │
+│ VIX > 25 (high)      │  49 │    65.3% │    +12.85% │    $5,867 │
+└──────────────────────┴─────┴──────────┴────────────┴───────────┘
+                     Monthly Returns (% from equity curve)                     
+┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+│ Ye… │ Jan │ Feb │ Mar │ Apr │ May │ Jun │ Jul │ Aug │ Sep │ Oct │ Nov │ Dec │
+├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
+│ 20… │   - │   - │   - │   - │   - │ +4… │ +9… │ -1… │ -0… │ -5… │ +1… │ +1… │
+│ 20… │ +4… │ -0… │ -0… │ -3… │ +6… │ -3… │ -2… │ +4… │ +2… │ +5… │ +8… │ -1… │
+│ 20… │ +4… │ +1… │ -1… │ +1… │ +7… │ +2… │ +5… │ -3… │ +9… │ +7… │ -6… │ +4… │
+│ 20… │ -1… │ -9… │ -3… │ +1… │ +6… │   - │   - │   - │   - │   - │   - │   - │
+└─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+    Monte Carlo Trade-Order Shuffle (1000     
+                permutations)                 
+┌──────────────┬──────────┬────────┬─────────┐
+│ Metric       │ Worst 5% │ Median │ Best 5% │
+├──────────────┼──────────┼────────┼─────────┤
+│ Max drawdown │  -15.09% │ -8.88% │  -6.04% │
+└──────────────┴──────────┴────────┴─────────┘
+  Wide DD spread (-9.1pp) — headline max DD was highly path-dependent.
+┌─────────────────── Live-trader Threshold Recommendation ────────────────────┐
+│ Suggested live min_score: 50                                                │
+│ Based on OOS bucket 50-59: n=170, win rate 35.9%, avg return +2.10%         │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────── Verdict (OOS, statistically grounded) ───────────────────┐
+│ Insufficient bucket coverage (need >=3 populated buckets for trend test).   │
+└─────────────────────────────────────────────────────────────────────────────┘
+WARNING: Survivorship bias: universe is built from current-snapshot ticker 
+lists. Stocks that delisted, went bankrupt, or were acquired before today are 
+excluded entirely — results are biased upward by an unknown amount (typically 
+1-3%/yr for large-cap windows, more for small-cap or longer windows).
+WARNING: Skipped 51 potential entries due to earnings within ±3 days.
+
+Full results saved to tests\fixtures\baseline\backtest_swing_3y.json
