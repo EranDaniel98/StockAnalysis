@@ -141,3 +141,18 @@ class Config:
             "hold_lower": 35,
             "sell": 20,
         })
+
+    def get_regime_filter(self):
+        """Get the market-regime entry-gate config.
+
+        Returns a dict with: enabled, mode, sma_period, vix_low, vix_high.
+        Defaults disable the gate so old YAMLs without this block keep
+        their pre-regime behavior.
+        """
+        return self.get("risk_management", "regime_filter", default={
+            "enabled": False,
+            "mode": "off",
+            "sma_period": 200,
+            "vix_low": 20.0,
+            "vix_high": 25.0,
+        })

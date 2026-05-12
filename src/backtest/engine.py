@@ -23,6 +23,12 @@ from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.backtest.portfolio import SimPortfolio
+from src.market_data.regime import (
+    GateMode,
+    RegimeParams,
+    classify_at,
+    gate_allows_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +250,20 @@ def run_backtest(
     earnings_dates = earnings_dates or {}
     earnings_history = earnings_history or {}
     skipped_earnings = 0
+    skipped_regime = 0
+    regime_history: list[dict] = []  # per-Monday {date, label, vix, spy_above_sma}
+
+    # Regime entry gate. Reads config; defaults to "off". SPY + VIX frames
+    # must be supplied for the gate to fire — otherwise label is 'unknown'
+    # and the gate allows entry (don't punish data outages).
+    rf_cfg = config.get_regime_filter() if hasattr(config, "get_regime_filter") else {}
+    regime_enabled: bool = bool(rf_cfg.get("enabled", False))
+    regime_mode: GateMode = rf_cfg.get("mode", "off") if regime_enabled else "off"
+    regime_params = RegimeParams(
+        sma_period=int(rf_cfg.get("sma_period", 200)),
+        vix_low=float(rf_cfg.get("vix_low", 20.0)),
+        vix_high=float(rf_cfg.get("vix_high", 25.0)),
+    )
 
     # Normalize all indices once
     price_data = {t: _normalize_index(df) for t, df in price_data.items() if df is not None and not df.empty}
@@ -311,6 +331,19 @@ def run_backtest(
             #    each position's price data.
             _process_exits_through(portfolio, price_data, as_of, bt_cfg.max_staleness_days)
 
+            # 1.5) Classify the broader-market regime using only data strictly
+            #      before `as_of`. The classifier degrades to label='unknown'
+            #      on missing inputs; the gate allows entry on 'unknown' so
+            #      data gaps don't silently flatten the book.
+            regime_snap = classify_at(spy_df, vix_df, as_of, regime_params)
+            regime_history.append({
+                "date": as_of.strftime("%Y-%m-%d"),
+                "label": regime_snap.label,
+                "vix": regime_snap.vix_level,
+                "spy_above_sma": regime_snap.spy_above_sma,
+            })
+            entries_allowed = gate_allows_entry(regime_snap.label, regime_mode)
+
             # 2) For each ticker, slice df strictly BEFORE as_of (pre-open scan
             #    semantic — matches live `paper trade` running Sunday with Friday
             #    data) and score in parallel.
@@ -340,6 +373,16 @@ def run_backtest(
             # 3) Rank by (composite_score desc, ticker asc). Deterministic
             #    tie-break ensures reproducible results across runs.
             scored.sort(key=lambda x: (-x[1]["composite_score"], x[0]))
+            if not entries_allowed:
+                # Regime gate blocks new entries this Monday. Count the
+                # candidates we would have opened so the report can show the
+                # cost of the gate. Open positions are managed normally.
+                skipped_regime += sum(
+                    1 for _, r in scored
+                    if not pd.isna(r["composite_score"])
+                    and r["composite_score"] >= bt_cfg.min_score
+                )
+                scored = []
             for ticker, result in scored:
                 composite = result["composite_score"]
                 if pd.isna(composite):
@@ -439,6 +482,17 @@ def run_backtest(
         warnings.append(
             f"Skipped {skipped_earnings} potential entries due to earnings within "
             f"±{bt_cfg.earnings_blackout_days} days."
+        )
+    if regime_enabled and skipped_regime > 0:
+        warnings.append(
+            f"Regime gate ({regime_mode}) blocked {skipped_regime} potential entries "
+            f"across {sum(1 for r in regime_history if not gate_allows_entry(r['label'], regime_mode))} Mondays."
+        )
+    if regime_enabled and (spy_df is None or vix_df is None):
+        warnings.append(
+            "Regime gate is enabled but SPY/VIX data was not supplied — gate is "
+            "effectively off (label='unknown' → entry allowed). Pass spy_df + vix_df "
+            "to run_backtest() to activate the gate."
         )
 
     # OOS split: last X of window is the held-out validation set.
@@ -551,6 +605,21 @@ def run_backtest(
         "monthly_returns": monthly,
         "monte_carlo": mc_shuffle,
         "live_recommendation": live_rec,
+        "regime_gate": {
+            "enabled": regime_enabled,
+            "mode": regime_mode,
+            "params": {
+                "sma_period": regime_params.sma_period,
+                "vix_low": regime_params.vix_low,
+                "vix_high": regime_params.vix_high,
+            },
+            "entries_blocked": skipped_regime,
+            "mondays_blocked": sum(
+                1 for r in regime_history
+                if not gate_allows_entry(r["label"], regime_mode)
+            ) if regime_enabled else 0,
+            "history": regime_history,
+        },
         "warnings": warnings,
     }
 

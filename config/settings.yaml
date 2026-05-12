@@ -111,6 +111,18 @@ risk_management:
     method: "risk_reward"           # risk_reward, atr, resistance
     risk_reward_ratio: 3.0
     atr_multiplier: 4.0
+  # Gate entries on the broader-market regime. SPY vs SMA + VIX bands.
+  # mode: off | skip_bear | skip_bear_and_chop
+  #   - off:                  do not gate (legacy behavior)
+  #   - skip_bear:            block entries when SPY<SMA AND VIX>vix_high
+  #   - skip_bear_and_chop:   only enter in clean bull (SPY>SMA AND VIX<vix_low)
+  # 'unknown' (data missing) always allows entry — don't punish outages.
+  regime_filter:
+    enabled: true
+    mode: "skip_bear"
+    sma_period: 200
+    vix_low: 20.0
+    vix_high: 25.0
 
 # --- Alerts ---
 alerts:
