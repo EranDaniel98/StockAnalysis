@@ -21,3 +21,5 @@ env/
 .vscode/
 *.swp
 *.swo
+# Playwright MCP scratchspace (snapshots, console logs)
+.playwright-mcp/
