@@ -527,6 +527,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/ask/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Stream
+         * @description Stream the agent's mid-run thoughts over SSE.
+         *
+         *     Events (named):
+         *       - ``started``         {run_id, question}
+         *       - ``turn_start``      {turn}
+         *       - ``assistant_text``  {turn, text}   any prose the model emits
+         *                                             alongside a tool call
+         *       - ``tool_call``       {turn, tool, input}
+         *       - ``tool_result``     {turn, tool, is_error, summary}
+         *       - ``usage``           {turn, input_tokens, output_tokens, cost_usd}
+         *       - ``final_answer``    {text}
+         *       - ``complete``        {run_id, status}
+         *       - ``error``           {detail, kind}
+         *
+         *     Client disconnects cancel the worker task — the partial run row
+         *     stays in the DB with whatever transcript it had at the time.
+         */
+        post: operations["ask_stream_api_research_ask_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/runs": {
         parameters: {
             query?: never;
@@ -2241,6 +2276,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_stream_api_research_ask_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

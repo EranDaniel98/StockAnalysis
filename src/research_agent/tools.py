@@ -339,6 +339,58 @@ async def _tool_list_backtests(
     }
 
 
+async def _tool_search_filings(
+    args: dict[str, Any], ctx: ToolContext
+) -> dict[str, Any]:
+    """k-NN search over the EDGAR filings_corpus."""
+    from datetime import date as _date
+
+    from src.research_agent.rag.search import search_filings
+
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query is required"}
+    top_k = int(args.get("top_k") or 5)
+    ticker = args.get("ticker")
+    form = args.get("form")
+    after_raw = args.get("filed_after")
+    after: _date | None = None
+    if after_raw:
+        try:
+            after = _date.fromisoformat(after_raw)
+        except ValueError:
+            return {"error": f"filed_after must be YYYY-MM-DD, got {after_raw!r}"}
+
+    async with ctx.db_factory() as db:
+        hits = await search_filings(
+            db,
+            query,
+            top_k=top_k,
+            ticker=ticker.upper() if ticker else None,
+            form=form,
+            after=after,
+        )
+
+    return {
+        "query": query,
+        "n_hits": len(hits),
+        "hits": [
+            {
+                "ticker": h.ticker,
+                "form": h.form,
+                "filing_date": h.filing_date.isoformat(),
+                "accession_no": h.accession_no,
+                "chunk_index": h.chunk_index,
+                "score": round(h.score, 4),
+                # Truncate excerpts so the agent doesn't get token-flooded
+                # by a single tool call. 600 chars ≈ 150 tokens.
+                "excerpt": h.chunk_text[:600],
+            }
+            for h in hits
+        ],
+    }
+
+
 async def _tool_list_scan_runs(
     args: dict[str, Any], ctx: ToolContext
 ) -> dict[str, Any]:
@@ -504,6 +556,45 @@ TOOLS: list[ToolSpec] = [
             },
         },
         run=_tool_list_backtests,
+    ),
+    ToolSpec(
+        name="search_filings",
+        description=(
+            "Semantic search over the EDGAR filings RAG corpus (10-K / "
+            "10-Q / 8-K). Returns the top-K most relevant chunks with "
+            "filing metadata + a 600-char excerpt each. Use this when the "
+            "question is about *what a company said* in its filings — "
+            "risk factors, MD&A commentary, business descriptions. Filter "
+            "by ticker / form / filing date when the question is scoped."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language query. The retriever "
+                    "embeds this and matches it semantically — phrase it "
+                    "the way the filing would.",
+                },
+                "ticker": {"type": ["string", "null"]},
+                "form": {
+                    "type": ["string", "null"],
+                    "description": "One of 10-K, 10-Q, 8-K.",
+                },
+                "filed_after": {
+                    "type": ["string", "null"],
+                    "description": "ISO date (YYYY-MM-DD). Skip older filings.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20,
+                },
+            },
+            "required": ["query"],
+        },
+        run=_tool_search_filings,
     ),
     ToolSpec(
         name="list_scan_runs",

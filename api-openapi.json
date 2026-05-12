@@ -1297,6 +1297,46 @@
         }
       }
     },
+    "/api/research/ask/stream": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Ask Stream",
+        "description": "Stream the agent's mid-run thoughts over SSE.\n\nEvents (named):\n  - ``started``         {run_id, question}\n  - ``turn_start``      {turn}\n  - ``assistant_text``  {turn, text}   any prose the model emits\n                                        alongside a tool call\n  - ``tool_call``       {turn, tool, input}\n  - ``tool_result``     {turn, tool, is_error, summary}\n  - ``usage``           {turn, input_tokens, output_tokens, cost_usd}\n  - ``final_answer``    {text}\n  - ``complete``        {run_id, status}\n  - ``error``           {detail, kind}\n\nClient disconnects cancel the worker task \u2014 the partial run row\nstays in the DB with whatever transcript it had at the time.",
+        "operationId": "ask_stream_api_research_ask_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchAskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/research/runs": {
       "get": {
         "tags": [

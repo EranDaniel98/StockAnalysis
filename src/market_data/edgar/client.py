@@ -114,6 +114,41 @@ class EDGARClient:
             )
         return resp.json()
 
+    async def fetch_submissions(self, cik: int) -> dict[str, Any]:
+        """Company submissions metadata: recent filings + the form types
+        we'd want to ingest. Used by Phase 5.2 RAG ingestion."""
+        cik_padded = f"{int(cik):010d}"
+        url = f"{self.BASE_DATA}/submissions/CIK{cik_padded}.json"
+        await self._rate.acquire()
+        resp = await self._client.get(url)
+        if resp.status_code != 200:
+            raise ExternalAPIError(
+                f"EDGAR submissions returned {resp.status_code} for CIK {cik_padded}"
+            )
+        return resp.json()
+
+    async def fetch_filing_text(
+        self, cik: int, accession_no: str, primary_doc: str
+    ) -> str:
+        """Raw HTML/text of one filing's primary document.
+
+        ``accession_no`` comes back from ``fetch_submissions`` with dashes
+        (e.g. "0000320193-25-000123"). The archive URL strips dashes.
+        """
+        cik_str = str(int(cik))
+        accession_clean = accession_no.replace("-", "")
+        url = (
+            f"{self.BASE_WWW}/Archives/edgar/data/"
+            f"{cik_str}/{accession_clean}/{primary_doc}"
+        )
+        await self._rate.acquire()
+        resp = await self._client.get(url)
+        if resp.status_code != 200:
+            raise ExternalAPIError(
+                f"EDGAR filing text returned {resp.status_code} for {accession_no}"
+            )
+        return resp.text
+
 
 async def get_ticker_to_cik(
     client: EDGARClient | None = None,

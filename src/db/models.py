@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -321,6 +323,42 @@ class ResearchRun(Base):
     )
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class FilingCorpusChunk(Base):
+    """One chunk of an EDGAR filing — the unit the RAG agent searches.
+
+    Embeddings are stored as ``vector(384)`` (alembic 0005). The Python
+    ORM column declares them via ``pgvector.sqlalchemy.Vector`` so
+    SQLAlchemy returns numpy arrays on read.
+
+    Uniqueness: ``(accession_no, chunk_index)``. Re-ingesting the same
+    filing replaces the chunks rather than duplicating them.
+    """
+
+    __tablename__ = "filings_corpus"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    cik: Mapped[int] = mapped_column(Integer, nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    accession_no: Mapped[str] = mapped_column(String(32), nullable=False)
+    filing_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    primary_doc: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "accession_no", "chunk_index", name="uq_filings_corpus_chunk"
+        ),
+    )
 
 
 class FactorSnapshot(Base):

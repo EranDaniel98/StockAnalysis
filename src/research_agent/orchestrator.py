@@ -23,7 +23,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -72,6 +72,9 @@ question implies otherwise.
 """
 
 
+EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+
 async def run_research(
     question: str,
     *,
@@ -83,9 +86,25 @@ async def run_research(
     max_input_tokens: int = 200_000,
     max_output_tokens: int = 8_000,
     notes: Optional[str] = None,
+    on_event: Optional[EventCallback] = None,
 ) -> ResearchRun:
-    """Drive one research run end-to-end. Returns the persisted row."""
+    """Drive one research run end-to-end. Returns the persisted row.
+
+    ``on_event`` fires async at each stage so callers can stream
+    progress (e.g. the SSE endpoint). Keep callbacks fast — they run
+    inline in the loop. Event types emitted: ``started``, ``turn_start``,
+    ``assistant_text``, ``tool_call``, ``tool_result``, ``usage``,
+    ``final_answer``, ``complete``, ``error``.
+    """
     client = llm or AnthropicClient()
+
+    async def _emit(event: dict[str, Any]) -> None:
+        if on_event is None:
+            return
+        try:
+            await on_event(event)
+        except Exception:  # noqa: BLE001 — callback failures don't kill the run
+            logger.exception("research event callback failed")
     budget = BudgetCounter(
         model=model,
         max_input_tokens=max_input_tokens,
@@ -115,6 +134,7 @@ async def run_research(
         await db.refresh(row)
         run_id = row.id
 
+    await _emit({"event": "started", "run_id": run_id, "question": question})
     ctx = ToolContext(config=config, db_factory=sessionmaker)
 
     final_answer: Optional[str] = None
@@ -125,6 +145,7 @@ async def run_research(
         tools_schema = tool_specs_for_anthropic()
         while True:
             budget.check()
+            await _emit({"event": "turn_start", "turn": budget.turns + 1})
             response = await client.create(
                 model=model,
                 system=SYSTEM_PROMPT,
@@ -134,30 +155,53 @@ async def run_research(
             )
             budget.add_usage(response.usage)
             budget.increment_turn()
+            await _emit(
+                {
+                    "event": "usage",
+                    "turn": budget.turns,
+                    "input_tokens": budget.input_tokens,
+                    "output_tokens": budget.output_tokens,
+                    "cost_usd": budget.cost_usd,
+                }
+            )
 
             # Persist the assistant turn into the transcript verbatim.
             messages.append({"role": "assistant", "content": response.content})
 
+            # Surface any text the assistant emitted alongside its tool
+            # calls — the running commentary is what the user wants to see.
+            for block in response.content:
+                if block.get("type") == "text" and block.get("text"):
+                    await _emit(
+                        {
+                            "event": "assistant_text",
+                            "turn": budget.turns,
+                            "text": block["text"],
+                        }
+                    )
+
             if response.stop_reason != "tool_use":
-                # Either end_turn, max_tokens, or stop_sequence.
                 final_answer = _extract_final_text(response)
                 status = "complete" if response.stop_reason == "end_turn" else "incomplete"
                 break
 
-            tool_results = await _execute_tool_blocks(response.content, ctx, tool_calls)
+            tool_results = await _execute_tool_blocks(
+                response.content, ctx, tool_calls, emit=_emit, turn=budget.turns
+            )
             messages.append({"role": "user", "content": tool_results})
 
-            # Stream progress to the row so the UI can poll mid-flight.
             await _checkpoint(sessionmaker, run_id, messages, tool_calls, budget, status="running")
 
     except BudgetExceededError as e:
         status = "budget_exceeded"
         error = str(e)
         logger.warning("research run %d hit budget: %s", run_id, e)
+        await _emit({"event": "error", "detail": error, "kind": "budget"})
     except Exception as e:  # noqa: BLE001 — keep the partial transcript
         status = "failed"
         error = f"{type(e).__name__}: {e}"
         logger.exception("research run %d crashed", run_id)
+        await _emit({"event": "error", "detail": error, "kind": "crash"})
 
     completed_at = datetime.now(timezone.utc)
     async with sessionmaker() as db:
@@ -179,13 +223,20 @@ async def run_research(
         row.error = error
         await db.commit()
         await db.refresh(row)
-        return row
+
+    if final_answer is not None:
+        await _emit({"event": "final_answer", "text": final_answer})
+    await _emit({"event": "complete", "run_id": run_id, "status": status})
+    return row
 
 
 async def _execute_tool_blocks(
     content: list[dict[str, Any]],
     ctx: ToolContext,
     tool_calls_log: list[dict[str, Any]],
+    *,
+    emit: Optional[EventCallback] = None,
+    turn: int = 0,
 ) -> list[dict[str, Any]]:
     """Run every ``tool_use`` block in one assistant turn concurrently.
 
@@ -199,6 +250,15 @@ async def _execute_tool_blocks(
         if block.get("type") != "tool_use":
             continue
         blocks.append(block)
+        if emit is not None:
+            await emit(
+                {
+                    "event": "tool_call",
+                    "turn": turn,
+                    "tool": block.get("name"),
+                    "input": block.get("input"),
+                }
+            )
         tasks.append(asyncio.create_task(_run_one_tool(block, ctx)))
 
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -212,14 +272,25 @@ async def _execute_tool_blocks(
         else:
             payload = result
             is_error = False
+        summary = _summarize(payload)
         tool_calls_log.append(
             {
                 "tool": block.get("name"),
                 "input": block.get("input"),
                 "is_error": is_error,
-                "result_summary": _summarize(payload),
+                "result_summary": summary,
             }
         )
+        if emit is not None:
+            await emit(
+                {
+                    "event": "tool_result",
+                    "turn": turn,
+                    "tool": block.get("name"),
+                    "is_error": is_error,
+                    "summary": summary,
+                }
+            )
         out.append(
             {
                 "type": "tool_result",

@@ -1,20 +1,23 @@
 """/api/research — autonomous research agent.
 
-POST /api/research/ask    fire one research run synchronously
-GET  /api/research/runs   recent runs (newest first)
-GET  /api/research/runs/{id}  one run; include_transcript=true for the full transcript
+POST /api/research/ask           fire one research run synchronously
+POST /api/research/ask/stream    same, but SSE-stream the agent's mid-run thoughts
+GET  /api/research/runs          recent runs (newest first)
+GET  /api/research/runs/{id}     one run; include_transcript=true for the full transcript
 
-Why synchronous: the agent loop completes in seconds-to-a-minute. SSE
-streaming of intermediate thinking lands in Phase 5.2 — keep the
-surface simple here.
+The streaming endpoint is the recommended one for the UI; the
+synchronous endpoint is kept for scripted callers and parity.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import Optional
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +95,86 @@ async def ask(
         raise
 
     return _to_detail(row, include_transcript=False)
+
+
+@router.post("/ask/stream")
+async def ask_stream(
+    body: ResearchAskRequest,
+    request: Request,
+    config: Config = Depends(get_config),
+) -> EventSourceResponse:
+    """Stream the agent's mid-run thoughts over SSE.
+
+    Events (named):
+      - ``started``         {run_id, question}
+      - ``turn_start``      {turn}
+      - ``assistant_text``  {turn, text}   any prose the model emits
+                                            alongside a tool call
+      - ``tool_call``       {turn, tool, input}
+      - ``tool_result``     {turn, tool, is_error, summary}
+      - ``usage``           {turn, input_tokens, output_tokens, cost_usd}
+      - ``final_answer``    {text}
+      - ``complete``        {run_id, status}
+      - ``error``           {detail, kind}
+
+    Client disconnects cancel the worker task — the partial run row
+    stays in the DB with whatever transcript it had at the time.
+    """
+    sessionmaker = request.app.state.sessionmaker
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+    async def _on_event(event: dict[str, Any]) -> None:
+        await queue.put(event)
+
+    async def _runner() -> None:
+        try:
+            await run_research(
+                body.question,
+                sessionmaker=sessionmaker,
+                config=config,
+                model=body.model or DEFAULT_MODEL,
+                max_turns=body.max_turns,
+                notes=body.notes,
+                on_event=_on_event,
+            )
+        except RuntimeError as e:
+            # Missing API key — surface as an error event so the client
+            # gets a clean failure instead of a hung stream.
+            await queue.put({"event": "error", "detail": str(e), "kind": "setup"})
+        finally:
+            await queue.put(None)
+
+    runner_task = asyncio.create_task(_runner())
+
+    async def _stream() -> AsyncIterator[dict[str, str]]:
+        try:
+            while True:
+                if await request.is_disconnected():
+                    runner_task.cancel()
+                    return
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat so proxies don't time the connection out.
+                    yield {"event": "heartbeat", "data": "{}"}
+                    continue
+                if event is None:
+                    return
+                yield {
+                    "event": event.get("event", "message"),
+                    "data": json.dumps(event, default=str),
+                }
+        finally:
+            if not runner_task.done():
+                runner_task.cancel()
+            # Drain the cancellation so the task object doesn't get GC'd
+            # with a pending exception.
+            try:
+                await runner_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    return EventSourceResponse(_stream())
 
 
 @router.get("/runs", response_model=list[ResearchRunSummary])
