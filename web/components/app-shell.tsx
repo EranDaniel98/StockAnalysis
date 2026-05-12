@@ -68,8 +68,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [isMac, setIsMac] = useState(false);
 
-  // ⌘K / Ctrl+K to open the palette
+  // Detect Mac vs Windows/Linux for the keyboard-hint label. Defaults to
+  // non-Mac so SSR markup matches first paint on Windows.
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/i.test(navigator.userAgent));
+  }, []);
+
+  // ⌘K / Ctrl+K toggles the palette.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -123,7 +130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             Command palette
           </span>
           <kbd className="bg-muted/60 rounded px-1.5 py-0.5 font-mono text-[10px]">
-            ⌘K
+            {isMac ? "⌘K" : "Ctrl K"}
           </kbd>
         </button>
       </aside>
