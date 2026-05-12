@@ -83,6 +83,11 @@ export type ModelVersionRow = Schemas["ModelVersionRow"];
 export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
 export type FoldMetric = Schemas["FoldMetric"];
 
+export type ResearchAskRequest = Schemas["ResearchAskRequest"];
+export type ResearchRunSummary = Schemas["ResearchRunSummary"];
+export type ResearchRunDetail = Schemas["ResearchRunDetail"];
+export type ToolCallEntry = Schemas["ToolCallEntry"];
+
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
 export const api = {
@@ -183,6 +188,31 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+  },
+
+  research: {
+    ask: (body: ResearchAskRequest) =>
+      request<ResearchRunDetail>("/api/research/ask", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    list: (params?: { status?: string; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.status) q.set("status", params.status);
+      if (params?.limit != null) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return request<ResearchRunSummary[]>(
+        `/api/research/runs${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (id: number, params?: { include_transcript?: boolean }) => {
+      const q = new URLSearchParams();
+      if (params?.include_transcript) q.set("include_transcript", "true");
+      const qs = q.toString();
+      return request<ResearchRunDetail>(
+        `/api/research/runs/${id}${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 
   ml: {

@@ -18,6 +18,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -279,6 +280,47 @@ class ModelVersion(Base):
             "model_name", "version", name="uq_model_versions_name_version"
         ),
     )
+
+
+class ResearchRun(Base):
+    """One autonomous research run.
+
+    Persists the full Anthropic message transcript (user prompt, assistant
+    turns with tool_use blocks, tool_result blocks, final answer) plus
+    token/cost accounting denormalized for cheap querying. See alembic
+    0004 for the column-level commentary.
+
+    ``status`` lifecycle: pending → running → (complete | failed |
+    budget_exceeded). Updated in-place as the orchestrator progresses.
+    """
+
+    __tablename__ = "research_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending", index=True
+    )
+    final_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transcript: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    tool_calls: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    n_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(
+        Numeric(10, 6), nullable=False, default=0
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class FactorSnapshot(Base):

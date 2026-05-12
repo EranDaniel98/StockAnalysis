@@ -502,6 +502,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask
+         * @description Kick off one synchronous research run. Returns the completed
+         *     (or failed / budget_exceeded) run row inline.
+         *
+         *     The orchestrator never raises on tool failures — those are threaded
+         *     back into the transcript. We do raise 503 if the ANTHROPIC_API_KEY
+         *     is missing so the UI can prompt for setup.
+         */
+        post: operations["ask_api_research_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_research_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_research_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1089,6 +1148,98 @@ export interface components {
              */
             unrealized_pnl_pct: number;
         };
+        /** ResearchAskRequest */
+        ResearchAskRequest: {
+            /** Question */
+            question: string;
+            /**
+             * Model
+             * @description Override default Sonnet 4.6
+             */
+            model?: string | null;
+            /**
+             * Max Turns
+             * @default 8
+             */
+            max_turns: number;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * ResearchRunDetail
+         * @description Detail view — adds tool_calls + (optionally) the transcript.
+         */
+        ResearchRunDetail: {
+            /** Id */
+            id: number;
+            /** Question */
+            question: string;
+            /** Model */
+            model: string;
+            /** Status */
+            status: string;
+            /** Final Answer */
+            final_answer?: string | null;
+            /** N Turns */
+            n_turns: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Tool Calls */
+            tool_calls?: components["schemas"]["ToolCallEntry"][];
+            /**
+             * Transcript
+             * @description Full Anthropic message list. Omitted unless include_transcript=true.
+             */
+            transcript?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * ResearchRunSummary
+         * @description List view — light shape, no transcript.
+         */
+        ResearchRunSummary: {
+            /** Id */
+            id: number;
+            /** Question */
+            question: string;
+            /** Model */
+            model: string;
+            /** Status */
+            status: string;
+            /** Final Answer */
+            final_answer?: string | null;
+            /** N Turns */
+            n_turns: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Error */
+            error?: string | null;
+        };
         /** ScanRequest */
         ScanRequest: {
             /**
@@ -1251,6 +1402,25 @@ export interface components {
             as_of: string;
             /** Sectors */
             sectors?: components["schemas"]["SectorMetric"][];
+        };
+        /** ToolCallEntry */
+        ToolCallEntry: {
+            /** Tool */
+            tool: string;
+            /** Input */
+            input?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Is Error
+             * @default false
+             */
+            is_error: boolean;
+            /**
+             * Result Summary
+             * @default
+             */
+            result_summary: string;
         };
         /** TradeNotesUpdate */
         TradeNotesUpdate: {
@@ -2038,6 +2208,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MLModelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_api_research_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_research_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_research_runs__run_id__get: {
+        parameters: {
+            query?: {
+                include_transcript?: boolean;
+            };
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDetail"];
                 };
             };
             /** @description Validation Error */

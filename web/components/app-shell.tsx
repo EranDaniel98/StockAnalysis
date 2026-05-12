@@ -12,6 +12,7 @@ import {
   Grid3x3,
   LineChart,
   Microscope,
+  MessageSquare,
   Search,
   Target,
   Wallet,
@@ -90,6 +91,12 @@ const NAV: NavLink[] = [
     label: "ML Models",
     icon: Brain,
     description: "Trained models, fold metrics, drift status",
+  },
+  {
+    href: "/research",
+    label: "Research",
+    icon: MessageSquare,
+    description: "Ask the agent; runs scans / backtests on your behalf",
   },
 ];
 
