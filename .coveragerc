@@ -1,0 +1,18 @@
+[run]
+branch = False
+source =
+    src/scoring
+    src/ml
+
+[report]
+# Project target: >= 70% on the scoring + ml bounded contexts.
+# The numbers below are documentation, not enforcement — pytest-cov's
+# --cov-fail-under flag adds the gate when CI is ready.
+fail_under = 70
+precision = 1
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError

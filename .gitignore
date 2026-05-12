@@ -19,6 +19,10 @@ data/models/
 backups/
 # Phase 6 — structlog JSON output
 logs/
+# Phase 6 — pytest-cov data file (regenerated each run)
+.coverage
+.coverage.*
+htmlcov/
 .venv/
 venv/
 env/

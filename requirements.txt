@@ -43,3 +43,4 @@ sentence-transformers>=2.7
 pytest-asyncio>=1.0
 # Phase 6 — observability + hardening
 structlog>=24.1
+pytest-cov>=4.1
