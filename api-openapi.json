@@ -700,7 +700,6 @@
           "stream"
         ],
         "summary": "Stream Portfolio",
-        "description": "Live portfolio P&L. Emits an `event: snapshot` every poll_seconds with\n{account, positions, n}. Heartbeats are auto-sent by sse_starlette.",
         "operationId": "stream_portfolio_api_stream_portfolio_get",
         "parameters": [
           {
@@ -744,7 +743,6 @@
           "stream"
         ],
         "summary": "Stream Heartbeat",
-        "description": "Process-liveness ticker. Use for sanity-checking SSE plumbing.",
         "operationId": "stream_heartbeat_api_stream_heartbeat_get",
         "responses": {
           "200": {
@@ -752,6 +750,125 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/scan": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Stream Scan",
+        "description": "Run a scan and stream progress over SSE.\n\nEventSource only supports GET, so all params come via query string.\nEmits these named events:\n  - `progress`   {stage, n?}    pipeline stage transitions\n  - `heartbeat`  {}             every ~1s when no progress event fires\n  - `error`      {detail}       fatal failure; stream ends\n  - `complete`   {run_id, n_results, strategy}   scan persisted\n\nDisconnect cancels the worker task. The complete event includes the\n`run_id` so the client can `GET /api/scans/{run_id}` for full results.",
+        "operationId": "stream_scan_api_stream_scan_get",
+        "parameters": [
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "swing_trading",
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "budget",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Budget"
+            }
+          },
+          {
+            "name": "theme",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Theme"
+            }
+          },
+          {
+            "name": "sector",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sector"
+            }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 200,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Top"
+            }
+          },
+          {
+            "name": "fresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Fresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }

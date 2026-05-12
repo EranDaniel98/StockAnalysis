@@ -5,14 +5,15 @@ recommend) lives in src/main.py:cmd_scan. That function couples the compute
 to Rich console output. This module re-implements the compute half without
 the console, so the API can serve a typed result.
 
-When Stream B's CLI carve completes (cmd_scan → src/cli/main.py), this can
-share a single ScanService class with both surfaces.
+`on_event` is an optional callback for progress reporting. It fires from the
+worker thread, so SSE callers must use loop.call_soon_threadsafe to bridge
+back to the asyncio loop (see src/api/routers/stream.py).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher
@@ -22,6 +23,14 @@ from src.data.screener import StockScreener
 logger = logging.getLogger(__name__)
 
 
+ScanEvent = dict[str, Any]
+EventCallback = Callable[[ScanEvent], None]
+
+
+def _noop(_: ScanEvent) -> None:
+    pass
+
+
 def run_scan_sync(
     config,
     strategy: dict,
@@ -29,6 +38,7 @@ def run_scan_sync(
     theme: str | None = None,
     sector: str | None = None,
     fresh: bool = False,
+    on_event: EventCallback | None = None,
 ) -> list[dict[str, Any]]:
     """Run a market scan and return ranked recommendation dicts.
 
@@ -36,10 +46,24 @@ def run_scan_sync(
     sometimes CPU-heavy, sometimes I/O via yfinance). Call from an async
     handler via asyncio.to_thread.
 
-    Returns the legacy recommendation dict shape so the response model
-    ScanResultItem can validate it directly. Length may be 0 if no tickers
-    pass stage-2 fundamentals filtering.
+    When ``on_event`` is supplied, emits stage events:
+      - ``discover_start``                        scan begins
+      - ``discover_done`` {n}                     post-screener ticker count
+      - ``fundamentals_start``
+      - ``fundamentals_done`` {n}
+      - ``stage2_done`` {n}                       fundamentals-filtered count
+      - ``prices_start``
+      - ``prices_done`` {n}
+      - ``analyze_start`` {n}                     analyzer pipeline begins
+      - ``score_done`` {n}                        ranked recommendations ready
+
+    Per-ticker progress inside the analyzer pass is left as a follow-up;
+    `_analyze_and_score` prints to Rich console and would need its own
+    callback plumbing to surface ticker-level events.
     """
+    emit = on_event or _noop
+
+    emit({"stage": "discover_start"})
     cache = DataCache(
         expiry_hours=config.get("data", "cache_expiry_hours", default=24),
         market_hours_expiry_minutes=config.get(
@@ -57,22 +81,33 @@ def run_scan_sync(
         tickers = screener.discover(sector_filter=sector)
     else:
         tickers = screener.discover_by_sectors()
+    emit({"stage": "discover_done", "n": len(tickers)})
 
     if not tickers:
         return []
 
+    emit({"stage": "fundamentals_start"})
     fundamentals_map = fund_fetcher.fetch_batch(tickers)
+    emit({"stage": "fundamentals_done", "n": len(fundamentals_map)})
+
     filtered = screener.stage2_filter(tickers, fundamentals_map)
+    emit({"stage": "stage2_done", "n": len(filtered)})
     if not filtered:
         return []
 
+    emit({"stage": "prices_start"})
     price_data_map = fetcher.fetch_batch(filtered)
+    emit({"stage": "prices_done", "n": len(price_data_map)})
     if not price_data_map:
         return []
+
+    emit({"stage": "analyze_start", "n": len(price_data_map)})
 
     # Reuse _analyze_and_score so behavior stays in lockstep with cmd_scan.
     # Acceptable Phase 1 coupling — the CLI carve removes this import boundary
     # when src/main.py moves under src/cli/.
     from src.main import _analyze_and_score
 
-    return _analyze_and_score(price_data_map, fundamentals_map, config, strategy)
+    results = _analyze_and_score(price_data_map, fundamentals_map, config, strategy)
+    emit({"stage": "score_done", "n": len(results)})
+    return results

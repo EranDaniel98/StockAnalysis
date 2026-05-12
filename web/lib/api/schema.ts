@@ -260,11 +260,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Stream Portfolio
-         * @description Live portfolio P&L. Emits an `event: snapshot` every poll_seconds with
-         *     {account, positions, n}. Heartbeats are auto-sent by sse_starlette.
-         */
+        /** Stream Portfolio */
         get: operations["stream_portfolio_api_stream_portfolio_get"];
         put?: never;
         post?: never;
@@ -281,11 +277,38 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Stream Heartbeat
-         * @description Process-liveness ticker. Use for sanity-checking SSE plumbing.
-         */
+        /** Stream Heartbeat */
         get: operations["stream_heartbeat_api_stream_heartbeat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stream/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Scan
+         * @description Run a scan and stream progress over SSE.
+         *
+         *     EventSource only supports GET, so all params come via query string.
+         *     Emits these named events:
+         *       - `progress`   {stage, n?}    pipeline stage transitions
+         *       - `heartbeat`  {}             every ~1s when no progress event fires
+         *       - `error`      {detail}       fatal failure; stream ends
+         *       - `complete`   {run_id, n_results, strategy}   scan persisted
+         *
+         *     Disconnect cancels the worker task. The complete event includes the
+         *     `run_id` so the client can `GET /api/scans/{run_id}` for full results.
+         */
+        get: operations["stream_scan_api_stream_scan_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1312,6 +1335,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    stream_scan_api_stream_scan_get: {
+        parameters: {
+            query?: {
+                strategy?: string;
+                budget?: number | null;
+                theme?: string | null;
+                sector?: string | null;
+                top?: number | null;
+                fresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

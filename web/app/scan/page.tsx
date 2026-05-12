@@ -1,12 +1,14 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Sparkles } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Sparkles, X } from "lucide-react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
+import { ScanProgress } from "@/components/scan-progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,12 +37,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  type ScanRequest,
-  type ScanResultItem,
-  api,
-} from "@/lib/api/client";
+import { api, type ScanResultItem } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
+import { useScanStream } from "@/lib/api/use-scan-stream";
 import { fmtDate, fmtNumber } from "@/lib/format";
 
 const STRATEGIES = [
@@ -60,46 +59,66 @@ type FormShape = {
 
 export default function ScanPage() {
   const qc = useQueryClient();
+  const { state: streamState, start: startStream, abort, reset } = useScanStream();
 
   const { register, handleSubmit, watch, setValue } = useForm<FormShape>({
-    defaultValues: { strategy: "swing_trading", budget: "", theme: "", top: "10" },
+    defaultValues: {
+      strategy: "swing_trading",
+      budget: "",
+      theme: "",
+      top: "10",
+    },
   });
 
-  const scanMutation = useMutation({
-    mutationFn: (body: ScanRequest) => api.scans.trigger(body),
-    onSuccess: () => {
-      toast.success("Scan complete");
-      qc.invalidateQueries({ queryKey: qk.scans.all });
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Scan failed");
-    },
+  // Once the stream emits `complete`, refetch the persisted scan by run_id.
+  const resultQuery = useQuery({
+    queryKey: streamState.complete
+      ? qk.scans.detail(streamState.complete.run_id)
+      : ["scans", "detail", "_idle"],
+    queryFn: () => api.scans.get(streamState.complete!.run_id),
+    enabled: streamState.complete !== null,
   });
+
+  useEffect(() => {
+    if (streamState.complete) {
+      toast.success(`Scan complete — ${streamState.complete.n_results} candidates`);
+      qc.invalidateQueries({ queryKey: qk.scans.all });
+    }
+  }, [streamState.complete, qc]);
+
+  useEffect(() => {
+    if (streamState.error) {
+      toast.error(streamState.error);
+    }
+  }, [streamState.error]);
 
   const historyQuery = useQuery({
     queryKey: qk.scans.list({ limit: 10 }),
     queryFn: () => api.scans.list({ limit: 10 }),
+    // Suppress refetch on focus during an active scan to avoid stomping on
+    // the progress UI with a re-render of stale data.
+    enabled: !streamState.active,
   });
 
   function onSubmit(values: FormShape) {
-    const body: ScanRequest = {
+    startStream({
       strategy: values.strategy,
       budget: values.budget ? Number(values.budget) : null,
       theme: values.theme || null,
       sector: null,
       top: values.top ? Number(values.top) : null,
       fresh: false,
-    };
-    scanMutation.mutate(body);
+    });
   }
 
   const strategy = watch("strategy");
+  const showProgress = streamState.active || streamState.complete || streamState.error;
 
   return (
     <>
       <PageHeader
         title="Scan"
-        description="Trigger a market scan. Blocks until complete — typically 1–3 minutes."
+        description="Trigger a market scan. Progress streams from the backend over SSE."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_2fr]">
@@ -111,10 +130,7 @@ export default function ScanPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={handleSubmit(onSubmit)}
-            >
+            <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
               <div className="space-y-1.5">
                 <Label htmlFor="strategy">Strategy</Label>
                 <Select
@@ -171,84 +187,116 @@ export default function ScanPage() {
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                disabled={scanMutation.isPending}
-                className="w-full"
-              >
-                {scanMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                {scanMutation.isPending ? "Scanning…" : "Run scan"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={streamState.active}
+                  className="flex-1"
+                >
+                  {streamState.active ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  {streamState.active ? "Scanning…" : "Run scan"}
+                </Button>
+                {streamState.active ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={abort}
+                    aria-label="Cancel scan"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                ) : showProgress ? (
+                  <Button type="button" variant="outline" onClick={reset}>
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
             </form>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {scanMutation.data ? "Latest scan results" : "Recent scans"}
-            </CardTitle>
-            <CardDescription>
-              {scanMutation.data
-                ? `${scanMutation.data.n_results} candidates for ${scanMutation.data.strategy}`
-                : "Last 10 scan runs from the database."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {scanMutation.error ? (
-              <ErrorState error={scanMutation.error} />
-            ) : null}
+        <div className="space-y-6">
+          {showProgress ? <ScanProgress state={streamState} /> : null}
 
-            {scanMutation.data ? (
-              <ResultsTable results={scanMutation.data.results} />
-            ) : historyQuery.isLoading ? (
-              <Skeleton className="h-32 w-full" />
-            ) : historyQuery.error ? (
-              <ErrorState error={historyQuery.error} />
-            ) : !historyQuery.data || historyQuery.data.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">
-                No scans yet. Trigger one to see results.
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Strategy</TableHead>
-                    <TableHead>Top ticker</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead className="text-right">N</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {historyQuery.data.map((s) => (
-                    <TableRow key={s.run_id}>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {fmtDate(s.scan_timestamp)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{s.strategy}</Badge>
-                      </TableCell>
-                      <TableCell className="font-mono">
-                        {s.top_ticker ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtNumber(s.top_score, 1)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {s.n_candidates}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+          {streamState.complete ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Results</CardTitle>
+                <CardDescription>
+                  Run {streamState.complete.run_id.slice(0, 8)}… ·{" "}
+                  {streamState.complete.strategy}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {resultQuery.error ? (
+                  <ErrorState error={resultQuery.error} />
+                ) : null}
+                {resultQuery.isLoading ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : resultQuery.data ? (
+                  <ResultsTable results={resultQuery.data.results} />
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : !showProgress ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent scans</CardTitle>
+                <CardDescription>
+                  Last 10 scan runs from the database.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {historyQuery.isLoading ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : historyQuery.error ? (
+                  <ErrorState error={historyQuery.error} />
+                ) : !historyQuery.data || historyQuery.data.length === 0 ? (
+                  <p className="text-muted-foreground py-8 text-center text-sm">
+                    No scans yet. Trigger one to see results.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>When</TableHead>
+                        <TableHead>Strategy</TableHead>
+                        <TableHead>Top ticker</TableHead>
+                        <TableHead className="text-right">Score</TableHead>
+                        <TableHead className="text-right">N</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {historyQuery.data.map((s) => (
+                        <TableRow key={s.run_id}>
+                          <TableCell className="text-muted-foreground text-xs">
+                            {fmtDate(s.scan_timestamp)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{s.strategy}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {s.top_ticker ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {fmtNumber(s.top_score, 1)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {s.n_candidates}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
       </div>
     </>
   );
