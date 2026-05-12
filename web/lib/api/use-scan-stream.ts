@@ -16,10 +16,20 @@ export type ScanStageState = {
   at: number;
 };
 
+export type TickerProgress = {
+  ticker: string;
+  i: number;
+  n: number;
+};
+
 export type ScanStreamState = {
   active: boolean;
   stages: ScanStageState[];
   currentStage: ScanStage | null;
+  /** Latest per-ticker analyze event, used to render "Analyzing AAPL (3/15)". */
+  currentTicker: TickerProgress | null;
+  /** Tickers the analyzer crashed on; surfaced as a warning, not a hard error. */
+  failedTickers: string[];
   complete: CompleteEvent | null;
   error: string | null;
 };
@@ -28,6 +38,8 @@ const INITIAL: ScanStreamState = {
   active: false,
   stages: [],
   currentStage: null,
+  currentTicker: null,
+  failedTickers: [],
   complete: null,
   error: null,
 };
@@ -41,14 +53,49 @@ export function useScanStream() {
 
     abortRef.current = startScanStream(req, {
       onProgress: (event: ProgressEvent) => {
-        setState((prev) => ({
-          ...prev,
-          currentStage: event.stage,
-          stages: [
-            ...prev.stages,
-            { stage: event.stage, n: event.n, at: Date.now() },
-          ],
-        }));
+        setState((prev) => {
+          // Per-ticker events drive the inner progress display but don't
+          // pollute the stage-checkpoint list (it would balloon with 100+
+          // entries for a big universe).
+          if (
+            event.stage === "analyze_ticker_start" ||
+            event.stage === "analyze_ticker_done"
+          ) {
+            if (event.ticker && event.i != null && event.n != null) {
+              return {
+                ...prev,
+                currentTicker: {
+                  ticker: event.ticker,
+                  i: event.i,
+                  n: event.n,
+                },
+              };
+            }
+            return prev;
+          }
+          if (event.stage === "analyze_ticker_failed") {
+            return {
+              ...prev,
+              failedTickers: event.ticker
+                ? [...prev.failedTickers, event.ticker]
+                : prev.failedTickers,
+            };
+          }
+          return {
+            ...prev,
+            currentStage: event.stage,
+            currentTicker:
+              event.stage === "score_start" ||
+              event.stage === "recommend_start" ||
+              event.stage === "score_done"
+                ? null
+                : prev.currentTicker,
+            stages: [
+              ...prev.stages,
+              { stage: event.stage, n: event.n, at: Date.now() },
+            ],
+          };
+        });
       },
       onComplete: (event) => {
         setState((prev) => ({

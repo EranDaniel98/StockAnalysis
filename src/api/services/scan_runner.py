@@ -103,11 +103,13 @@ def run_scan_sync(
 
     emit({"stage": "analyze_start", "n": len(price_data_map)})
 
-    # Reuse _analyze_and_score so behavior stays in lockstep with cmd_scan.
-    # Acceptable Phase 1 coupling — the CLI carve removes this import boundary
-    # when src/main.py moves under src/cli/.
-    from src.main import _analyze_and_score
+    # Shared bounded-context implementation; the CLI calls the same function
+    # with a console-printing on_event. Per-ticker events flow through to
+    # the SSE caller.
+    from src.scoring.service import analyze_and_score
 
-    results = _analyze_and_score(price_data_map, fundamentals_map, config, strategy)
+    results = analyze_and_score(
+        price_data_map, fundamentals_map, config, strategy, on_event=emit
+    )
     emit({"stage": "score_done", "n": len(results)})
     return results

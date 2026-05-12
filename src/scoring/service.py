@@ -14,7 +14,7 @@ src/presentation/.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 
@@ -33,9 +33,15 @@ from src.scoring.analyzers import (
     technical,
     trend_detector,
 )
-from src.scoring.engine import calculate_composite_score
+from src.scoring.analyzers.trend_detector import analyze_stock_trend
+from src.scoring.engine import batch_score, calculate_composite_score
+from src.scoring.recommender import generate_recommendation
 
 logger = logging.getLogger(__name__)
+
+
+AnalyzeEvent = dict[str, Any]
+AnalyzeEventCallback = Callable[[AnalyzeEvent], None]
 
 
 def _dict_to_composite_score(ticker: str, result: dict[str, Any]) -> CompositeScore:
@@ -177,3 +183,82 @@ class ScoringService:
             alpha158_result=a158,
             pead_result=peadr,
         )
+
+
+def analyze_and_score(
+    price_data_map: dict[str, pd.DataFrame],
+    fundamentals_map: dict[str, dict],
+    config,
+    strategy: dict,
+    *,
+    on_event: AnalyzeEventCallback | None = None,
+) -> list[dict[str, Any]]:
+    """Run all analyzers, composite-score every ticker, generate recommendations.
+
+    Single source of truth for the scan pipeline's analyze pass — both the
+    CLI (``src/cli/main.py:cmd_scan``) and the API scan runner call into
+    here. Returns the legacy recommendation dict shape; Phase 4 will lift
+    to typed ``Recommendation`` once every reader is migrated.
+
+    ``on_event`` (if supplied) fires per ticker so the SSE endpoint can
+    emit live progress:
+      - ``analyze_ticker_start`` {ticker, i, n}
+      - ``analyze_ticker_done``  {ticker, i, n}
+      - ``analyze_ticker_failed`` {ticker, i, n, error}   on analyzer crash
+      - ``score_start`` {n_analyzed}                       composite begins
+      - ``recommend_start`` {n_scored}                     recommend begins
+
+    Per-ticker emit lives here (not in the analyzers) because the analyzers
+    are intentionally framework-free; progress reporting is a pipeline
+    concern, not an analyzer concern.
+    """
+    emit = on_event or (lambda _event: None)
+
+    analysis_results: dict[str, dict[str, Any]] = {}
+    total = len(price_data_map)
+
+    for i, (ticker, df) in enumerate(price_data_map.items(), 1):
+        emit({"stage": "analyze_ticker_start", "ticker": ticker, "i": i, "n": total})
+        fund = fundamentals_map.get(ticker, {})
+
+        try:
+            analysis_results[ticker] = {
+                "technical": technical.analyze(df, config),
+                "alpha158": alpha158.analyze(df, config),
+                "fundamental": fundamental.analyze(fund, config),
+                "pattern": patterns.analyze(df, config),
+                "statistical": statistical.analyze(df, config),
+                "trend": analyze_stock_trend(df, fund, config),
+            }
+            emit(
+                {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
+            )
+        except Exception as e:
+            logger.error("Error analyzing %s: %s", ticker, e)
+            emit(
+                {
+                    "stage": "analyze_ticker_failed",
+                    "ticker": ticker,
+                    "i": i,
+                    "n": total,
+                    "error": str(e),
+                }
+            )
+
+    emit({"stage": "score_start", "n_analyzed": len(analysis_results)})
+    scored = batch_score(analysis_results, strategy)
+
+    emit({"stage": "recommend_start", "n_scored": len(scored)})
+    recommendations: list[dict[str, Any]] = []
+    for ticker, score_result in scored:
+        rec = generate_recommendation(
+            ticker,
+            score_result,
+            price_data_map.get(ticker),
+            fundamentals_map.get(ticker),
+            config,
+            strategy=strategy,
+        )
+        recommendations.append(rec)
+
+    return recommendations

@@ -22,7 +22,7 @@ from rich import box
 
 from src.execution.alpaca import AlpacaClient, AlpacaClientError
 from src.execution.paper_db import PaperDB
-from src.display.cli_output import console
+from src.presentation.cli.cli_output import console
 from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher
 from src.data.fundamentals import FundamentalsFetcher

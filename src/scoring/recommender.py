@@ -172,7 +172,7 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
 
     elif method == "support":
         # Use nearest support level
-        from src.analysis.patterns import _find_support_resistance
+        from src.scoring.analyzers.patterns import _find_support_resistance
         sr = _find_support_resistance(
             price_data["High"], price_data["Low"], price_data["Close"]
         )
@@ -215,7 +215,7 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
         result["detail"] = f"ATR({multiplier}x): ${tp_price:.2f}"
 
     elif method == "resistance":
-        from src.analysis.patterns import _find_support_resistance
+        from src.scoring.analyzers.patterns import _find_support_resistance
         sr = _find_support_resistance(
             price_data["High"], price_data["Low"], price_data["Close"]
         )

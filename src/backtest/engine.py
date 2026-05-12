@@ -18,9 +18,9 @@ import numpy as np
 import pandas as pd
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-from src.analysis import technical, fundamental, patterns, statistical, alpha158
-from src.analysis import pead as pead_module
-from src.analysis.trend_detector import analyze_stock_trend
+from src.scoring.analyzers import technical, fundamental, patterns, statistical, alpha158
+from src.scoring.analyzers import pead as pead_module
+from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.backtest.portfolio import SimPortfolio
 

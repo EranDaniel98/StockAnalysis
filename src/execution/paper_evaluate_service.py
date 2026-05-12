@@ -19,7 +19,7 @@ from rich import box
 
 from src.execution.alpaca import AlpacaClient, AlpacaClientError
 from src.execution.paper_db import PaperDB
-from src.display.cli_output import console
+from src.presentation.cli.cli_output import console
 
 logger = logging.getLogger(__name__)
 

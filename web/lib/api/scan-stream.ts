@@ -17,12 +17,21 @@ export type ScanStage =
   | "prices_start"
   | "prices_done"
   | "analyze_start"
+  | "analyze_ticker_start"
+  | "analyze_ticker_done"
+  | "analyze_ticker_failed"
+  | "score_start"
+  | "recommend_start"
   | "score_done"
   | "complete";
 
 export type ProgressEvent = {
   stage: ScanStage;
   n?: number;
+  /** Per-ticker analyze events also carry these. */
+  ticker?: string;
+  i?: number;
+  error?: string;
 };
 
 export type CompleteEvent = {

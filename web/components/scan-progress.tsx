@@ -80,7 +80,17 @@ function countForStage(
 export function ScanProgress({ state }: { state: ScanStreamState }) {
   const reached = new Set(state.stages.map((s) => s.stage));
   const doneCount = PIPELINE.filter((p) => reached.has(p.done)).length;
-  const pct = (doneCount / PIPELINE.length) * 100;
+  // While ticker events are flowing through the analyze stage, give that
+  // stage partial credit so the bar advances per-ticker instead of
+  // sitting at the post-prices waypoint until score_done lands.
+  const analyzeSpec = PIPELINE[PIPELINE.length - 1];
+  const analyzeFraction =
+    !reached.has(analyzeSpec.done) &&
+    state.currentTicker &&
+    state.currentTicker.n > 0
+      ? state.currentTicker.i / state.currentTicker.n
+      : 0;
+  const pct = ((doneCount + analyzeFraction) / PIPELINE.length) * 100;
 
   return (
     <Card>
@@ -107,6 +117,10 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
           {PIPELINE.map((spec) => {
             const status = statusForStage(spec, reached, state.currentStage);
             const n = countForStage(spec, state.stages);
+            const isAnalyzeActive =
+              spec.start === "analyze_start" &&
+              status === "active" &&
+              state.currentTicker;
             return (
               <li
                 key={spec.start}
@@ -125,8 +139,17 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
                   >
                     {spec.label}
                   </span>
+                  {isAnalyzeActive && state.currentTicker ? (
+                    <span className="text-muted-foreground font-mono text-xs">
+                      → {state.currentTicker.ticker}
+                    </span>
+                  ) : null}
                 </div>
-                {n !== null ? (
+                {isAnalyzeActive && state.currentTicker ? (
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    {state.currentTicker.i} / {state.currentTicker.n}
+                  </span>
+                ) : n !== null ? (
                   <span className="text-muted-foreground text-xs tabular-nums">
                     {spec.countLabel(n)}
                   </span>
@@ -135,6 +158,17 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
             );
           })}
         </ul>
+
+        {state.failedTickers.length > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            {state.failedTickers.length} ticker
+            {state.failedTickers.length === 1 ? "" : "s"} skipped on error:{" "}
+            <span className="font-mono">
+              {state.failedTickers.slice(0, 8).join(", ")}
+              {state.failedTickers.length > 8 ? "…" : ""}
+            </span>
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

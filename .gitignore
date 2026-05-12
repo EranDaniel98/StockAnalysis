@@ -23,3 +23,5 @@ env/
 *.swo
 # Playwright MCP scratchspace (snapshots, console logs)
 .playwright-mcp/
+# Editor / migration backups
+*.bak

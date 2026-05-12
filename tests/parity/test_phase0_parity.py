@@ -1,30 +1,18 @@
-"""Phase 0 parity tests.
+"""Phase 0 parity test — kept past Phase 0 because the numerical
+equivalence between the dict-returning legacy entry point and the typed
+``CompositeScore`` entry point still has to hold.
 
-Two levels of guarantee:
+The legacy-import-shim test that used to live here was dropped after the
+Phase-2.2 polish removed those shim packages (``src.analysis``,
+``src.broker``, ``src.paper``, ``src.diagnostic``, ``src.display``) — every
+caller in-tree now imports from the bounded-context paths directly.
 
-  1. ``test_typed_scoring_matches_legacy_dict`` — deterministic unit test.
-     Runs every analyzer on a real cached price DataFrame for AAPL, calls
-     both `calculate_composite_score` (dict-returning legacy entry point)
-     and `compute_composite_score` (typed CompositeScore-returning entry
-     point), and asserts every sub-score + composite + breakdown row is
-     byte-identical. This is the contract the typed wrapper must hold:
-     same inputs -> same numeric result, just lifted into a model.
-
-  2. ``test_legacy_import_shims_resolve`` — the Stream B carve added
-     sys.modules shims so that ``import src.analysis.technical`` still
-     resolves post-rename. We assert every legacy import path the CLI
-     still uses keeps working through Phase 0.
-
-A full sub-score-vs-baseline scan parity test (mentioned in the plan
-under risk #2) is deferred: it requires pinning ``as_of_date`` through
-the analyzer pipeline, which is a Phase 1 plumbing change. Until then,
-the two tests above plus the manual scan/backtest smoke commands cover
-the realistic regression surface.
+A full sub-score-vs-baseline scan parity test (mentioned in the original
+plan under risk #2) is still deferred: it requires pinning ``as_of_date``
+through the analyzer pipeline, which is a follow-up plumbing change.
 """
 
 from __future__ import annotations
-
-import warnings
 
 import pandas as pd
 import pytest
@@ -124,44 +112,40 @@ def test_typed_scoring_matches_legacy_dict():
     assert round_trip["sub_scores"] == typed.sub_scores
 
 
-# (legacy import path, attribute that real callers reference)
-# We check that the legacy path still resolves AND that the specific
-# attribute callers reach for is still importable — not that the entire
-# dir() set matches, since package __init__ shims may intentionally
-# narrow the surface area.
-_LEGACY_SHIM_CASES = [
-    ("src.analysis.technical", "analyze"),
-    ("src.analysis.fundamental", "analyze"),
-    ("src.analysis.patterns", "analyze"),
-    ("src.analysis.statistical", "analyze"),
-    ("src.analysis.trend_detector", "analyze_stock_trend"),
-    ("src.analysis.alpha158", "analyze"),
-    ("src.analysis.pead", "analyze"),
-    ("src.broker.alpaca_client", "AlpacaClient"),
-    ("src.paper.trader", "run_paper_trade"),
-    ("src.paper.evaluator", "run_paper_evaluate"),
-    ("src.paper.sync", None),  # module-level shim; no specific symbol required
-    ("src.paper.bootstrap", None),
-    ("src.diagnostic.alphalens_runner", "run_alphalens"),
-    ("src.diagnostic.quantstats_runner", "render_quantstats_report"),
-    ("src.display.cli_output", "display_scan_results"),
+# Bounded-context modules every in-tree caller now points at. We don't
+# pin the full dir() — package __init__ files may narrow the export
+# surface — but each named symbol must remain importable so a future
+# refactor doesn't quietly orphan a downstream caller.
+_BOUNDED_CONTEXT_CASES = [
+    ("src.scoring.analyzers.technical", "analyze"),
+    ("src.scoring.analyzers.fundamental", "analyze"),
+    ("src.scoring.analyzers.patterns", "analyze"),
+    ("src.scoring.analyzers.statistical", "analyze"),
+    ("src.scoring.analyzers.trend_detector", "analyze_stock_trend"),
+    ("src.scoring.analyzers.alpha158", "analyze"),
+    ("src.scoring.analyzers.pead", "analyze"),
+    ("src.execution.alpaca", "AlpacaClient"),
+    ("src.execution.paper_trade_service", "run_paper_trade"),
+    ("src.execution.paper_evaluate_service", "run_paper_evaluate"),
+    ("src.execution.sync_service", None),
+    ("src.execution.bootstrap_service", None),
+    ("src.research.diagnostic_service", "run_alphalens"),
+    ("src.research.quantstats_service", "render_quantstats_report"),
+    ("src.presentation.cli.cli_output", "display_scan_results"),
     ("src.portfolio", "Portfolio"),
+    ("src.cli.main", "main"),
 ]
 
 
-@pytest.mark.parametrize("legacy_path,expected_attr", _LEGACY_SHIM_CASES)
-def test_legacy_import_shim_resolves(legacy_path, expected_attr):
-    """Every legacy import path must still resolve after the bounded-context
-    carve. Phase 1 drops the shims; Phase 0 must not break callers that
-    still type the old paths.
-    """
+@pytest.mark.parametrize("module_path,expected_attr", _BOUNDED_CONTEXT_CASES)
+def test_bounded_context_import_resolves(module_path, expected_attr):
+    """Every bounded-context module name in-tree callers depend on must
+    keep resolving. This is the post-shim replacement for the old
+    legacy-shim test."""
     import importlib
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        legacy_mod = importlib.import_module(legacy_path)
-
+    mod = importlib.import_module(module_path)
     if expected_attr is not None:
-        assert hasattr(legacy_mod, expected_attr), (
-            f"{legacy_path} no longer exposes {expected_attr!r}"
+        assert hasattr(mod, expected_attr), (
+            f"{module_path} no longer exposes {expected_attr!r}"
         )
