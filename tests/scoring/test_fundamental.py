@@ -176,6 +176,100 @@ class TestDividendScore:
         assert "Dividend" in sources
 
 
+class TestSectorRelativeValuation:
+    """Sector-relative scoring is the #3 deferred improvement. The
+    legacy absolute-threshold path (P/E < 15 → 80) penalizes high-
+    multiple sectors uniformly; sector-relative scoring compares
+    against the cohort median so 'cheap for software' beats 'expensive
+    for utilities'."""
+
+    @pytest.fixture
+    def tech_stats(self) -> dict:
+        # Tech P/E cohort skews high; q1=25, median=35, q3=45.
+        return {
+            "Technology": {
+                "pe_trailing": {"q1": 25.0, "median": 35.0, "q3": 45.0, "count": 10.0},
+                "pb_ratio": {"q1": 3.0, "median": 5.0, "q3": 8.0, "count": 10.0},
+            }
+        }
+
+    def test_pe_30_is_neutral_for_tech(self, cfg, tech_stats: dict) -> None:
+        """P/E 30 is below tech median (35) → 'below_median' → 65.
+        Under the absolute path, 30 would have scored 50."""
+        result = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 30.0},
+            cfg, sector_stats=tech_stats,
+        )
+        assert result["scores"]["valuation"] == 65
+
+    def test_pe_20_is_bullish_for_tech(self, cfg, tech_stats: dict) -> None:
+        """P/E 20 is below tech Q1 (25) → 'low' → 80. Cheap for tech."""
+        result = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 20.0},
+            cfg, sector_stats=tech_stats,
+        )
+        assert result["scores"]["valuation"] >= 75
+        bullish_sources = {s["source"] for s in result["signals"] if s["type"] == "bullish"}
+        assert "P/E vs Sector" in bullish_sources
+
+    def test_pe_50_is_bearish_for_tech(self, cfg, tech_stats: dict) -> None:
+        """P/E 50 is above tech Q3 (45) → 'high' → 30."""
+        result = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 50.0},
+            cfg, sector_stats=tech_stats,
+        )
+        assert result["scores"]["valuation"] <= 35
+        bearish_sources = {s["source"] for s in result["signals"] if s["type"] == "bearish"}
+        assert "P/E vs Sector" in bearish_sources
+
+    def test_falls_back_to_absolute_when_sector_missing(
+        self, cfg, tech_stats: dict
+    ) -> None:
+        """Healthcare isn't in the sector_stats dict; analyzer must
+        fall back to absolute thresholds. P/E 10 → absolute 'Low P/E'
+        → 80."""
+        result = fundamental.analyze(
+            {"sector": "Healthcare", "pe_trailing": 10.0},
+            cfg, sector_stats=tech_stats,
+        )
+        assert result["scores"]["valuation"] >= 75
+        sources = {s["source"] for s in result["signals"] if s["type"] == "bullish"}
+        # Legacy signal label, not the sector-relative one.
+        assert "P/E" in sources
+        assert "P/E vs Sector" not in sources
+
+    def test_falls_back_when_sector_stats_none(self, cfg) -> None:
+        """Passing sector_stats=None reproduces the legacy behavior
+        exactly — protects callers that haven't been migrated yet."""
+        result_with = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 10.0},
+            cfg, sector_stats=None,
+        )
+        result_without = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 10.0},
+            cfg,
+        )
+        assert result_with["scores"]["valuation"] == result_without["scores"]["valuation"]
+
+    def test_partial_sector_coverage_mixes_modes(self, cfg) -> None:
+        """Only P/E has sector stats; PEG falls back to absolute.
+        Both should contribute to the valuation score."""
+        stats = {
+            "Technology": {
+                "pe_trailing": {"q1": 25.0, "median": 35.0, "q3": 45.0, "count": 10.0},
+            }
+        }
+        result = fundamental.analyze(
+            {"sector": "Technology", "pe_trailing": 20.0, "peg_ratio": 0.5},
+            cfg, sector_stats=stats,
+        )
+        # Both metrics scored: 80 (sector-relative P/E 'low') + 85 (absolute PEG).
+        assert result["scores"]["valuation"] is not None
+        sources = {s["source"] for s in result["signals"]}
+        assert "P/E vs Sector" in sources
+        assert "PEG" in sources  # absolute fallback
+
+
 class TestAnalystScore:
     def test_no_recommendation_yields_none(self, cfg: Config) -> None:
         assert _scores_only({}, cfg).get("analyst") is None

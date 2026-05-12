@@ -36,6 +36,7 @@ from src.scoring.analyzers import (
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import batch_score, calculate_composite_score
 from src.scoring.recommender import generate_recommendation
+from src.scoring.sector_stats import compute_sector_stats
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,17 @@ def analyze_and_score(
     """
     emit = on_event or (lambda _event: None)
 
+    # Pre-compute per-sector quantile stats once for the whole batch
+    # so each fundamental.analyze call can score valuation metrics on
+    # within-sector percentile when the cohort is large enough.
+    sector_cfg = config.get_sector_relative_scoring() if hasattr(config, "get_sector_relative_scoring") else {}
+    sector_stats = None
+    if sector_cfg.get("enabled", False):
+        sector_stats = compute_sector_stats(
+            fundamentals_map,
+            min_cohort=int(sector_cfg.get("min_cohort", 5)),
+        )
+
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
 
@@ -225,7 +237,7 @@ def analyze_and_score(
             analysis_results[ticker] = {
                 "technical": technical.analyze(df, config),
                 "alpha158": alpha158.analyze(df, config),
-                "fundamental": fundamental.analyze(fund, config),
+                "fundamental": fundamental.analyze(fund, config, sector_stats=sector_stats),
                 "pattern": patterns.analyze(df, config),
                 "statistical": statistical.analyze(df, config),
                 "trend": analyze_stock_trend(df, fund, config),

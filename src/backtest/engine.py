@@ -22,6 +22,7 @@ from src.scoring.analyzers import technical, fundamental, patterns, statistical,
 from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
+from src.scoring.sector_stats import compute_sector_stats
 from src.backtest.portfolio import SimPortfolio
 from src.market_data.regime import (
     GateMode,
@@ -173,13 +174,19 @@ def _score_ticker(
     strategy: dict,
     earnings_hist: Optional[pd.DataFrame] = None,
     as_of_date: Optional[pd.Timestamp] = None,
+    sector_stats: Optional[dict] = None,
 ) -> Optional[dict]:
-    """Run all analyzers on a sliced df and return composite score result + ATR."""
+    """Run all analyzers on a sliced df and return composite score result + ATR.
+
+    ``sector_stats`` is the pre-computed per-sector quantile table from
+    ``compute_sector_stats``; when present, fundamental scoring uses
+    sector-relative percentiles for valuation metrics.
+    """
     if df_slice is None or len(df_slice) < 50:
         return None
     try:
         tech = technical.analyze(df_slice, config)
-        fnd = fundamental.analyze(fund, config)
+        fnd = fundamental.analyze(fund, config, sector_stats=sector_stats)
         pat = patterns.analyze(df_slice, config)
         stat = statistical.analyze(df_slice, config)
         trnd = analyze_stock_trend(df_slice, fund, config)
@@ -252,6 +259,18 @@ def run_backtest(
     skipped_earnings = 0
     skipped_regime = 0
     regime_history: list[dict] = []  # per-Monday {date, label, vix, spy_above_sma}
+
+    # Sector-relative scoring: pre-compute per-sector quantiles once for
+    # the run. yfinance fundamentals are current-snapshot, so the stats
+    # are inherently snapshot-based — same lookahead caveat as the rest
+    # of the fundamental path (flagged loudly below).
+    sector_cfg = config.get_sector_relative_scoring() if hasattr(config, "get_sector_relative_scoring") else {}
+    sector_stats: Optional[dict] = None
+    if sector_cfg.get("enabled", False):
+        sector_stats = compute_sector_stats(
+            fundamentals,
+            min_cohort=int(sector_cfg.get("min_cohort", 5)),
+        )
 
     # Regime entry gate. Reads config; defaults to "off". SPY + VIX frames
     # must be supplied for the gate to fire — otherwise label is 'unknown'
@@ -358,7 +377,7 @@ def run_backtest(
                     eh = earnings_history.get(ticker)
                     futures[ex.submit(
                         _score_ticker, ticker, df_slice, fund, config, strategy,
-                        eh, as_of,
+                        eh, as_of, sector_stats,
                     )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]
@@ -605,6 +624,11 @@ def run_backtest(
         "monthly_returns": monthly,
         "monte_carlo": mc_shuffle,
         "live_recommendation": live_rec,
+        "sector_relative_scoring": {
+            "enabled": sector_stats is not None,
+            "min_cohort": int(sector_cfg.get("min_cohort", 5)) if sector_cfg else 5,
+            "sectors_with_stats": sorted(sector_stats.keys()) if sector_stats else [],
+        },
         "regime_gate": {
             "enabled": regime_enabled,
             "mode": regime_mode,

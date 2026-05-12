@@ -117,12 +117,25 @@ risk_management:
   #   - skip_bear:            block entries when SPY<SMA AND VIX>vix_high
   #   - skip_bear_and_chop:   only enter in clean bull (SPY>SMA AND VIX<vix_low)
   # 'unknown' (data missing) always allows entry — don't punish outages.
+  # A/B sweep on 2026-05-12 (data/sweep_regime.json) found the gate net-
+  # negative OOS in the 2023-05 → 2026-05 window (no real bear regime to
+  # protect against). Default disabled. Re-enable when SPY meaningfully
+  # breaks SMA200 with VIX > 25 sustained, or before paper-trading
+  # through a known macro event.
   regime_filter:
-    enabled: true
-    mode: "skip_bear"
+    enabled: false
+    mode: "off"
     sma_period: 200
     vix_low: 20.0
     vix_high: 25.0
+  # Score valuation metrics (P/E, PEG, P/B, EV/EBITDA) on percentile
+  # within the ticker's sector cohort instead of absolute thresholds.
+  # A sector cohort of fewer than `min_cohort` tickers falls back to
+  # absolute scoring for that sector. Enable A/B-tested via
+  # scripts/sweep_sector_relative.py.
+  sector_relative_scoring:
+    enabled: true
+    min_cohort: 5
 
 # --- Alerts ---
 alerts:

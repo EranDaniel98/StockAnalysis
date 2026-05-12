@@ -100,7 +100,10 @@ def stub_score(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force every ticker to return a high score with a sane ATR + close.
     Lets us isolate the gate from analyzer behavior."""
 
-    def _fake_score(ticker, df_slice, fund, config, strategy, eh=None, as_of=None):
+    def _fake_score(
+        ticker, df_slice, fund, config, strategy,
+        eh=None, as_of=None, sector_stats=None,
+    ):
         if df_slice is None or len(df_slice) < 50:
             return None
         return {

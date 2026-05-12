@@ -156,3 +156,16 @@ class Config:
             "vix_low": 20.0,
             "vix_high": 25.0,
         })
+
+    def get_sector_relative_scoring(self):
+        """Get the sector-relative scoring config.
+
+        Returns ``{enabled, min_cohort}``. Defaults disabled — old
+        YAMLs without the block reproduce legacy absolute-threshold
+        behavior. Enable via settings.yaml or programmatically in
+        sweep scripts.
+        """
+        return self.get("risk_management", "sector_relative_scoring", default={
+            "enabled": False,
+            "min_cohort": 5,
+        })

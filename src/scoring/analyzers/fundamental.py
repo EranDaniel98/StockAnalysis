@@ -7,16 +7,36 @@ All thresholds come from config.
 import logging
 import numpy as np
 
+from src.scoring.sector_stats import percentile_bucket
+
 logger = logging.getLogger(__name__)
 
 
-def analyze(fundamentals, config):
+# Sector-relative valuation scoring: map percentile bucket → score band.
+# Lower-is-better orientation (cheap = bullish), so "low" bucket scores
+# highest. Bands match the absolute-threshold path closely so the two
+# scorers stay comparable when sector stats are missing.
+_SECTOR_RELATIVE_BANDS: dict[str, int] = {
+    "low": 80,
+    "below_median": 65,
+    "above_median": 50,
+    "high": 30,
+}
+
+
+def analyze(fundamentals, config, *, sector_stats=None):
     """
     Score a stock's fundamental data.
 
     Args:
         fundamentals: dict of financial metrics from FundamentalsFetcher
         config: Config object
+        sector_stats: optional ``{sector: {metric: {q1, median, q3}}}``
+            from ``src.scoring.sector_stats.compute_sector_stats``. When
+            present, valuation metrics are scored on percentile within
+            the ticker's sector cohort instead of the absolute
+            thresholds in this file. The fallback (None or sector
+            missing) is the legacy behavior — same scores as before.
 
     Returns:
         dict with keys: scores (per category), signals, score (0-100)
@@ -28,7 +48,9 @@ def analyze(fundamentals, config):
     category_scores = {}
 
     # --- Valuation Score ---
-    category_scores["valuation"] = _score_valuation(fundamentals, config, signals)
+    category_scores["valuation"] = _score_valuation(
+        fundamentals, config, signals, sector_stats=sector_stats,
+    )
 
     # --- Growth Score ---
     category_scores["growth"] = _score_growth(fundamentals, config, signals)
@@ -72,61 +94,150 @@ def analyze(fundamentals, config):
     }
 
 
-def _score_valuation(fund, config, signals):
-    """Score based on P/E, P/B, PEG, EV/EBITDA."""
-    scores = []
+def _sector_relative_lookup(sector_stats, sector, metric):
+    """Return the per-metric quantile dict for this ticker's sector,
+    or None when sector stats are absent / sector cohort too sparse /
+    metric dropped (too few non-null values). Caller falls back to
+    absolute thresholds on None."""
+    if not sector_stats or not sector:
+        return None
+    sector_block = sector_stats.get(sector)
+    if not sector_block:
+        return None
+    return sector_block.get(metric)
+
+
+def _score_valuation_sector_relative(fund, sector_stats, signals):
+    """Sector-relative scoring for valuation metrics.
+
+    Returns ``(scores_list, used_keys_set)`` — used_keys lets the
+    caller skip those metrics in the absolute-threshold pass so we
+    don't double-count. Any metric without sector stats falls through
+    to the absolute scorer.
+    """
+    sector = fund.get("sector")
+    scored: list[float] = []
+    used: set[str] = set()
+
+    # P/E: trailing preferred, forward as fallback (matches absolute path).
+    for key in ("pe_trailing", "pe_forward"):
+        pe = fund.get(key)
+        if pe is None or pe <= 0:
+            continue
+        stats = _sector_relative_lookup(sector_stats, sector, key)
+        if stats is None:
+            continue
+        bucket = percentile_bucket(float(pe), stats)
+        scored.append(_SECTOR_RELATIVE_BANDS[bucket])
+        if bucket == "low":
+            signals.append({
+                "type": "bullish", "source": "P/E vs Sector",
+                "detail": f"{pe:.1f} vs {sector} median {stats['median']:.1f}",
+            })
+        elif bucket == "high":
+            signals.append({
+                "type": "bearish", "source": "P/E vs Sector",
+                "detail": f"{pe:.1f} vs {sector} Q3 {stats['q3']:.1f}",
+            })
+        used.add(key)
+        used.add("pe_trailing")  # block fallback even if we scored forward
+        used.add("pe_forward")
+        break  # only score one P/E
+
+    for key, label in (("peg_ratio", "PEG"), ("pb_ratio", "P/B"), ("ev_to_ebitda", "EV/EBITDA")):
+        value = fund.get(key)
+        if value is None or value <= 0:
+            continue
+        stats = _sector_relative_lookup(sector_stats, sector, key)
+        if stats is None:
+            continue
+        bucket = percentile_bucket(float(value), stats)
+        scored.append(_SECTOR_RELATIVE_BANDS[bucket])
+        if bucket == "low":
+            signals.append({
+                "type": "bullish", "source": f"{label} vs Sector",
+                "detail": f"{value:.2f} vs {sector} median {stats['median']:.2f}",
+            })
+        elif bucket == "high":
+            signals.append({
+                "type": "bearish", "source": f"{label} vs Sector",
+                "detail": f"{value:.2f} vs {sector} Q3 {stats['q3']:.2f}",
+            })
+        used.add(key)
+
+    return scored, used
+
+
+def _score_valuation(fund, config, signals, *, sector_stats=None):
+    """Score based on P/E, P/B, PEG, EV/EBITDA.
+
+    When ``sector_stats`` is provided and a metric has a sector cohort,
+    score that metric on within-sector percentile (cheaper than sector
+    median = bullish). Metrics without sector coverage fall back to the
+    absolute thresholds below. This means a partial rollout — some
+    metrics sector-relative, others absolute — is supported in one pass.
+    """
     filters = config.get("fundamental_filters", default={})
 
-    # P/E Ratio
-    pe = fund.get("pe_trailing") or fund.get("pe_forward")
-    if pe is not None and pe > 0:
-        max_pe = filters.get("max_pe_ratio", 50)
-        if pe < 15:
-            scores.append(80)
-            signals.append({"type": "bullish", "source": "P/E", "detail": f"Low P/E: {pe:.1f}"})
-        elif pe < 25:
-            scores.append(65)
-        elif pe < max_pe:
-            scores.append(50)
-        else:
-            scores.append(25)
-            signals.append({"type": "bearish", "source": "P/E", "detail": f"High P/E: {pe:.1f}"})
+    sector_scores, sector_used = _score_valuation_sector_relative(
+        fund, sector_stats, signals,
+    ) if sector_stats else ([], set())
+    scores: list[float] = list(sector_scores)
+
+    # P/E Ratio (only if sector-relative didn't already score it)
+    if "pe_trailing" not in sector_used:
+        pe = fund.get("pe_trailing") or fund.get("pe_forward")
+        if pe is not None and pe > 0:
+            max_pe = filters.get("max_pe_ratio", 50)
+            if pe < 15:
+                scores.append(80)
+                signals.append({"type": "bullish", "source": "P/E", "detail": f"Low P/E: {pe:.1f}"})
+            elif pe < 25:
+                scores.append(65)
+            elif pe < max_pe:
+                scores.append(50)
+            else:
+                scores.append(25)
+                signals.append({"type": "bearish", "source": "P/E", "detail": f"High P/E: {pe:.1f}"})
 
     # PEG Ratio (P/E to Growth)
-    peg = fund.get("peg_ratio")
-    if peg is not None and peg > 0:
-        if peg < 1:
-            scores.append(85)
-            signals.append({"type": "bullish", "source": "PEG", "detail": f"Undervalued PEG: {peg:.2f}"})
-        elif peg < 1.5:
-            scores.append(70)
-        elif peg < 2:
-            scores.append(55)
-        else:
-            scores.append(35)
+    if "peg_ratio" not in sector_used:
+        peg = fund.get("peg_ratio")
+        if peg is not None and peg > 0:
+            if peg < 1:
+                scores.append(85)
+                signals.append({"type": "bullish", "source": "PEG", "detail": f"Undervalued PEG: {peg:.2f}"})
+            elif peg < 1.5:
+                scores.append(70)
+            elif peg < 2:
+                scores.append(55)
+            else:
+                scores.append(35)
 
     # Price-to-Book
-    pb = fund.get("pb_ratio")
-    if pb is not None and pb > 0:
-        if pb < 1:
-            scores.append(80)
-            signals.append({"type": "bullish", "source": "P/B", "detail": f"Below book value: {pb:.2f}"})
-        elif pb < 3:
-            scores.append(65)
-        elif pb < 10:
-            scores.append(50)
-        else:
-            scores.append(30)
+    if "pb_ratio" not in sector_used:
+        pb = fund.get("pb_ratio")
+        if pb is not None and pb > 0:
+            if pb < 1:
+                scores.append(80)
+                signals.append({"type": "bullish", "source": "P/B", "detail": f"Below book value: {pb:.2f}"})
+            elif pb < 3:
+                scores.append(65)
+            elif pb < 10:
+                scores.append(50)
+            else:
+                scores.append(30)
 
     # EV/EBITDA
-    ev_ebitda = fund.get("ev_to_ebitda")
-    if ev_ebitda is not None and ev_ebitda > 0:
-        if ev_ebitda < 10:
-            scores.append(75)
-        elif ev_ebitda < 20:
-            scores.append(55)
-        else:
-            scores.append(35)
+    if "ev_to_ebitda" not in sector_used:
+        ev_ebitda = fund.get("ev_to_ebitda")
+        if ev_ebitda is not None and ev_ebitda > 0:
+            if ev_ebitda < 10:
+                scores.append(75)
+            elif ev_ebitda < 20:
+                scores.append(55)
+            else:
+                scores.append(35)
 
     return np.mean(scores) if scores else None
 
