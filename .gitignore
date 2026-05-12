@@ -15,6 +15,10 @@ data/*.json
 data/ohlcv/
 # Phase 4 — trained model artifacts (joblib + manifest); registry row is the source of truth
 data/models/
+# Phase 6 — backup snapshots (timestamped pg_dump + tarballs); never under version control
+backups/
+# Phase 6 — structlog JSON output
+logs/
 .venv/
 venv/
 env/

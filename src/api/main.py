@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.dependencies import get_config
+from src.api.middleware import RequestIdMiddleware
 from src.api.routers import (
     analytics,
     backtests,
@@ -38,6 +39,7 @@ from src.api.services.trade_updates import TradeUpdatesBus
 from src.api.settings import ApiSettings
 from src.cache.redis_adapter import RedisCacheRepository
 from src.db.session import dispose_engine, get_sessionmaker
+from src.observability.logging import configure_logging
 from src.research_agent.event_monitor import EventMonitor
 from src.storage.parquet_ohlcv import ParquetPriceRepository
 
@@ -90,6 +92,7 @@ def _event_monitor_enabled() -> bool:
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     settings = settings or ApiSettings()
+    configure_logging()
 
     app = FastAPI(
         title="StockNew API",
@@ -98,13 +101,17 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CORS comes first so OPTIONS preflights don't get a request_id
+    # they can't echo back. Request-ID middleware runs on real requests.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
+    app.add_middleware(RequestIdMiddleware)
 
     app.include_router(health.router)
     app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])

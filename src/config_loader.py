@@ -46,6 +46,13 @@ class Config:
         return data or {}
 
     def _setup_logging(self):
+        # If something else (e.g. src.observability.logging.configure_logging
+        # called by the FastAPI factory) already set up the root logger, don't
+        # clobber it with basicConfig — that would tear down structured JSON
+        # output for every CLI helper that happens to construct a Config.
+        if logging.getLogger().handlers:
+            return
+
         level_str = self.get("logging", "level", default="INFO")
         level = getattr(logging, level_str.upper(), logging.INFO)
         log_file = self.get("logging", "file")
@@ -59,7 +66,6 @@ class Config:
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
             handlers=handlers,
-            force=True,
         )
 
     def get(self, *keys, default=None):
