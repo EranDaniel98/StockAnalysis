@@ -20,6 +20,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 
 from src.scoring.analyzers import technical, fundamental, patterns, statistical, alpha158
 from src.scoring.analyzers import pead as pead_module
+from src.scoring.analyzers import relative_strength
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.scoring.sector_stats import compute_sector_stats
@@ -175,12 +176,18 @@ def _score_ticker(
     earnings_hist: Optional[pd.DataFrame] = None,
     as_of_date: Optional[pd.Timestamp] = None,
     sector_stats: Optional[dict] = None,
+    benchmark_slice: Optional[pd.DataFrame] = None,
 ) -> Optional[dict]:
     """Run all analyzers on a sliced df and return composite score result + ATR.
 
     ``sector_stats`` is the pre-computed per-sector quantile table from
     ``compute_sector_stats``; when present, fundamental scoring uses
     sector-relative percentiles for valuation metrics.
+
+    ``benchmark_slice`` is the SPY (or other benchmark) history sliced
+    to the same as-of date as the ticker. When provided, the relative-
+    strength analyzer fires; when None, RS is skipped (composite engine
+    treats it as a missing sub-score, same as alpha158 on short history).
     """
     if df_slice is None or len(df_slice) < 50:
         return None
@@ -196,10 +203,15 @@ def _score_ticker(
         pd_result = None
         if earnings_hist is not None and not earnings_hist.empty:
             pd_result = pead_module.analyze(ticker, earnings_hist, as_of_date=as_of_date)
+        rs_result = (
+            relative_strength.analyze(df_slice, benchmark_slice, config)
+            if benchmark_slice is not None else None
+        )
         score_result = calculate_composite_score(
             tech, fnd, pat, stat, trnd, strategy,
             alpha158_result=a158,
             pead_result=pd_result,
+            rel_strength_result=rs_result,
         )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
@@ -288,6 +300,14 @@ def run_backtest(
     price_data = {t: _normalize_index(df) for t, df in price_data.items() if df is not None and not df.empty}
     if not price_data:
         return {"error": "No price data available"}
+    # Benchmark frames come from a different fetcher path and can land
+    # tz-aware (America/New_York from yfinance) — normalize them so
+    # subsequent index comparisons against tz-naive Timestamps don't
+    # blow up downstream.
+    if spy_df is not None and not spy_df.empty:
+        spy_df = _normalize_index(spy_df)
+    if vix_df is not None and not vix_df.empty:
+        vix_df = _normalize_index(vix_df)
 
     # Normalize start/end to tz-naive Timestamps for safe comparisons against indices
     start = pd.Timestamp(bt_cfg.start_date)
@@ -366,6 +386,12 @@ def run_backtest(
             # 2) For each ticker, slice df strictly BEFORE as_of (pre-open scan
             #    semantic — matches live `paper trade` running Sunday with Friday
             #    data) and score in parallel.
+            #    Slice the benchmark the same way so RS can't peek either.
+            spy_slice = None
+            if spy_df is not None and not spy_df.empty:
+                spy_slice = spy_df.loc[spy_df.index < as_of]
+                if spy_slice.empty:
+                    spy_slice = None
             scored: list[tuple[str, dict]] = []
             with ThreadPoolExecutor(max_workers=bt_cfg.workers) as ex:
                 futures = {}
@@ -377,7 +403,7 @@ def run_backtest(
                     eh = earnings_history.get(ticker)
                     futures[ex.submit(
                         _score_ticker, ticker, df_slice, fund, config, strategy,
-                        eh, as_of, sector_stats,
+                        eh, as_of, sector_stats, spy_slice,
                     )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]

@@ -29,6 +29,7 @@ from src.scoring.analyzers import (
     fundamental,
     patterns,
     pead as pead_module,
+    relative_strength,
     statistical,
     technical,
     trend_detector,
@@ -108,6 +109,7 @@ def compute_composite_score(
     *,
     alpha158_result: dict | None = None,
     pead_result: dict | None = None,
+    rel_strength_result: dict | None = None,
 ) -> CompositeScore:
     """Typed wrapper around calculate_composite_score.
 
@@ -125,6 +127,7 @@ def compute_composite_score(
         strategy_config,
         alpha158_result=alpha158_result,
         pead_result=pead_result,
+        rel_strength_result=rel_strength_result,
     )
     return _dict_to_composite_score(ticker, raw)
 
@@ -153,16 +156,24 @@ class ScoringService:
         *,
         earnings_history: Optional[pd.DataFrame] = None,
         as_of_date: Any = None,
+        benchmark_df: Optional[pd.DataFrame] = None,
+        sector_stats: Optional[dict] = None,
     ) -> CompositeScore | None:
         """Run all analyzers + composite + typed lift. Returns None when
         the price DataFrame is too short for any analyzer to fire — caller
         treats this as a soft miss, not an error.
+
+        ``benchmark_df`` (typically SPY) enables the relative-strength
+        analyzer; None disables it. ``sector_stats`` enables sector-
+        relative valuation scoring.
         """
         if df is None or df.empty:
             return None
 
         tech = technical.analyze(df, self._config)
-        fund = fundamental.analyze(fundamentals or {}, self._config)
+        fund = fundamental.analyze(
+            fundamentals or {}, self._config, sector_stats=sector_stats,
+        )
         pat = patterns.analyze(df, self._config)
         stat = statistical.analyze(df, self._config)
         trnd = trend_detector.analyze_stock_trend(df, fundamentals or {}, self._config)
@@ -172,6 +183,10 @@ class ScoringService:
             peadr = pead_module.analyze(
                 ticker, earnings_history, as_of_date=as_of_date
             )
+        rs_result = (
+            relative_strength.analyze(df, benchmark_df, self._config)
+            if benchmark_df is not None else None
+        )
 
         return compute_composite_score(
             ticker=ticker,
@@ -183,6 +198,7 @@ class ScoringService:
             strategy_config=strategy_config,
             alpha158_result=a158,
             pead_result=peadr,
+            rel_strength_result=rs_result,
         )
 
 
@@ -193,6 +209,7 @@ def analyze_and_score(
     strategy: dict,
     *,
     on_event: AnalyzeEventCallback | None = None,
+    benchmark_df: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
     """Run all analyzers, composite-score every ticker, generate recommendations.
 
@@ -226,6 +243,12 @@ def analyze_and_score(
             min_cohort=int(sector_cfg.get("min_cohort", 5)),
         )
 
+    # Relative-strength benchmark: prefer the explicit arg, fall back
+    # to SPY in the price_data_map if the caller happened to fetch it.
+    bench_df = benchmark_df
+    if bench_df is None:
+        bench_df = price_data_map.get("SPY")
+
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
 
@@ -241,6 +264,10 @@ def analyze_and_score(
                 "pattern": patterns.analyze(df, config),
                 "statistical": statistical.analyze(df, config),
                 "trend": analyze_stock_trend(df, fund, config),
+                "rel_strength": (
+                    relative_strength.analyze(df, bench_df, config)
+                    if bench_df is not None else None
+                ),
             }
             emit(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}

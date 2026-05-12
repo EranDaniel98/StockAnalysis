@@ -102,7 +102,7 @@ def stub_score(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def _fake_score(
         ticker, df_slice, fund, config, strategy,
-        eh=None, as_of=None, sector_stats=None,
+        eh=None, as_of=None, sector_stats=None, benchmark_slice=None,
     ):
         if df_slice is None or len(df_slice) < 50:
             return None

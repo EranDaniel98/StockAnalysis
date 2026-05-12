@@ -18,6 +18,7 @@ def calculate_composite_score(
     strategy_config,
     alpha158_result=None,
     pead_result=None,
+    rel_strength_result=None,
 ):
     """
     Combine all analysis sub-scores into a weighted composite.
@@ -53,6 +54,8 @@ def calculate_composite_score(
     }
     if alpha158_result is not None:
         sub_scores["alpha158"] = alpha158_result.get("score", 50)
+    if rel_strength_result is not None:
+        sub_scores["rel_strength"] = rel_strength_result.get("score", 50)
 
     # Collect all signals
     result_list = [technical_result, fundamental_result, pattern_result,
@@ -61,6 +64,8 @@ def calculate_composite_score(
         result_list.append(alpha158_result)
     if pead_result is not None:
         result_list.append(pead_result)
+    if rel_strength_result is not None:
+        result_list.append(rel_strength_result)
     all_signals = []
     for result in result_list:
         all_signals.extend(result.get("signals", []))
@@ -104,6 +109,8 @@ def calculate_composite_score(
     breakdown_keys = ["technical", "fundamental", "pattern", "statistical", "trend"]
     if alpha158_result is not None:
         breakdown_keys.append("alpha158")
+    if rel_strength_result is not None:
+        breakdown_keys.append("rel_strength")
     breakdown = []
     for category in breakdown_keys:
         w = weights.get(category, 0)
@@ -151,6 +158,7 @@ def batch_score(analysis_results, strategy_config):
                 strategy_config=strategy_config,
                 alpha158_result=results.get("alpha158"),
                 pead_result=results.get("pead"),
+                rel_strength_result=results.get("rel_strength"),
             )
             scored.append((ticker, score_result))
         except Exception as e:
