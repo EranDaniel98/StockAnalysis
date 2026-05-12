@@ -13,6 +13,7 @@ import {
   LineChart,
   Microscope,
   MessageSquare,
+  Rss,
   Search,
   Target,
   Wallet,
@@ -98,6 +99,12 @@ const NAV: NavLink[] = [
     icon: MessageSquare,
     description: "Ask the agent; runs scans / backtests on your behalf",
   },
+  {
+    href: "/research/feed",
+    label: "Filing feed",
+    icon: Rss,
+    description: "Live EDGAR 8-K / 10-K / 10-Q notifications for your holdings",
+  },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -134,10 +141,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="flex flex-col gap-1">
           {NAV.map((item) => {
+            // Exact match, or current path is a sub-route of this nav
+            // item *and* no later (more specific) nav item matches first.
+            // Simplest expression: exact, or starts-with + "/". Nested
+            // routes (e.g. /research/feed) get their own entry above.
             const active =
               item.href === "/"
                 ? pathname === "/"
-                : pathname.startsWith(item.href);
+                : pathname === item.href ||
+                  pathname.startsWith(item.href + "/");
             const Icon = item.icon;
             return (
               <Link

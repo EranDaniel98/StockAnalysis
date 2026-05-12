@@ -1453,6 +1453,159 @@
           }
         }
       }
+    },
+    "/api/research/notifications": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "List Notifications",
+        "description": "Recent filings the background monitor surfaced. Newest first.",
+        "operationId": "list_notifications_api_research_notifications_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticker"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FilingNotificationItem"
+                  },
+                  "title": "Response List Notifications Api Research Notifications Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/notifications/{notification_id}/summarize": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Summarize Notification",
+        "description": "Kick off an agent run to summarize one filing.\n\nUses ``search_filings`` under the hood \u2014 the filing's chunks are\nalready in the corpus (the monitor ingested them at detection\ntime). Result is cached on ``filing_notifications.summary`` so\nrepeat clicks return instantly.",
+        "operationId": "summarize_notification_api_research_notifications__notification_id__summarize_post",
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummarizeNotificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/notifications/stream": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Stream Notifications",
+        "description": "SSE channel: live filing notifications. Events are named\n``notification`` with the persisted row's slim shape.\n\nNo ``status`` event on the channel \u2014 the EventMonitor is either\nrunning (background task alive) or not (env-disabled); the API\nsurface for that lives at ``GET /api/research/monitor/status``.",
+        "operationId": "stream_notifications_api_research_notifications_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/monitor/status": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Monitor Status",
+        "description": "Lightweight liveness probe for the /research/feed page header.",
+        "operationId": "monitor_status_api_research_monitor_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Monitor Status Api Research Monitor Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2047,6 +2200,79 @@
           "n_observations"
         ],
         "title": "DiagnosticSummary"
+      },
+      "FilingNotificationItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "accession_no": {
+            "type": "string",
+            "title": "Accession No"
+          },
+          "filing_date": {
+            "type": "string",
+            "title": "Filing Date"
+          },
+          "primary_document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Document"
+          },
+          "detected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Detected At"
+          },
+          "research_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Run Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticker",
+          "form",
+          "accession_no",
+          "filing_date",
+          "detected_at"
+        ],
+        "title": "FilingNotificationItem",
+        "description": "Row from filing_notifications \u2014 what the /research/feed page lists."
       },
       "FoldMetric": {
         "properties": {
@@ -3353,6 +3579,23 @@
           "as_of"
         ],
         "title": "SectorsResponse"
+      },
+      "SummarizeNotificationResponse": {
+        "properties": {
+          "notification": {
+            "$ref": "#/components/schemas/FilingNotificationItem"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ResearchRunDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "notification",
+          "run"
+        ],
+        "title": "SummarizeNotificationResponse",
+        "description": "What ``POST /api/research/notifications/{id}/summarize`` returns:\nthe notification (now linked to a run) plus the run detail itself."
       },
       "ToolCallEntry": {
         "properties": {

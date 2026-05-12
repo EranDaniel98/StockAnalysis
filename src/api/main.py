@@ -38,6 +38,7 @@ from src.api.services.trade_updates import TradeUpdatesBus
 from src.api.settings import ApiSettings
 from src.cache.redis_adapter import RedisCacheRepository
 from src.db.session import dispose_engine, get_sessionmaker
+from src.research_agent.event_monitor import EventMonitor
 from src.storage.parquet_ohlcv import ParquetPriceRepository
 
 logger = logging.getLogger(__name__)
@@ -52,19 +53,39 @@ async def lifespan(app: FastAPI):
     app.state.price_repo = ParquetPriceRepository()
     app.state.live_prices = LivePriceBus()
     app.state.trade_updates = TradeUpdatesBus()
+    # Background filing-event monitor — long-running poll task.
+    # Disabled at construction by STOCKNEW_EVENT_MONITOR=0 if the user
+    # doesn't want EDGAR polling on every API process start.
+    monitor = EventMonitor(
+        sessionmaker=app.state.sessionmaker,
+        config=app.state.config,
+    )
+    app.state.event_monitor = monitor
+    if _event_monitor_enabled():
+        monitor.start()
     logger.info(
         "API singletons wired (config + db sessionmaker + redis + parquet "
-        "+ live_prices + trade_updates)"
+        "+ live_prices + trade_updates + event_monitor)"
     )
 
     try:
         yield
     finally:
+        await monitor.stop()
         await app.state.trade_updates.close()
         await app.state.live_prices.close()
         await app.state.redis.close()
         await dispose_engine()
         logger.info("API singletons torn down")
+
+
+def _event_monitor_enabled() -> bool:
+    """Off-switch via env so tests and one-off uvicorn runs can skip
+    the background poll loop. Default on."""
+    import os
+
+    val = os.environ.get("STOCKNEW_EVENT_MONITOR", "1").strip().lower()
+    return val not in ("0", "false", "no", "off")
 
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:

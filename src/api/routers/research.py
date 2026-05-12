@@ -21,15 +21,18 @@ from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.dependencies import get_config, get_db_session
+from src.api.dependencies import get_config, get_db_session, get_event_monitor
 from src.api.schemas.research import (
+    FilingNotificationItem,
     ResearchAskRequest,
     ResearchRunDetail,
     ResearchRunSummary,
+    SummarizeNotificationResponse,
     ToolCallEntry,
 )
 from src.config_loader import Config
-from src.db.models import ResearchRun
+from src.db.models import FilingNotification, ResearchRun
+from src.research_agent.event_monitor import EventMonitor
 from src.research_agent.llm_client import DEFAULT_MODEL
 from src.research_agent.orchestrator import run_research
 
@@ -201,3 +204,138 @@ async def get_run(
     if row is None:
         raise HTTPException(status_code=404, detail=f"research run {run_id} not found")
     return _to_detail(row, include_transcript=include_transcript)
+
+
+# ─── filing notifications ───────────────────────────────────────────────────
+
+
+def _notif_to_schema(row: FilingNotification) -> FilingNotificationItem:
+    return FilingNotificationItem(
+        id=row.id,
+        ticker=row.ticker,
+        form=row.form,
+        accession_no=row.accession_no,
+        filing_date=row.filing_date.isoformat(),
+        primary_document=row.primary_document,
+        detected_at=row.detected_at,
+        research_run_id=row.research_run_id,
+        summary=row.summary,
+    )
+
+
+@router.get("/notifications", response_model=list[FilingNotificationItem])
+async def list_notifications(
+    limit: int = Query(default=30, ge=1, le=200),
+    ticker: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[FilingNotificationItem]:
+    """Recent filings the background monitor surfaced. Newest first."""
+    stmt = select(FilingNotification).order_by(desc(FilingNotification.detected_at))
+    if ticker:
+        stmt = stmt.where(FilingNotification.ticker == ticker.upper())
+    stmt = stmt.limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_notif_to_schema(r) for r in rows]
+
+
+@router.post(
+    "/notifications/{notification_id}/summarize",
+    response_model=SummarizeNotificationResponse,
+)
+async def summarize_notification(
+    notification_id: int,
+    request: Request,
+    config: Config = Depends(get_config),
+    db: AsyncSession = Depends(get_db_session),
+) -> SummarizeNotificationResponse:
+    """Kick off an agent run to summarize one filing.
+
+    Uses ``search_filings`` under the hood — the filing's chunks are
+    already in the corpus (the monitor ingested them at detection
+    time). Result is cached on ``filing_notifications.summary`` so
+    repeat clicks return instantly.
+    """
+    row = await db.get(FilingNotification, notification_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail=f"notification {notification_id} not found"
+        )
+
+    sessionmaker = request.app.state.sessionmaker
+
+    # Build a sharply scoped prompt so the agent doesn't go on a tangent.
+    question = (
+        f"Summarize the key takeaways from {row.ticker}'s {row.form} filed on "
+        f"{row.filing_date.isoformat()} (accession {row.accession_no}). "
+        f"Use search_filings with ticker={row.ticker!r}, form={row.form!r} "
+        f"to retrieve the relevant chunks, then write 3-5 bullets covering: "
+        f"what happened, why it matters, and any forward-looking guidance."
+    )
+
+    try:
+        run_row = await run_research(
+            question,
+            sessionmaker=sessionmaker,
+            config=config,
+            max_turns=4,
+            notes=f"auto-summary of notification #{row.id}",
+        )
+    except RuntimeError as e:
+        if "ANTHROPIC_API_KEY" in str(e):
+            raise HTTPException(status_code=503, detail=str(e))
+        raise
+
+    # Re-fetch the notification and link it. ``row`` is from before the
+    # nested transactions inside run_research; refresh first.
+    await db.refresh(row)
+    row.research_run_id = run_row.id
+    row.summary = run_row.final_answer
+    await db.commit()
+    await db.refresh(row)
+
+    return SummarizeNotificationResponse(
+        notification=_notif_to_schema(row),
+        run=_to_detail(run_row, include_transcript=False),
+    )
+
+
+@router.get("/notifications/stream")
+async def stream_notifications(
+    request: Request,
+    monitor: EventMonitor = Depends(get_event_monitor),
+) -> EventSourceResponse:
+    """SSE channel: live filing notifications. Events are named
+    ``notification`` with the persisted row's slim shape.
+
+    No ``status`` event on the channel — the EventMonitor is either
+    running (background task alive) or not (env-disabled); the API
+    surface for that lives at ``GET /api/research/monitor/status``."""
+
+    async def _stream() -> AsyncIterator[dict[str, str]]:
+        async with monitor.bus.subscribe() as sub:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    event = await asyncio.wait_for(sub.queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield {"event": "heartbeat", "data": "{}"}
+                    continue
+                yield {
+                    "event": "notification",
+                    "data": json.dumps(event.to_dict(), default=str),
+                }
+
+    return EventSourceResponse(_stream())
+
+
+@router.get("/monitor/status")
+async def monitor_status(
+    monitor: EventMonitor = Depends(get_event_monitor),
+) -> dict[str, Any]:
+    """Lightweight liveness probe for the /research/feed page header."""
+    return {
+        "running": monitor.is_running,
+        "poll_seconds": monitor._poll_seconds,  # noqa: SLF001 — read-only
+        "forms": list(monitor._forms),  # noqa: SLF001 — read-only
+    }

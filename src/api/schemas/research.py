@@ -58,3 +58,29 @@ class ResearchRunDetail(ResearchRunSummary):
         default_factory=list,
         description="Full Anthropic message list. Omitted unless include_transcript=true.",
     )
+
+
+class FilingNotificationItem(BaseModel):
+    """Row from filing_notifications — what the /research/feed page lists."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    ticker: str
+    form: str
+    accession_no: str
+    filing_date: str
+    primary_document: Optional[str] = None
+    detected_at: datetime
+    research_run_id: Optional[int] = None
+    summary: Optional[str] = None
+
+
+class SummarizeNotificationResponse(BaseModel):
+    """What ``POST /api/research/notifications/{id}/summarize`` returns:
+    the notification (now linked to a run) plus the run detail itself."""
+
+    model_config = ConfigDict(frozen=True)
+
+    notification: FilingNotificationItem
+    run: ResearchRunDetail

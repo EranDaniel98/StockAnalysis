@@ -596,6 +596,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Notifications
+         * @description Recent filings the background monitor surfaced. Newest first.
+         */
+        get: operations["list_notifications_api_research_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/notifications/{notification_id}/summarize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Summarize Notification
+         * @description Kick off an agent run to summarize one filing.
+         *
+         *     Uses ``search_filings`` under the hood — the filing's chunks are
+         *     already in the corpus (the monitor ingested them at detection
+         *     time). Result is cached on ``filing_notifications.summary`` so
+         *     repeat clicks return instantly.
+         */
+        post: operations["summarize_notification_api_research_notifications__notification_id__summarize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/notifications/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Notifications
+         * @description SSE channel: live filing notifications. Events are named
+         *     ``notification`` with the persisted row's slim shape.
+         *
+         *     No ``status`` event on the channel — the EventMonitor is either
+         *     running (background task alive) or not (env-disabled); the API
+         *     surface for that lives at ``GET /api/research/monitor/status``.
+         */
+        get: operations["stream_notifications_api_research_notifications_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/monitor/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Monitor Status
+         * @description Lightweight liveness probe for the /research/feed page header.
+         */
+        get: operations["monitor_status_api_research_monitor_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -906,6 +996,33 @@ export interface components {
              * @default
              */
             verdict: string;
+        };
+        /**
+         * FilingNotificationItem
+         * @description Row from filing_notifications — what the /research/feed page lists.
+         */
+        FilingNotificationItem: {
+            /** Id */
+            id: number;
+            /** Ticker */
+            ticker: string;
+            /** Form */
+            form: string;
+            /** Accession No */
+            accession_no: string;
+            /** Filing Date */
+            filing_date: string;
+            /** Primary Document */
+            primary_document?: string | null;
+            /**
+             * Detected At
+             * Format: date-time
+             */
+            detected_at: string;
+            /** Research Run Id */
+            research_run_id?: number | null;
+            /** Summary */
+            summary?: string | null;
         };
         /** FoldMetric */
         FoldMetric: {
@@ -1437,6 +1554,15 @@ export interface components {
             as_of: string;
             /** Sectors */
             sectors?: components["schemas"]["SectorMetric"][];
+        };
+        /**
+         * SummarizeNotificationResponse
+         * @description What ``POST /api/research/notifications/{id}/summarize`` returns:
+         *     the notification (now linked to a run) plus the run detail itself.
+         */
+        SummarizeNotificationResponse: {
+            notification: components["schemas"]["FilingNotificationItem"];
+            run: components["schemas"]["ResearchRunDetail"];
         };
         /** ToolCallEntry */
         ToolCallEntry: {
@@ -2383,6 +2509,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications_api_research_notifications_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                ticker?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingNotificationItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    summarize_notification_api_research_notifications__notification_id__summarize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummarizeNotificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_notifications_api_research_notifications_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    monitor_status_api_research_monitor_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

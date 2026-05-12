@@ -361,6 +361,61 @@ class FilingCorpusChunk(Base):
     )
 
 
+class MonitoredTicker(Base):
+    """Per-ticker watermark for the background filing-event monitor.
+
+    ``last_seen_accession_no`` is the EDGAR accession the monitor most
+    recently observed. On first poll for a ticker, we set this without
+    firing notifications so the user doesn't get buried in historical
+    filings.
+    """
+
+    __tablename__ = "monitored_tickers"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    last_seen_accession_no: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True
+    )
+    last_polled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
+class FilingNotification(Base):
+    """One row per new filing the monitor surfaced. Stays in the DB so
+    the /research/feed page is a straight read on load and only uses SSE
+    for incremental updates.
+
+    ``research_run_id`` links to a follow-up agent summarization, if the
+    user triggered one. ``summary`` caches the final answer so we don't
+    re-fetch the run row to display the headline."""
+
+    __tablename__ = "filing_notifications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    accession_no: Mapped[str] = mapped_column(String(32), nullable=False)
+    filing_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    primary_document: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True
+    )
+    research_run_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("research_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "accession_no", name="uq_filing_notifications_ticker_accn"
+        ),
+    )
+
+
 class FactorSnapshot(Base):
     """RESERVED for Phase 4 ML feature store. Empty table at Phase 0 end.
 

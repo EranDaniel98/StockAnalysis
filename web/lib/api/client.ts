@@ -87,6 +87,8 @@ export type ResearchAskRequest = Schemas["ResearchAskRequest"];
 export type ResearchRunSummary = Schemas["ResearchRunSummary"];
 export type ResearchRunDetail = Schemas["ResearchRunDetail"];
 export type ToolCallEntry = Schemas["ToolCallEntry"];
+export type FilingNotificationItem = Schemas["FilingNotificationItem"];
+export type SummarizeNotificationResponse = Schemas["SummarizeNotificationResponse"];
 
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
@@ -213,6 +215,24 @@ export const api = {
         `/api/research/runs/${id}${qs ? `?${qs}` : ""}`,
       );
     },
+    notifications: (params?: { ticker?: string; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.ticker) q.set("ticker", params.ticker);
+      if (params?.limit != null) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return request<FilingNotificationItem[]>(
+        `/api/research/notifications${qs ? `?${qs}` : ""}`,
+      );
+    },
+    summarizeNotification: (id: number) =>
+      request<SummarizeNotificationResponse>(
+        `/api/research/notifications/${id}/summarize`,
+        { method: "POST" },
+      ),
+    monitorStatus: () =>
+      request<{ running: boolean; poll_seconds: number; forms: string[] }>(
+        "/api/research/monitor/status",
+      ),
   },
 
   ml: {

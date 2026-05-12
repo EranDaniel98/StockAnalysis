@@ -52,7 +52,7 @@ class IngestStats:
     errors: list[str]
 
 
-def _select_recent_filings(
+def select_recent_filings(
     submissions: dict, *, forms: tuple[str, ...], per_form_limit: int
 ) -> list[FilingMeta]:
     """Walk the EDGAR submissions blob, keep the latest N of each form."""
@@ -88,7 +88,7 @@ def _select_recent_filings(
     return out
 
 
-async def _ingest_one_filing(
+async def ingest_one_filing(
     *,
     session: AsyncSession,
     client: EDGARClient,
@@ -177,7 +177,7 @@ async def ingest_ticker(
             ticker=ticker.upper(), n_filings=0, n_chunks=0, errors=[str(e)]
         )
 
-    filings = _select_recent_filings(
+    filings = select_recent_filings(
         submissions, forms=forms, per_form_limit=per_form_limit
     )
     if not filings:
