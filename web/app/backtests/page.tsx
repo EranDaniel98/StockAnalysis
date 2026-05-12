@@ -2,10 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useState } from "react";
+import { GitCompare } from "lucide-react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -32,11 +35,41 @@ export default function BacktestsPage() {
     queryFn: () => api.backtests.list({ limit: 30 }),
   });
 
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const compareHref =
+    selected.size >= 2
+      ? `/backtests/compare?ids=${[...selected].join(",")}`
+      : null;
+
   return (
     <>
       <PageHeader
         title="Backtests"
         description="Walk-forward simulations. Triggering a new run is a long-running operation — best done from the CLI today."
+        actions={
+          compareHref ? (
+            <Link href={compareHref}>
+              <Button size="sm">
+                <GitCompare className="mr-2 h-4 w-4" />
+                Compare {selected.size}
+              </Button>
+            </Link>
+          ) : (
+            <span className="text-muted-foreground text-xs">
+              Select 2+ rows to compare
+            </span>
+          )
+        }
       />
 
       <Card>
@@ -66,6 +99,7 @@ export default function BacktestsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8"></TableHead>
                   <TableHead>When</TableHead>
                   <TableHead>Strategy</TableHead>
                   <TableHead>Universe</TableHead>
@@ -79,6 +113,15 @@ export default function BacktestsPage() {
               <TableBody>
                 {data.map((bt) => (
                   <TableRow key={bt.id}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(bt.id)}
+                        onChange={() => toggle(bt.id)}
+                        aria-label={`Select backtest ${bt.id} for comparison`}
+                        className="accent-primary"
+                      />
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {fmtDate(bt.created_at)}
                     </TableCell>

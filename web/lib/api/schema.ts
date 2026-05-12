@@ -312,6 +312,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stream/trade-updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Trade Updates
+         * @description Account-wide Alpaca order events. Emits ``update`` per order state
+         *     change (new, partial_fill, fill, canceled, stop_loss_filled,
+         *     take_profit_filled, etc.). Frontend turns these into toasts.
+         */
+        get: operations["stream_trade_updates_api_stream_trade_updates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream/scan": {
         parameters: {
             query?: never;
@@ -365,6 +387,95 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/market/sectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sectors
+         * @description Per-sector momentum snapshot via the SPDR Select Sector ETFs.
+         *
+         *     Returns trailing 1-/5-/21-day total return for each sector ETF plus a
+         *     50-day-SMA trend flag. UI renders this as a colored tile grid.
+         */
+        get: operations["get_sectors_api_market_sectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/calibration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Score Calibration
+         * @description Score-vs-realized-return calibration.
+         *
+         *     Buckets every closed paper trade by its composite_score band and reports
+         *     n_trades + avg / median pnl_pct + win_rate per bucket. The goal: confirm
+         *     that higher composite scores really do produce higher realized returns
+         *     — and surface drift early if they stop doing so.
+         */
+        get: operations["score_calibration_api_analytics_calibration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Trades
+         * @description Closed paper trades, newest exit first. Filter by ticker, score
+         *     floor, or whether the row already has notes.
+         */
+        get: operations["list_trades_api_trades_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trades/{trade_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Trade Notes
+         * @description Replace the notes field. ``null`` clears the entry.
+         */
+        patch: operations["update_trade_notes_api_trades__trade_id__patch"];
         trace?: never;
     };
 }
@@ -533,6 +644,23 @@ export interface components {
             oos_total_return_pct?: number | null;
             /** Oos Max Drawdown Pct */
             oos_max_drawdown_pct?: number | null;
+        };
+        /** CalibrationBucket */
+        CalibrationBucket: {
+            /** Label */
+            label: string;
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** N Trades */
+            n_trades: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct?: number | null;
+            /** Median Pnl Pct */
+            median_pnl_pct?: number | null;
+            /** Win Rate */
+            win_rate?: number | null;
         };
         /** DiagnosticRequest */
         DiagnosticRequest: {
@@ -740,6 +868,41 @@ export interface components {
             /** Skip Reason */
             skip_reason?: string | null;
         };
+        /** PaperTradeItem */
+        PaperTradeItem: {
+            /** Id */
+            id: number;
+            /** Ticker */
+            ticker: string;
+            /** Qty */
+            qty: number;
+            /** Entry Price */
+            entry_price: number;
+            /** Exit Price */
+            exit_price: number;
+            /**
+             * Entry At
+             * Format: date-time
+             */
+            entry_at: string;
+            /**
+             * Exit At
+             * Format: date-time
+             */
+            exit_at: string;
+            /** Hold Days */
+            hold_days?: number | null;
+            /** Pnl */
+            pnl: number;
+            /** Pnl Pct */
+            pnl_pct: number;
+            /** Exit Reason */
+            exit_reason?: string | null;
+            /** Composite Score */
+            composite_score?: number | null;
+            /** Notes */
+            notes?: string | null;
+        };
         /** PortfolioStatus */
         PortfolioStatus: {
             account: components["schemas"]["AccountSummary"];
@@ -890,6 +1053,57 @@ export interface components {
             top_ticker?: string | null;
             /** Top Score */
             top_score?: number | null;
+        };
+        /** ScoreCalibration */
+        ScoreCalibration: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** N Total Trades */
+            n_total_trades: number;
+            /** Buckets */
+            buckets?: components["schemas"]["CalibrationBucket"][];
+            /** Notes */
+            notes?: string[];
+        };
+        /** SectorMetric */
+        SectorMetric: {
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string;
+            /** Last Close */
+            last_close?: number | null;
+            /** Sma50 */
+            sma50?: number | null;
+            /** Above Sma50 */
+            above_sma50?: boolean | null;
+            /** Return 1D Pct */
+            return_1d_pct?: number | null;
+            /** Return 5D Pct */
+            return_5d_pct?: number | null;
+            /** Return 21D Pct */
+            return_21d_pct?: number | null;
+        };
+        /** SectorsResponse */
+        SectorsResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Sectors */
+            sectors?: components["schemas"]["SectorMetric"][];
+        };
+        /** TradeNotesUpdate */
+        TradeNotesUpdate: {
+            /**
+             * Notes
+             * @description Set to null/omit to clear; otherwise replaces the journal entry.
+             */
+            notes?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1453,6 +1667,26 @@ export interface operations {
             };
         };
     };
+    stream_trade_updates_api_stream_trade_updates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     stream_scan_api_stream_scan_get: {
         parameters: {
             query?: {
@@ -1505,6 +1739,126 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketRegime"];
+                };
+            };
+        };
+    };
+    get_sectors_api_market_sectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SectorsResponse"];
+                };
+            };
+        };
+    };
+    score_calibration_api_analytics_calibration_get: {
+        parameters: {
+            query?: {
+                min_score?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoreCalibration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trades_api_trades_get: {
+        parameters: {
+            query?: {
+                ticker?: string | null;
+                min_score?: number | null;
+                has_notes?: boolean | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperTradeItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_trade_notes_api_trades__trade_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeNotesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperTradeItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Radio, RefreshCw } from "lucide-react";
 
+import { EquitySparkline } from "@/components/equity-sparkline";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -95,7 +96,9 @@ export default function PortfolioPage() {
 
       {error ? <ErrorState error={error} /> : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <EquitySparkline equity={liveEquity ?? data?.account.equity ?? null} />
+
+      <div className="mt-4 grid gap-4 md:grid-cols-4">
         <SummaryCard
           label="Equity"
           value={fmtUSD(liveEquity ?? data?.account.equity)}

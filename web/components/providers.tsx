@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { useState, type ReactNode } from "react";
 
+import { TradeUpdateNotifier } from "@/components/trade-update-notifier";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -29,6 +30,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           {children}
+          <TradeUpdateNotifier />
           <Toaster richColors closeButton />
         </TooltipProvider>
         <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />

@@ -6,10 +6,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   BarChart3,
+  BookText,
   Briefcase,
+  Grid3x3,
   LineChart,
   Microscope,
   Search,
+  Target,
   Wallet,
 } from "lucide-react";
 
@@ -62,6 +65,24 @@ const NAV: NavLink[] = [
     label: "Recommendations",
     icon: LineChart,
     description: "Paper-trade recommendation history",
+  },
+  {
+    href: "/sectors",
+    label: "Sectors",
+    icon: Grid3x3,
+    description: "SPDR sector rotation map",
+  },
+  {
+    href: "/calibration",
+    label: "Calibration",
+    icon: Target,
+    description: "Score → realized-return calibration",
+  },
+  {
+    href: "/journal",
+    label: "Journal",
+    icon: BookText,
+    description: "Closed-trade journal with notes",
   },
 ];
 

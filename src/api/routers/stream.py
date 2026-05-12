@@ -7,6 +7,8 @@ Channels:
                                 event carries {run_id, n_results}
   - /api/stream/prices          live Alpaca trade ticks for requested symbols
                                 via the shared LivePriceBus
+  - /api/stream/trade-updates   account-wide Alpaca order events via the
+                                shared TradeUpdatesBus
 """
 
 from __future__ import annotations
@@ -21,10 +23,16 @@ from typing import AsyncIterator
 from fastapi import APIRouter, Depends, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
-from src.api.dependencies import get_config, get_db_session, get_live_prices
+from src.api.dependencies import (
+    get_config,
+    get_db_session,
+    get_live_prices,
+    get_trade_updates,
+)
 from src.api.schemas.scan import ScanResultItem
 from src.api.services.live_prices import LivePriceBus, LivePriceBusError
 from src.api.services.scan_runner import run_scan_sync
+from src.api.services.trade_updates import TradeUpdatesBus, TradeUpdatesBusError
 from src.config_loader import Config
 from src.db.models import ScanRun
 from src.execution.alpaca import AlpacaClient, AlpacaClientError
@@ -132,6 +140,38 @@ async def stream_prices(
     """
     requested = {s.strip().upper() for s in symbols.split(",") if s.strip()}
     return EventSourceResponse(_prices_event_stream(request, bus, requested))
+
+
+# ─── Trade updates (order fills, stops, take-profits) ───────────────────────
+
+
+async def _trade_updates_stream(
+    request: Request, bus: TradeUpdatesBus
+) -> AsyncIterator[dict]:
+    try:
+        async with bus.subscribe() as subscriber:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    event = await asyncio.wait_for(subscriber.queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield {"event": "heartbeat", "data": "{}"}
+                    continue
+                yield {"event": "update", "data": json.dumps(event.to_dict())}
+    except TradeUpdatesBusError as e:
+        yield {"event": "error", "data": json.dumps({"detail": str(e)})}
+
+
+@router.get("/trade-updates")
+async def stream_trade_updates(
+    request: Request,
+    bus: TradeUpdatesBus = Depends(get_trade_updates),
+) -> EventSourceResponse:
+    """Account-wide Alpaca order events. Emits ``update`` per order state
+    change (new, partial_fill, fill, canceled, stop_loss_filled,
+    take_profit_filled, etc.). Frontend turns these into toasts."""
+    return EventSourceResponse(_trade_updates_stream(request, bus))
 
 
 # ─── Scan progress ───────────────────────────────────────────────────────────

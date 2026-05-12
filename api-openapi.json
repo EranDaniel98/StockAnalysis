@@ -799,6 +799,26 @@
         }
       }
     },
+    "/api/stream/trade-updates": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Stream Trade Updates",
+        "description": "Account-wide Alpaca order events. Emits ``update`` per order state\nchange (new, partial_fill, fill, canceled, stop_loss_filled,\ntake_profit_filled, etc.). Frontend turns these into toasts.",
+        "operationId": "stream_trade_updates_api_stream_trade_updates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/stream/scan": {
       "get": {
         "tags": [
@@ -933,6 +953,227 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MarketRegime"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/market/sectors": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "summary": "Get Sectors",
+        "description": "Per-sector momentum snapshot via the SPDR Select Sector ETFs.\n\nReturns trailing 1-/5-/21-day total return for each sector ETF plus a\n50-day-SMA trend flag. UI renders this as a colored tile grid.",
+        "operationId": "get_sectors_api_market_sectors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectorsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analytics/calibration": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Score Calibration",
+        "description": "Score-vs-realized-return calibration.\n\nBuckets every closed paper trade by its composite_score band and reports\nn_trades + avg / median pnl_pct + win_rate per bucket. The goal: confirm\nthat higher composite scores really do produce higher realized returns\n\u2014 and surface drift early if they stop doing so.",
+        "operationId": "score_calibration_api_analytics_calibration_get",
+        "parameters": [
+          {
+            "name": "min_score",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 100,
+              "minimum": 0,
+              "default": 40.0,
+              "title": "Min Score"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreCalibration"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trades": {
+      "get": {
+        "tags": [
+          "trades"
+        ],
+        "summary": "List Trades",
+        "description": "Closed paper trades, newest exit first. Filter by ticker, score\nfloor, or whether the row already has notes.",
+        "operationId": "list_trades_api_trades_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "min_score",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 100,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Score"
+            }
+          },
+          {
+            "name": "has_notes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Notes"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "exclusiveMinimum": 0,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PaperTradeItem"
+                  },
+                  "title": "Response List Trades Api Trades Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trades/{trade_id}": {
+      "patch": {
+        "tags": [
+          "trades"
+        ],
+        "summary": "Update Trade Notes",
+        "description": "Replace the notes field. ``null`` clears the entry.",
+        "operationId": "update_trade_notes_api_trades__trade_id__patch",
+        "parameters": [
+          {
+            "name": "trade_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Trade Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeNotesUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperTradeItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1251,6 +1492,67 @@
           "created_at"
         ],
         "title": "BacktestSummary"
+      },
+      "CalibrationBucket": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "lower": {
+            "type": "number",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "avg_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Pnl Pct"
+          },
+          "median_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Pnl Pct"
+          },
+          "win_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "lower",
+          "upper",
+          "n_trades"
+        ],
+        "title": "CalibrationBucket"
       },
       "DiagnosticRequest": {
         "properties": {
@@ -1711,6 +2013,105 @@
         ],
         "title": "PaperRecommendationItem"
       },
+      "PaperTradeItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "qty": {
+            "type": "number",
+            "title": "Qty"
+          },
+          "entry_price": {
+            "type": "number",
+            "title": "Entry Price"
+          },
+          "exit_price": {
+            "type": "number",
+            "title": "Exit Price"
+          },
+          "entry_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Entry At"
+          },
+          "exit_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exit At"
+          },
+          "hold_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Days"
+          },
+          "pnl": {
+            "type": "number",
+            "title": "Pnl"
+          },
+          "pnl_pct": {
+            "type": "number",
+            "title": "Pnl Pct"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "composite_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composite Score"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticker",
+          "qty",
+          "entry_price",
+          "exit_price",
+          "entry_at",
+          "exit_at",
+          "pnl",
+          "pnl_pct"
+        ],
+        "title": "PaperTradeItem"
+      },
       "PortfolioStatus": {
         "properties": {
           "account": {
@@ -2050,6 +2451,162 @@
         ],
         "title": "ScanSummary",
         "description": "Lighter representation for the GET /api/scans list view."
+      },
+      "ScoreCalibration": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "n_total_trades": {
+            "type": "integer",
+            "title": "N Total Trades"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationBucket"
+            },
+            "type": "array",
+            "title": "Buckets"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "n_total_trades"
+        ],
+        "title": "ScoreCalibration"
+      },
+      "SectorMetric": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "sma50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sma50"
+          },
+          "above_sma50": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above Sma50"
+          },
+          "return_1d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 1D Pct"
+          },
+          "return_5d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 5D Pct"
+          },
+          "return_21d_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return 21D Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "name"
+        ],
+        "title": "SectorMetric"
+      },
+      "SectorsResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "sectors": {
+            "items": {
+              "$ref": "#/components/schemas/SectorMetric"
+            },
+            "type": "array",
+            "title": "Sectors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of"
+        ],
+        "title": "SectorsResponse"
+      },
+      "TradeNotesUpdate": {
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Set to null/omit to clear; otherwise replaces the journal entry."
+          }
+        },
+        "type": "object",
+        "title": "TradeNotesUpdate"
       },
       "ValidationError": {
         "properties": {

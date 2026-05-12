@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.dependencies import get_config
 from src.api.routers import (
+    analytics,
     backtests,
     diagnostics,
     health,
@@ -28,8 +29,10 @@ from src.api.routers import (
     recommendations,
     scans,
     stream,
+    trades,
 )
 from src.api.services.live_prices import LivePriceBus
+from src.api.services.trade_updates import TradeUpdatesBus
 from src.api.settings import ApiSettings
 from src.cache.redis_adapter import RedisCacheRepository
 from src.db.session import dispose_engine, get_sessionmaker
@@ -46,13 +49,16 @@ async def lifespan(app: FastAPI):
     app.state.redis = RedisCacheRepository()
     app.state.price_repo = ParquetPriceRepository()
     app.state.live_prices = LivePriceBus()
+    app.state.trade_updates = TradeUpdatesBus()
     logger.info(
-        "API singletons wired (config + db sessionmaker + redis + parquet + live_prices)"
+        "API singletons wired (config + db sessionmaker + redis + parquet "
+        "+ live_prices + trade_updates)"
     )
 
     try:
         yield
     finally:
+        await app.state.trade_updates.close()
         await app.state.live_prices.close()
         await app.state.redis.close()
         await dispose_engine()
@@ -91,6 +97,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     )
     app.include_router(stream.router, prefix="/api/stream", tags=["stream"])
     app.include_router(market.router, prefix="/api/market", tags=["market"])
+    app.include_router(
+        analytics.router, prefix="/api/analytics", tags=["analytics"]
+    )
+    app.include_router(trades.router, prefix="/api/trades", tags=["trades"])
 
     return app
 

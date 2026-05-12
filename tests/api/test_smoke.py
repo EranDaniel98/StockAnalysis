@@ -52,7 +52,12 @@ def test_openapi_paths_present(client: TestClient) -> None:
         "/api/stream/heartbeat",
         "/api/stream/scan",
         "/api/stream/prices",
+        "/api/stream/trade-updates",
         "/api/market/regime",
+        "/api/market/sectors",
+        "/api/analytics/calibration",
+        "/api/trades",
+        "/api/trades/{trade_id}",
     }
     missing = expected - paths
     assert not missing, f"OpenAPI missing paths: {missing}"

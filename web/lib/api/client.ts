@@ -71,6 +71,12 @@ export type DiagnosticSummary = Schemas["DiagnosticSummary"];
 export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 
 export type MarketRegime = Schemas["MarketRegime"];
+export type SectorsResponse = Schemas["SectorsResponse"];
+export type SectorMetric = Schemas["SectorMetric"];
+export type ScoreCalibration = Schemas["ScoreCalibration"];
+export type CalibrationBucket = Schemas["CalibrationBucket"];
+export type PaperTradeItem = Schemas["PaperTradeItem"];
+export type TradeNotesUpdate = Schemas["TradeNotesUpdate"];
 
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
@@ -138,6 +144,40 @@ export const api = {
 
   market: {
     regime: () => request<MarketRegime>("/api/market/regime"),
+    sectors: () => request<SectorsResponse>("/api/market/sectors"),
+  },
+
+  analytics: {
+    calibration: (params?: { min_score?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.min_score != null) q.set("min_score", String(params.min_score));
+      const qs = q.toString();
+      return request<ScoreCalibration>(
+        `/api/analytics/calibration${qs ? `?${qs}` : ""}`,
+      );
+    },
+  },
+
+  trades: {
+    list: (params?: {
+      ticker?: string;
+      min_score?: number;
+      has_notes?: boolean;
+      limit?: number;
+    }) => {
+      const q = new URLSearchParams();
+      if (params?.ticker) q.set("ticker", params.ticker);
+      if (params?.min_score != null) q.set("min_score", String(params.min_score));
+      if (params?.has_notes != null) q.set("has_notes", String(params.has_notes));
+      if (params?.limit != null) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return request<PaperTradeItem[]>(`/api/trades${qs ? `?${qs}` : ""}`);
+    },
+    updateNotes: (id: number, body: TradeNotesUpdate) =>
+      request<PaperTradeItem>(`/api/trades/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
   },
 
   recommendations: {

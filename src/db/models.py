@@ -160,6 +160,9 @@ class PaperTrade(Base):
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
     exit_reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     composite_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    """Free-text journal notes. Backed by alembic 0002. Edited via PATCH
+    /api/trades/{id} from the /journal page."""
 
     recommendation: Mapped[Optional["PaperRecommendation"]] = relationship(back_populates="trades")
 

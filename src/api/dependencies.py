@@ -13,6 +13,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.services.live_prices import LivePriceBus
+from src.api.services.trade_updates import TradeUpdatesBus
 from src.cache.redis_adapter import RedisCacheRepository
 from src.config_loader import Config
 from src.db.session import get_sessionmaker
@@ -44,11 +45,16 @@ def get_live_prices(request: Request) -> LivePriceBus:
     return request.app.state.live_prices
 
 
+def get_trade_updates(request: Request) -> TradeUpdatesBus:
+    return request.app.state.trade_updates
+
+
 __all__ = [
     "get_config",
     "get_db_session",
     "get_redis",
     "get_price_repo",
     "get_live_prices",
+    "get_trade_updates",
     "Depends",
 ]
