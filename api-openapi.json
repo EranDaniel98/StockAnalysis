@@ -1,0 +1,1815 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "StockNew API",
+    "description": "Local async API surface over the StockNew quant platform.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Cheap liveness check \u2014 process is up and serving.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Readiness",
+        "description": "Readiness check \u2014 verifies Postgres + Redis are reachable.\n\nReturns 200 only when both adapters round-trip. Use this from a deploy\nhealth probe; use /health for fast process-alive checks.",
+        "operationId": "readiness_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Readiness Health Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/portfolio": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get Portfolio",
+        "description": "Live snapshot: account fields + current positions.",
+        "operationId": "get_portfolio_api_portfolio_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/portfolio/positions": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get Positions",
+        "operationId": "get_positions_api_portfolio_positions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Position"
+                  },
+                  "type": "array",
+                  "title": "Response Get Positions Api Portfolio Positions Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/portfolio/account": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get Account",
+        "operationId": "get_account_api_portfolio_account_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans": {
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Trigger Scan",
+        "description": "Run a synchronous scan and persist the result.\n\nSynchronous from the caller's perspective \u2014 blocks until the scan\ncompletes. Heavy compute runs in a worker thread so the event loop stays\nresponsive. Phase 1.7 adds /api/stream/scan-progress for live updates.",
+        "operationId": "trigger_scan_api_scans_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "List Scans",
+        "description": "Most recent scan runs, newest first.",
+        "operationId": "list_scans_api_scans_get",
+        "parameters": [
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "exclusiveMinimum": 0,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScanSummary"
+                  },
+                  "title": "Response List Scans Api Scans Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{run_id}": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get Scan",
+        "operationId": "get_scan_api_scans__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backtests": {
+      "post": {
+        "tags": [
+          "backtests"
+        ],
+        "summary": "Trigger Backtest",
+        "operationId": "trigger_backtest_api_backtests_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "backtests"
+        ],
+        "summary": "List Backtests",
+        "operationId": "list_backtests_api_backtests_get",
+        "parameters": [
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "exclusiveMinimum": 0,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BacktestSummary"
+                  },
+                  "title": "Response List Backtests Api Backtests Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backtests/{run_id}": {
+      "get": {
+        "tags": [
+          "backtests"
+        ],
+        "summary": "Get Backtest",
+        "operationId": "get_backtest_api_backtests__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diagnostics": {
+      "post": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Trigger Diagnostic",
+        "operationId": "trigger_diagnostic_api_diagnostics_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "List Diagnostics",
+        "operationId": "list_diagnostics_api_diagnostics_get",
+        "parameters": [
+          {
+            "name": "factor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Factor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "exclusiveMinimum": 0,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiagnosticSummary"
+                  },
+                  "title": "Response List Diagnostics Api Diagnostics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diagnostics/{run_id}": {
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Get Diagnostic",
+        "operationId": "get_diagnostic_api_diagnostics__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendations": {
+      "get": {
+        "tags": [
+          "recommendations"
+        ],
+        "summary": "List Recommendations",
+        "description": "Most recent paper-trading recommendations, newest first.",
+        "operationId": "list_recommendations_api_recommendations_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "submitted_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Submitted Only"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "exclusiveMinimum": 0,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PaperRecommendationItem"
+                  },
+                  "title": "Response List Recommendations Api Recommendations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendations/{rec_id}": {
+      "get": {
+        "tags": [
+          "recommendations"
+        ],
+        "summary": "Get Recommendation",
+        "operationId": "get_recommendation_api_recommendations__rec_id__get",
+        "parameters": [
+          {
+            "name": "rec_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Rec Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperRecommendationItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/portfolio": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Stream Portfolio",
+        "description": "Live portfolio P&L. Emits an `event: snapshot` every poll_seconds with\n{account, positions, n}. Heartbeats are auto-sent by sse_starlette.",
+        "operationId": "stream_portfolio_api_stream_portfolio_get",
+        "parameters": [
+          {
+            "name": "poll_seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 60.0,
+              "exclusiveMinimum": 1.0,
+              "default": 5.0,
+              "title": "Poll Seconds"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/heartbeat": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Stream Heartbeat",
+        "description": "Process-liveness ticker. Use for sanity-checking SSE plumbing.",
+        "operationId": "stream_heartbeat_api_stream_heartbeat_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccountSummary": {
+        "properties": {
+          "account_number": {
+            "type": "string",
+            "title": "Account Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "equity": {
+            "type": "number",
+            "title": "Equity"
+          },
+          "cash": {
+            "type": "number",
+            "title": "Cash"
+          },
+          "buying_power": {
+            "type": "number",
+            "title": "Buying Power"
+          },
+          "portfolio_value": {
+            "type": "number",
+            "title": "Portfolio Value"
+          },
+          "long_market_value": {
+            "type": "number",
+            "title": "Long Market Value"
+          },
+          "pattern_day_trader": {
+            "type": "boolean",
+            "title": "Pattern Day Trader"
+          }
+        },
+        "type": "object",
+        "required": [
+          "account_number",
+          "status",
+          "equity",
+          "cash",
+          "buying_power",
+          "portfolio_value",
+          "long_market_value",
+          "pattern_day_trader"
+        ],
+        "title": "AccountSummary"
+      },
+      "BacktestRequest": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "default": "swing_trading"
+          },
+          "universe": {
+            "type": "string",
+            "enum": [
+              "watchlist",
+              "portfolio",
+              "themes",
+              "tickers"
+            ],
+            "title": "Universe",
+            "default": "themes"
+          },
+          "tickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tickers",
+            "description": "Required when universe='tickers'. Ignored otherwise."
+          },
+          "years": {
+            "type": "number",
+            "maximum": 20.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Years",
+            "default": 3.0
+          },
+          "min_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Score"
+          },
+          "max_positions": {
+            "type": "integer",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Positions",
+            "default": 20
+          },
+          "position_pct": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Position Pct",
+            "default": 0.1
+          },
+          "cash": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Cash",
+            "default": 10000.0
+          },
+          "hold_days": {
+            "type": "integer",
+            "maximum": 400.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Hold Days",
+            "default": 90
+          },
+          "earnings_blackout": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Earnings Blackout",
+            "default": 3
+          },
+          "accept_lookahead": {
+            "type": "boolean",
+            "title": "Accept Lookahead",
+            "default": false
+          },
+          "oos_split": {
+            "type": "number",
+            "maximum": 0.6,
+            "minimum": 0.0,
+            "title": "Oos Split",
+            "default": 0.3
+          },
+          "bootstrap_resamples": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Bootstrap Resamples",
+            "default": 0
+          },
+          "commission": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Commission",
+            "default": 0.0
+          },
+          "slippage_bps": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Slippage Bps",
+            "default": 5.0
+          },
+          "regulatory_bps": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Regulatory Bps",
+            "default": 3.0
+          },
+          "vol_target_risk": {
+            "type": "number",
+            "maximum": 0.1,
+            "minimum": 0.0,
+            "title": "Vol Target Risk",
+            "default": 0.0
+          },
+          "fresh": {
+            "type": "boolean",
+            "title": "Fresh",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "BacktestRequest"
+      },
+      "BacktestResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "strategy",
+          "window_start",
+          "window_end",
+          "result"
+        ],
+        "title": "BacktestResponse"
+      },
+      "BacktestSummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "universe_label": {
+            "type": "string",
+            "title": "Universe Label"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "n_trades": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Trades"
+          },
+          "oos_sharpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oos Sharpe"
+          },
+          "oos_total_return_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oos Total Return Pct"
+          },
+          "oos_max_drawdown_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oos Max Drawdown Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "strategy",
+          "universe_label",
+          "window_start",
+          "window_end",
+          "created_at"
+        ],
+        "title": "BacktestSummary"
+      },
+      "DiagnosticRequest": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "default": "swing_trading"
+          },
+          "universe": {
+            "type": "string",
+            "enum": [
+              "watchlist",
+              "portfolio",
+              "themes",
+              "tickers"
+            ],
+            "title": "Universe",
+            "default": "themes"
+          },
+          "tickers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tickers"
+          },
+          "years": {
+            "type": "number",
+            "maximum": 10.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Years",
+            "default": 2.0
+          },
+          "factor": {
+            "type": "string",
+            "enum": [
+              "composite",
+              "technical",
+              "fundamental",
+              "pattern",
+              "statistical",
+              "trend",
+              "alpha158"
+            ],
+            "title": "Factor",
+            "default": "composite"
+          },
+          "quantiles": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 2.0,
+            "title": "Quantiles",
+            "default": 5
+          },
+          "periods": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Periods",
+            "description": "Forward-return horizons in trading days."
+          },
+          "accept_lookahead": {
+            "type": "boolean",
+            "title": "Accept Lookahead",
+            "default": false
+          },
+          "fresh": {
+            "type": "boolean",
+            "title": "Fresh",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "DiagnosticRequest"
+      },
+      "DiagnosticResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "factor": {
+            "type": "string",
+            "title": "Factor"
+          },
+          "universe_label": {
+            "type": "string",
+            "title": "Universe Label"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "quantiles": {
+            "type": "integer",
+            "title": "Quantiles"
+          },
+          "n_observations": {
+            "type": "integer",
+            "title": "N Observations"
+          },
+          "ic_mean": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Ic Mean"
+          },
+          "ic_std": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Ic Std"
+          },
+          "ic_ir": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Ic Ir"
+          },
+          "top_minus_bottom_pct": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Top Minus Bottom Pct"
+          },
+          "verdict": {
+            "type": "string",
+            "title": "Verdict",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "factor",
+          "universe_label",
+          "window_start",
+          "window_end",
+          "created_at",
+          "quantiles",
+          "n_observations",
+          "ic_mean",
+          "ic_std",
+          "ic_ir",
+          "top_minus_bottom_pct"
+        ],
+        "title": "DiagnosticResponse"
+      },
+      "DiagnosticSummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "factor": {
+            "type": "string",
+            "title": "Factor"
+          },
+          "universe_label": {
+            "type": "string",
+            "title": "Universe Label"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "n_observations": {
+            "type": "integer",
+            "title": "N Observations"
+          },
+          "verdict": {
+            "type": "string",
+            "title": "Verdict",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "factor",
+          "universe_label",
+          "window_start",
+          "window_end",
+          "created_at",
+          "n_observations"
+        ],
+        "title": "DiagnosticSummary"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PaperRecommendationItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "scan_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scan Timestamp"
+          },
+          "composite_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Composite Score"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "STRONG BUY",
+              "BUY",
+              "HOLD",
+              "SELL",
+              "STRONG SELL"
+            ],
+            "title": "Action"
+          },
+          "sub_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Sub Scores"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss"
+          },
+          "take_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "earnings_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings In Days"
+          },
+          "submitted": {
+            "type": "boolean",
+            "title": "Submitted",
+            "default": false
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ticker",
+          "strategy",
+          "scan_timestamp",
+          "composite_score",
+          "action"
+        ],
+        "title": "PaperRecommendationItem"
+      },
+      "PortfolioStatus": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountSummary"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/Position"
+            },
+            "type": "array",
+            "title": "Positions"
+          },
+          "n_positions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "account",
+          "positions",
+          "n_positions"
+        ],
+        "title": "PortfolioStatus"
+      },
+      "Position": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "shares": {
+            "type": "number",
+            "title": "Shares"
+          },
+          "avg_price": {
+            "type": "number",
+            "title": "Avg Price"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "market_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "unrealized_pnl": {
+            "type": "number",
+            "title": "Unrealized Pnl",
+            "default": 0.0
+          },
+          "unrealized_pnl_pct": {
+            "type": "number",
+            "title": "Unrealized Pnl Pct",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "shares",
+          "avg_price"
+        ],
+        "title": "Position"
+      },
+      "ScanRequest": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "default": "swing_trading"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "top": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top"
+          },
+          "fresh": {
+            "type": "boolean",
+            "title": "Fresh",
+            "description": "Bypass cache, fetch live data",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ScanRequest"
+      },
+      "ScanResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "scan_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scan Timestamp"
+          },
+          "n_candidates": {
+            "type": "integer",
+            "title": "N Candidates"
+          },
+          "n_results": {
+            "type": "integer",
+            "title": "N Results"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ScanResultItem"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "strategy",
+          "scan_timestamp",
+          "n_candidates",
+          "n_results",
+          "results"
+        ],
+        "title": "ScanResponse"
+      },
+      "ScanResultItem": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "STRONG BUY",
+              "BUY",
+              "HOLD",
+              "SELL",
+              "STRONG SELL"
+            ],
+            "title": "Action"
+          },
+          "composite_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Composite Score"
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence"
+          },
+          "sub_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Sub Scores"
+          },
+          "reasoning": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasoning"
+          },
+          "bullish_signals": {
+            "type": "integer",
+            "title": "Bullish Signals",
+            "default": 0
+          },
+          "bearish_signals": {
+            "type": "integer",
+            "title": "Bearish Signals",
+            "default": 0
+          },
+          "breakdown": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Breakdown"
+          },
+          "risk_management": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Risk Management"
+          },
+          "sector": {
+            "type": "string",
+            "title": "Sector",
+            "default": "Unknown"
+          },
+          "industry": {
+            "type": "string",
+            "title": "Industry",
+            "default": "Unknown"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "action",
+          "composite_score",
+          "confidence"
+        ],
+        "title": "ScanResultItem",
+        "description": "One recommendation row in a scan response. Permissive shape \u2014 accepts\nthe existing recommender dict; web layer narrows what it renders."
+      },
+      "ScanSummary": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "scan_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scan Timestamp"
+          },
+          "n_candidates": {
+            "type": "integer",
+            "title": "N Candidates"
+          },
+          "top_ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Ticker"
+          },
+          "top_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "strategy",
+          "scan_timestamp",
+          "n_candidates"
+        ],
+        "title": "ScanSummary",
+        "description": "Lighter representation for the GET /api/scans list view."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
