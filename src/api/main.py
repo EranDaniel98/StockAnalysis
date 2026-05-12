@@ -23,11 +23,13 @@ from src.api.routers import (
     backtests,
     diagnostics,
     health,
+    market,
     portfolio,
     recommendations,
     scans,
     stream,
 )
+from src.api.services.live_prices import LivePriceBus
 from src.api.settings import ApiSettings
 from src.cache.redis_adapter import RedisCacheRepository
 from src.db.session import dispose_engine, get_sessionmaker
@@ -43,11 +45,15 @@ async def lifespan(app: FastAPI):
     app.state.sessionmaker = get_sessionmaker()
     app.state.redis = RedisCacheRepository()
     app.state.price_repo = ParquetPriceRepository()
-    logger.info("API singletons wired (config + db sessionmaker + redis + parquet)")
+    app.state.live_prices = LivePriceBus()
+    logger.info(
+        "API singletons wired (config + db sessionmaker + redis + parquet + live_prices)"
+    )
 
     try:
         yield
     finally:
+        await app.state.live_prices.close()
         await app.state.redis.close()
         await dispose_engine()
         logger.info("API singletons torn down")
@@ -84,6 +90,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         tags=["recommendations"],
     )
     app.include_router(stream.router, prefix="/api/stream", tags=["stream"])
+    app.include_router(market.router, prefix="/api/market", tags=["market"])
 
     return app
 

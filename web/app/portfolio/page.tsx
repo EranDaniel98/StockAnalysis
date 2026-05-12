@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Radio, RefreshCw } from "lucide-react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
@@ -23,34 +23,73 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api/client";
+import { api, type Position } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
+import { useLivePrices, type LivePriceMap } from "@/lib/api/use-live-prices";
 import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
+
+function applyLivePrice(p: Position, live: LivePriceMap): Position {
+  const tick = live[p.ticker];
+  if (!tick || !p.shares) return p;
+  const market_value = tick.price * p.shares;
+  const cost_basis = p.avg_price * p.shares;
+  const unrealized_pnl = market_value - cost_basis;
+  const unrealized_pnl_pct = cost_basis > 0 ? (unrealized_pnl / cost_basis) * 100 : 0;
+  return {
+    ...p,
+    current_price: tick.price,
+    market_value,
+    unrealized_pnl,
+    unrealized_pnl_pct,
+  };
+}
 
 export default function PortfolioPage() {
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: qk.portfolio.status(),
     queryFn: () => api.portfolio.status(),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
+
+  const symbols = data?.positions.map((p) => p.ticker) ?? [];
+  const { prices, connected, error: liveError } = useLivePrices(symbols);
+
+  const livePositions = (data?.positions ?? []).map((p) => applyLivePrice(p, prices));
+  const liveLongMarketValue = livePositions.reduce(
+    (sum, p) => sum + (p.market_value ?? 0),
+    0,
+  );
+  const liveEquity = data ? data.account.cash + liveLongMarketValue : null;
 
   return (
     <>
       <PageHeader
         title="Portfolio"
-        description="Live Alpaca paper account. Auto-refreshes every 30s."
+        description="Live Alpaca paper account. Position prices stream from Alpaca's IEX feed."
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={connected ? "default" : "secondary"}
+              className="gap-1.5"
+              title={liveError ?? (connected ? "Streaming" : "Connecting…")}
+            >
+              <Radio
+                className={`h-3 w-3 ${connected ? "animate-pulse" : "opacity-50"}`}
+              />
+              {connected ? "Live" : "Offline"}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -59,7 +98,7 @@ export default function PortfolioPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <SummaryCard
           label="Equity"
-          value={fmtUSD(data?.account.equity)}
+          value={fmtUSD(liveEquity ?? data?.account.equity)}
           isLoading={isLoading}
         />
         <SummaryCard
@@ -74,7 +113,9 @@ export default function PortfolioPage() {
         />
         <SummaryCard
           label="Long market value"
-          value={fmtUSD(data?.account.long_market_value)}
+          value={fmtUSD(
+            data ? liveLongMarketValue : null,
+          )}
           isLoading={isLoading}
         />
       </div>
@@ -95,7 +136,7 @@ export default function PortfolioPage() {
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
-          ) : !data || data.positions.length === 0 ? (
+          ) : !data || livePositions.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">
               No open positions.
             </p>
@@ -113,37 +154,43 @@ export default function PortfolioPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.positions.map((p) => (
-                  <TableRow key={p.ticker}>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono">
-                        {p.ticker}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {fmtNumber(p.shares, 0)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {fmtUSD(p.avg_price)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {fmtUSD(p.current_price)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {fmtUSD(p.market_value)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${pnlColorClass(p.unrealized_pnl)}`}
-                    >
-                      {fmtUSD(p.unrealized_pnl)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${pnlColorClass(p.unrealized_pnl_pct)}`}
-                    >
-                      {fmtPct(p.unrealized_pnl_pct, 2, true)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {livePositions.map((p) => {
+                  const isLive = prices[p.ticker] !== undefined;
+                  return (
+                    <TableRow key={p.ticker}>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">
+                          {p.ticker}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {fmtNumber(p.shares, 0)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {fmtUSD(p.avg_price)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${isLive ? "text-emerald-400" : ""}`}
+                        title={isLive ? "Live tick" : "Last poll"}
+                      >
+                        {fmtUSD(p.current_price)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {fmtUSD(p.market_value)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${pnlColorClass(p.unrealized_pnl)}`}
+                      >
+                        {fmtUSD(p.unrealized_pnl)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${pnlColorClass(p.unrealized_pnl_pct)}`}
+                      >
+                        {fmtPct(p.unrealized_pnl_pct, 2, true)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

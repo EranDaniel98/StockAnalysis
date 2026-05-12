@@ -12,6 +12,7 @@ from typing import AsyncIterator
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.services.live_prices import LivePriceBus
 from src.cache.redis_adapter import RedisCacheRepository
 from src.config_loader import Config
 from src.db.session import get_sessionmaker
@@ -39,10 +40,15 @@ def get_price_repo(request: Request) -> ParquetPriceRepository:
     return request.app.state.price_repo
 
 
+def get_live_prices(request: Request) -> LivePriceBus:
+    return request.app.state.live_prices
+
+
 __all__ = [
     "get_config",
     "get_db_session",
     "get_redis",
     "get_price_repo",
+    "get_live_prices",
     "Depends",
 ]

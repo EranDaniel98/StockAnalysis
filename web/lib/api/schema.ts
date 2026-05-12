@@ -287,6 +287,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stream/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Prices
+         * @description Live trade feed over SSE. Emits ``trade`` events
+         *     ``{symbol, price, size, timestamp}`` for every Alpaca trade tick on the
+         *     requested symbols; ``heartbeat`` events when idle.
+         *
+         *     All clients share one underlying Alpaca data-websocket connection — the
+         *     free-tier quota is one socket per account, so the server multiplexes.
+         */
+        get: operations["stream_prices_api_stream_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stream/scan": {
         parameters: {
             query?: never;
@@ -309,6 +334,31 @@ export interface paths {
          *     `run_id` so the client can `GET /api/scans/{run_id}` for full results.
          */
         get: operations["stream_scan_api_stream_scan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/regime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Regime
+         * @description Current market-regime snapshot.
+         *
+         *     Reads SPY + VIX recent history (via the DataFetcher cache, so subsequent
+         *     calls within market-hours TTL are free), computes SMA200 + recent VIX
+         *     average, and returns a bull/bear/chop label plus the raw inputs the UI
+         *     needs to render context.
+         */
+        get: operations["get_regime_api_market_regime_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -615,6 +665,38 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MarketRegime
+         * @description Snapshot of the broader-market regime indicators a swing trader cares
+         *     about. Classification is intentionally crude — the user makes the call;
+         *     this just surfaces the inputs.
+         */
+        MarketRegime: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Label
+             * @enum {string}
+             */
+            label: "bull" | "bear" | "chop" | "unknown";
+            /** Spy Price */
+            spy_price?: number | null;
+            /** Spy Sma200 */
+            spy_sma200?: number | null;
+            /** Spy Above Sma200 */
+            spy_above_sma200?: boolean | null;
+            /** Spy Pct From Sma200 */
+            spy_pct_from_sma200?: number | null;
+            /** Vix Level */
+            vix_level?: number | null;
+            /** Vix Avg 20D */
+            vix_avg_20d?: number | null;
+            /** Notes */
+            notes?: string[];
         };
         /** PaperRecommendationItem */
         PaperRecommendationItem: {
@@ -1339,6 +1421,38 @@ export interface operations {
             };
         };
     };
+    stream_prices_api_stream_prices_get: {
+        parameters: {
+            query: {
+                /** @description Comma-separated symbols (e.g. AAPL,MSFT,TSLA) */
+                symbols: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     stream_scan_api_stream_scan_get: {
         parameters: {
             query?: {
@@ -1371,6 +1485,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regime_api_market_regime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketRegime"];
                 };
             };
         };

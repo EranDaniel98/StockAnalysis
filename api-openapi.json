@@ -756,6 +756,49 @@
         }
       }
     },
+    "/api/stream/prices": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Stream Prices",
+        "description": "Live trade feed over SSE. Emits ``trade`` events\n``{symbol, price, size, timestamp}`` for every Alpaca trade tick on the\nrequested symbols; ``heartbeat`` events when idle.\n\nAll clients share one underlying Alpaca data-websocket connection \u2014 the\nfree-tier quota is one socket per account, so the server multiplexes.",
+        "operationId": "stream_prices_api_stream_prices_get",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated symbols (e.g. AAPL,MSFT,TSLA)",
+              "title": "Symbols"
+            },
+            "description": "Comma-separated symbols (e.g. AAPL,MSFT,TSLA)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/stream/scan": {
       "get": {
         "tags": [
@@ -868,6 +911,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/market/regime": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "summary": "Get Regime",
+        "description": "Current market-regime snapshot.\n\nReads SPY + VIX recent history (via the DataFetcher cache, so subsequent\ncalls within market-hours TTL are free), computes SMA200 + recent VIX\naverage, and returns a bull/bear/chop label plus the raw inputs the UI\nneeds to render context.",
+        "operationId": "get_regime_api_market_regime_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketRegime"
                 }
               }
             }
@@ -1420,6 +1485,105 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "MarketRegime": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "label": {
+            "type": "string",
+            "enum": [
+              "bull",
+              "bear",
+              "chop",
+              "unknown"
+            ],
+            "title": "Label"
+          },
+          "spy_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Price"
+          },
+          "spy_sma200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Sma200"
+          },
+          "spy_above_sma200": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Above Sma200"
+          },
+          "spy_pct_from_sma200": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Pct From Sma200"
+          },
+          "vix_level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vix Level"
+          },
+          "vix_avg_20d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vix Avg 20D"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "label"
+        ],
+        "title": "MarketRegime",
+        "description": "Snapshot of the broader-market regime indicators a swing trader cares\nabout. Classification is intentionally crude \u2014 the user makes the call;\nthis just surfaces the inputs."
       },
       "PaperRecommendationItem": {
         "properties": {

@@ -70,6 +70,8 @@ export type DiagnosticSummary = Schemas["DiagnosticSummary"];
 
 export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 
+export type MarketRegime = Schemas["MarketRegime"];
+
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
 export const api = {
@@ -132,6 +134,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  market: {
+    regime: () => request<MarketRegime>("/api/market/regime"),
   },
 
   recommendations: {

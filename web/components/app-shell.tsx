@@ -13,6 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 
+import { RegimeTile } from "@/components/regime-tile";
 import {
   CommandDialog,
   CommandEmpty,
@@ -136,6 +137,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="flex-1 overflow-x-hidden">
+        <header className="border-border/40 bg-background/50 sticky top-0 z-10 flex justify-end gap-2 border-b px-6 py-2 backdrop-blur">
+          <RegimeTile />
+        </header>
         <div className="mx-auto w-full max-w-7xl px-6 py-8">{children}</div>
       </main>
 
