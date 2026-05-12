@@ -25,6 +25,7 @@ from src.api.routers import (
     diagnostics,
     health,
     market,
+    ml,
     portfolio,
     recommendations,
     scans,
@@ -101,6 +102,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         analytics.router, prefix="/api/analytics", tags=["analytics"]
     )
     app.include_router(trades.router, prefix="/api/trades", tags=["trades"])
+    app.include_router(ml.router, prefix="/api/ml", tags=["ml"])
 
     return app
 

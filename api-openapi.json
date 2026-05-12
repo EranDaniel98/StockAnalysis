@@ -1180,6 +1180,80 @@
           }
         }
       }
+    },
+    "/api/ml/models": {
+      "get": {
+        "tags": [
+          "ml"
+        ],
+        "summary": "List Ml Models",
+        "description": "List registered model versions + drift status for the latest of each name.\n\nFilter to a single ``model_name`` to see its history. Without a filter,\nyou get the full registry (newest first) plus a \"latest per name\" view\nthat mirrors what the ensemble would use right now.",
+        "operationId": "list_ml_models_api_ml_models_get",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Name"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 180,
+              "minimum": 7,
+              "default": 30,
+              "title": "Window Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MLModelsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1775,6 +1849,64 @@
         ],
         "title": "DiagnosticSummary"
       },
+      "FoldMetric": {
+        "properties": {
+          "fold": {
+            "type": "integer",
+            "title": "Fold"
+          },
+          "train_start": {
+            "type": "string",
+            "title": "Train Start"
+          },
+          "train_end": {
+            "type": "string",
+            "title": "Train End"
+          },
+          "test_start": {
+            "type": "string",
+            "title": "Test Start"
+          },
+          "test_end": {
+            "type": "string",
+            "title": "Test End"
+          },
+          "n_train": {
+            "type": "integer",
+            "title": "N Train"
+          },
+          "n_test": {
+            "type": "integer",
+            "title": "N Test"
+          },
+          "ic_pearson": {
+            "type": "number",
+            "title": "Ic Pearson"
+          },
+          "ic_spearman": {
+            "type": "number",
+            "title": "Ic Spearman"
+          },
+          "hit_rate": {
+            "type": "number",
+            "title": "Hit Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fold",
+          "train_start",
+          "train_end",
+          "test_start",
+          "test_end",
+          "n_train",
+          "n_test",
+          "ic_pearson",
+          "ic_spearman",
+          "hit_rate"
+        ],
+        "title": "FoldMetric"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1787,6 +1919,35 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "MLModelsResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelVersionRow"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "latest": {
+            "items": {
+              "$ref": "#/components/schemas/ModelVersionRow"
+            },
+            "type": "array",
+            "title": "Latest",
+            "description": "One row per distinct model_name \u2014 the version the ensemble would use right now."
+          },
+          "drift": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDriftSnapshot"
+            },
+            "type": "array",
+            "title": "Drift"
+          }
+        },
+        "type": "object",
+        "title": "MLModelsResponse",
+        "description": "List view at /api/ml/models."
       },
       "MarketRegime": {
         "properties": {
@@ -1886,6 +2047,171 @@
         ],
         "title": "MarketRegime",
         "description": "Snapshot of the broader-market regime indicators a swing trader cares\nabout. Classification is intentionally crude \u2014 the user makes the call;\nthis just surfaces the inputs."
+      },
+      "ModelDriftSnapshot": {
+        "properties": {
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "training_ic_mean": {
+            "type": "number",
+            "title": "Training Ic Mean"
+          },
+          "training_ic_std": {
+            "type": "number",
+            "title": "Training Ic Std"
+          },
+          "rolling_ic": {
+            "type": "number",
+            "title": "Rolling Ic"
+          },
+          "z_score": {
+            "type": "number",
+            "title": "Z Score"
+          },
+          "is_drifting": {
+            "type": "boolean",
+            "title": "Is Drifting"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "n_observations": {
+            "type": "integer",
+            "title": "N Observations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_name",
+          "version",
+          "training_ic_mean",
+          "training_ic_std",
+          "rolling_ic",
+          "z_score",
+          "is_drifting",
+          "window_days",
+          "n_observations"
+        ],
+        "title": "ModelDriftSnapshot",
+        "description": "Latest drift status for one registered model."
+      },
+      "ModelSummaryMetrics": {
+        "properties": {
+          "mean_ic_pearson": {
+            "type": "number",
+            "title": "Mean Ic Pearson",
+            "default": 0.0
+          },
+          "mean_ic_spearman": {
+            "type": "number",
+            "title": "Mean Ic Spearman",
+            "default": 0.0
+          },
+          "mean_hit_rate": {
+            "type": "number",
+            "title": "Mean Hit Rate",
+            "default": 0.0
+          },
+          "n_folds": {
+            "type": "number",
+            "title": "N Folds",
+            "default": 0.0
+          },
+          "total_test_rows": {
+            "type": "number",
+            "title": "Total Test Rows",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "ModelSummaryMetrics",
+        "description": "Headline aggregates over the walk-forward folds."
+      },
+      "ModelVersionRow": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "trained_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Trained At"
+          },
+          "train_window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Train Window Start"
+          },
+          "train_window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Train Window End"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "title": "Horizon Days"
+          },
+          "factor_set": {
+            "type": "string",
+            "title": "Factor Set"
+          },
+          "artifact_path": {
+            "type": "string",
+            "title": "Artifact Path"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ModelSummaryMetrics"
+          },
+          "folds": {
+            "items": {
+              "$ref": "#/components/schemas/FoldMetric"
+            },
+            "type": "array",
+            "title": "Folds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model_name",
+          "version",
+          "trained_at",
+          "train_window_start",
+          "train_window_end",
+          "horizon_days",
+          "factor_set",
+          "artifact_path",
+          "summary"
+        ],
+        "title": "ModelVersionRow",
+        "description": "One row from ``model_versions`` \u2014 for the API list view + /ml page."
       },
       "PaperRecommendationItem": {
         "properties": {

@@ -78,6 +78,11 @@ export type CalibrationBucket = Schemas["CalibrationBucket"];
 export type PaperTradeItem = Schemas["PaperTradeItem"];
 export type TradeNotesUpdate = Schemas["TradeNotesUpdate"];
 
+export type MLModelsResponse = Schemas["MLModelsResponse"];
+export type ModelVersionRow = Schemas["ModelVersionRow"];
+export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
+export type FoldMetric = Schemas["FoldMetric"];
+
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
 export const api = {
@@ -178,6 +183,21 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+  },
+
+  ml: {
+    models: (params?: {
+      model_name?: string;
+      limit?: number;
+      window_days?: number;
+    }) => {
+      const q = new URLSearchParams();
+      if (params?.model_name) q.set("model_name", params.model_name);
+      if (params?.limit != null) q.set("limit", String(params.limit));
+      if (params?.window_days != null) q.set("window_days", String(params.window_days));
+      const qs = q.toString();
+      return request<MLModelsResponse>(`/api/ml/models${qs ? `?${qs}` : ""}`);
+    },
   },
 
   recommendations: {

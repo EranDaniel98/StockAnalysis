@@ -7,6 +7,7 @@ import {
   Activity,
   BarChart3,
   BookText,
+  Brain,
   Briefcase,
   Grid3x3,
   LineChart,
@@ -83,6 +84,12 @@ const NAV: NavLink[] = [
     label: "Journal",
     icon: BookText,
     description: "Closed-trade journal with notes",
+  },
+  {
+    href: "/ml",
+    label: "ML Models",
+    icon: Brain,
+    description: "Trained models, fold metrics, drift status",
   },
 ];
 

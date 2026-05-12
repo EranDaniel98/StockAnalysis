@@ -478,6 +478,30 @@ export interface paths {
         patch: operations["update_trade_notes_api_trades__trade_id__patch"];
         trace?: never;
     };
+    "/api/ml/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ml Models
+         * @description List registered model versions + drift status for the latest of each name.
+         *
+         *     Filter to a single ``model_name`` to see its history. Without a filter,
+         *     you get the full registry (newest first) plus a "latest per name" view
+         *     that mirrors what the ensemble would use right now.
+         */
+        get: operations["list_ml_models_api_ml_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -789,10 +813,48 @@ export interface components {
              */
             verdict: string;
         };
+        /** FoldMetric */
+        FoldMetric: {
+            /** Fold */
+            fold: number;
+            /** Train Start */
+            train_start: string;
+            /** Train End */
+            train_end: string;
+            /** Test Start */
+            test_start: string;
+            /** Test End */
+            test_end: string;
+            /** N Train */
+            n_train: number;
+            /** N Test */
+            n_test: number;
+            /** Ic Pearson */
+            ic_pearson: number;
+            /** Ic Spearman */
+            ic_spearman: number;
+            /** Hit Rate */
+            hit_rate: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MLModelsResponse
+         * @description List view at /api/ml/models.
+         */
+        MLModelsResponse: {
+            /** Models */
+            models?: components["schemas"]["ModelVersionRow"][];
+            /**
+             * Latest
+             * @description One row per distinct model_name — the version the ensemble would use right now.
+             */
+            latest?: components["schemas"]["ModelVersionRow"][];
+            /** Drift */
+            drift?: components["schemas"]["ModelDriftSnapshot"][];
         };
         /**
          * MarketRegime
@@ -825,6 +887,99 @@ export interface components {
             vix_avg_20d?: number | null;
             /** Notes */
             notes?: string[];
+        };
+        /**
+         * ModelDriftSnapshot
+         * @description Latest drift status for one registered model.
+         */
+        ModelDriftSnapshot: {
+            /** Model Name */
+            model_name: string;
+            /** Version */
+            version: number;
+            /** Training Ic Mean */
+            training_ic_mean: number;
+            /** Training Ic Std */
+            training_ic_std: number;
+            /** Rolling Ic */
+            rolling_ic: number;
+            /** Z Score */
+            z_score: number;
+            /** Is Drifting */
+            is_drifting: boolean;
+            /** Window Days */
+            window_days: number;
+            /** N Observations */
+            n_observations: number;
+        };
+        /**
+         * ModelSummaryMetrics
+         * @description Headline aggregates over the walk-forward folds.
+         */
+        ModelSummaryMetrics: {
+            /**
+             * Mean Ic Pearson
+             * @default 0
+             */
+            mean_ic_pearson: number;
+            /**
+             * Mean Ic Spearman
+             * @default 0
+             */
+            mean_ic_spearman: number;
+            /**
+             * Mean Hit Rate
+             * @default 0
+             */
+            mean_hit_rate: number;
+            /**
+             * N Folds
+             * @default 0
+             */
+            n_folds: number;
+            /**
+             * Total Test Rows
+             * @default 0
+             */
+            total_test_rows: number;
+        };
+        /**
+         * ModelVersionRow
+         * @description One row from ``model_versions`` — for the API list view + /ml page.
+         */
+        ModelVersionRow: {
+            /** Id */
+            id: number;
+            /** Model Name */
+            model_name: string;
+            /** Version */
+            version: number;
+            /**
+             * Trained At
+             * Format: date-time
+             */
+            trained_at: string;
+            /**
+             * Train Window Start
+             * Format: date-time
+             */
+            train_window_start: string;
+            /**
+             * Train Window End
+             * Format: date-time
+             */
+            train_window_end: string;
+            /** Horizon Days */
+            horizon_days: number;
+            /** Factor Set */
+            factor_set: string;
+            /** Artifact Path */
+            artifact_path: string;
+            /** Notes */
+            notes?: string | null;
+            summary: components["schemas"]["ModelSummaryMetrics"];
+            /** Folds */
+            folds?: components["schemas"]["FoldMetric"][];
         };
         /** PaperRecommendationItem */
         PaperRecommendationItem: {
@@ -1850,6 +2005,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaperTradeItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ml_models_api_ml_models_get: {
+        parameters: {
+            query?: {
+                model_name?: string | null;
+                limit?: number;
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MLModelsResponse"];
                 };
             };
             /** @description Validation Error */
