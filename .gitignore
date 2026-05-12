@@ -13,6 +13,8 @@ data/*.html
 data/*.json
 # Phase 0 Stream D — Parquet OHLCV store (generated from migration script)
 data/ohlcv/
+# Phase 4 — trained model artifacts (joblib + manifest); registry row is the source of truth
+data/models/
 .venv/
 venv/
 env/

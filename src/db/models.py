@@ -244,6 +244,43 @@ class ICDiagnostic(Base):
     verdict: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class ModelVersion(Base):
+    """One row per trained model. The pipeline picks the next version per
+    ``model_name`` and writes a row after the joblib artifact is on disk.
+
+    Schema: see alembic/versions/0003_model_versions.py. Metrics + params
+    are intentionally JSONB so we can evolve the model + hyperparam set
+    without schema churn — at the cost of typed access (we live with it).
+    """
+
+    __tablename__ = "model_versions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    trained_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    train_window_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    train_window_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    factor_set: Mapped[str] = mapped_column(String(32), nullable=False)
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    artifact_path: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "model_name", "version", name="uq_model_versions_name_version"
+        ),
+    )
+
+
 class FactorSnapshot(Base):
     """RESERVED for Phase 4 ML feature store. Empty table at Phase 0 end.
 
