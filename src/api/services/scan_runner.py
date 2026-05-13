@@ -38,6 +38,7 @@ def run_scan_sync(
     theme: str | None = None,
     sector: str | None = None,
     fresh: bool = False,
+    live_signals: bool = True,
     on_event: EventCallback | None = None,
 ) -> list[dict[str, Any]]:
     """Run a market scan and return ranked recommendation dicts.
@@ -45,6 +46,13 @@ def run_scan_sync(
     Intentionally sync — wraps the existing pipeline modules (which are sync,
     sometimes CPU-heavy, sometimes I/O via yfinance). Call from an async
     handler via asyncio.to_thread.
+
+    ``live_signals`` controls whether the two yfinance-backed live-only
+    analyzers fire: ``analyst_revisions`` (upgrades/downgrades) and
+    ``options_skew`` (IV-derived put/call sentiment). Fetching them adds
+    roughly 0.5-2s per ticker, parallelized across worker pools. Disable
+    for fast iteration; leave on for production scans so the sub-score
+    breakdown is complete.
 
     When ``on_event`` is supplied, emits stage events:
       - ``discover_start``                        scan begins
@@ -54,12 +62,12 @@ def run_scan_sync(
       - ``stage2_done`` {n}                       fundamentals-filtered count
       - ``prices_start``
       - ``prices_done`` {n}
+      - ``analyst_revisions_start`` / ``analyst_revisions_done`` {n_covered}
+      - ``options_chains_start`` / ``options_chains_done`` {n_covered}
       - ``analyze_start`` {n}                     analyzer pipeline begins
       - ``score_done`` {n}                        ranked recommendations ready
 
-    Per-ticker progress inside the analyzer pass is left as a follow-up;
-    `_analyze_and_score` prints to Rich console and would need its own
-    callback plumbing to surface ticker-level events.
+    Per-ticker analyzer events flow through from ``analyze_and_score``.
     """
     emit = on_event or _noop
 
@@ -101,6 +109,44 @@ def run_scan_sync(
     if not price_data_map:
         return []
 
+    scored_tickers = list(price_data_map.keys())
+    analyst_revisions_data: dict[str, list] | None = None
+    options_chains: dict[str, Any] | None = None
+
+    if live_signals and scored_tickers:
+        # yfinance-backed; both fetchers have internal worker pools and
+        # swallow per-ticker failures, so a flaky symbol won't sink the run.
+        from src.market_data.analyst_revisions_yf.fetcher import (
+            fetch_revisions_batch,
+        )
+        from src.market_data.options_chains_yf.fetcher import fetch_chains_batch
+
+        emit({"stage": "analyst_revisions_start", "n": len(scored_tickers)})
+        try:
+            analyst_revisions_data = fetch_revisions_batch(scored_tickers)
+        except Exception as e:
+            logger.warning("analyst_revisions batch fetch failed: %s", e)
+            analyst_revisions_data = {}
+        emit(
+            {
+                "stage": "analyst_revisions_done",
+                "n": sum(1 for v in (analyst_revisions_data or {}).values() if v),
+            }
+        )
+
+        emit({"stage": "options_chains_start", "n": len(scored_tickers)})
+        try:
+            options_chains = fetch_chains_batch(scored_tickers)
+        except Exception as e:
+            logger.warning("options_chains batch fetch failed: %s", e)
+            options_chains = {}
+        emit(
+            {
+                "stage": "options_chains_done",
+                "n": len(options_chains or {}),
+            }
+        )
+
     emit({"stage": "analyze_start", "n": len(price_data_map)})
 
     # Shared bounded-context implementation; the CLI calls the same function
@@ -109,7 +155,13 @@ def run_scan_sync(
     from src.scoring.service import analyze_and_score
 
     results = analyze_and_score(
-        price_data_map, fundamentals_map, config, strategy, on_event=emit
+        price_data_map,
+        fundamentals_map,
+        config,
+        strategy,
+        analyst_revisions_data=analyst_revisions_data,
+        options_chains=options_chains,
+        on_event=emit,
     )
     emit({"stage": "score_done", "n": len(results)})
     return results

@@ -22,6 +22,8 @@ const PIPELINE: StageSpec[] = [
   { code: "FUNDS", start: "fundamentals_start", done: "fundamentals_done" },
   { code: "FILTER", start: "fundamentals_done", done: "stage2_done" },
   { code: "PRICES", start: "prices_start", done: "prices_done" },
+  { code: "ANALYST", start: "analyst_revisions_start", done: "analyst_revisions_done" },
+  { code: "OPTIONS", start: "options_chains_start", done: "options_chains_done" },
   { code: "ANALYZE", start: "analyze_start", done: "score_done" },
 ];
 
