@@ -22,6 +22,7 @@ from src.scoring.analyzers import technical, fundamental, patterns, statistical,
 from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers import relative_strength
 from src.scoring.analyzers import insider_flow
+from src.scoring.analyzers import catalyst
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.scoring.sector_stats import compute_sector_stats
@@ -179,6 +180,7 @@ def _score_ticker(
     sector_stats: Optional[dict] = None,
     benchmark_slice: Optional[pd.DataFrame] = None,
     insider_txs_slice: Optional[list] = None,
+    catalyst_snapshot: Optional[object] = None,
 ) -> Optional[dict]:
     """Run all analyzers on a sliced df and return composite score result + ATR.
 
@@ -217,12 +219,21 @@ def _score_ticker(
             if_result = insider_flow.analyze(
                 insider_txs_slice, as_of=as_of_date.date(),
             )
+        # Catalyst: pure-function over a pre-selected nearest-snapshot.
+        # Caller does the (ticker, cluster_end <= as_of, age <= 60d)
+        # filtering once per Monday and hands us the row directly.
+        cat_result = None
+        if catalyst_snapshot is not None and as_of_date is not None:
+            cat_result = catalyst.analyze(
+                catalyst_snapshot, as_of=as_of_date.date(),
+            )
         score_result = calculate_composite_score(
             tech, fnd, pat, stat, trnd, strategy,
             alpha158_result=a158,
             pead_result=pd_result,
             rel_strength_result=rs_result,
             insider_flow_result=if_result,
+            catalyst_result=cat_result,
         )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
@@ -272,6 +283,7 @@ def run_backtest(
     earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
     earnings_history: Optional[dict[str, pd.DataFrame]] = None,
     insider_transactions: Optional[dict[str, list]] = None,
+    narrative_snapshots: Optional[dict[str, list]] = None,
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
@@ -281,6 +293,7 @@ def run_backtest(
     earnings_dates = earnings_dates or {}
     earnings_history = earnings_history or {}
     insider_transactions = insider_transactions or {}
+    narrative_snapshots = narrative_snapshots or {}
     skipped_earnings = 0
     skipped_regime = 0
     regime_history: list[dict] = []  # per-Monday {date, label, vix, spy_above_sma}
@@ -421,9 +434,22 @@ def run_backtest(
                         tx for tx in all_ins
                         if tx.filing_date <= as_of.date()
                     ] if all_ins else None
+                    # Catalyst: pick the most recent narrative snapshot
+                    # whose cluster_end_date is on or before as_of. The
+                    # analyzer enforces its own freshness cutoff
+                    # (default 60d) — we don't pre-filter that here.
+                    all_nars = narrative_snapshots.get(ticker, []) or []
+                    nar_snap = None
+                    if all_nars:
+                        valid = [
+                            n for n in all_nars
+                            if n.cluster_end_date <= as_of.date()
+                        ]
+                        if valid:
+                            nar_snap = max(valid, key=lambda n: n.cluster_end_date)
                     futures[ex.submit(
                         _score_ticker, ticker, df_slice, fund, config, strategy,
-                        eh, as_of, sector_stats, spy_slice, ins_slice,
+                        eh, as_of, sector_stats, spy_slice, ins_slice, nar_snap,
                     )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]
