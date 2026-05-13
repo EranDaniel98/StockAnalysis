@@ -6,7 +6,7 @@ For each fundamental-heavy strategy, run two backtests:
                           against the CURRENT yfinance fundamentals dict
                           at every historical Monday. This is the
                           look-ahead-leaked path the original guard
-                          blocked — included so we can quantify how much
+                          blocked - included so we can quantify how much
                           of the headline alpha was synthetic.
   pit_edgar             : FundamentalsPITLoader pre-loaded from the
                           Postgres fundamentals table; engine looks up
@@ -16,7 +16,7 @@ For each fundamental-heavy strategy, run two backtests:
 
 The strategies that need this most are the ones the guard normally blocks
 (weights fundamentals ≥35%): long_term_growth, value_investing,
-dividend_income. Sweep also accepts swing_trading as a sanity-check —
+dividend_income. Sweep also accepts swing_trading as a sanity-check -
 swing_trading weights fundamentals at 5% (sub-guard threshold) so both
 modes should produce nearly identical numbers.
 
@@ -115,7 +115,7 @@ def _print_table(rows: list[dict[str, Any]], universe_label: str) -> None:
     table.add_column("OOS Sharpe", justify="right", style="bold")
     table.add_column("Max DD %", justify="right")
     table.add_column("Win %", justify="right")
-    # Per-strategy delta (PIT vs baseline) — the key comparison.
+    # Per-strategy delta (PIT vs baseline) - the key comparison.
     baseline_oos = {
         r["strategy"]: r["oos_sharpe"]
         for r in rows
@@ -125,7 +125,7 @@ def _print_table(rows: list[dict[str, Any]], universe_label: str) -> None:
         base = baseline_oos.get(r["strategy"])
         delta = ""
         if r["mode"] == "pit_edgar" and base is not None:
-            delta = f"  (Δ {r['oos_sharpe'] - base:+.2f})"
+            delta = f"  (D {r['oos_sharpe'] - base:+.2f})"
         table.add_row(
             r["strategy"],
             r["mode"],
@@ -193,7 +193,7 @@ def main() -> int:
     price_data = fetcher.fetch_batch(tickers, period=fetch_period)
     console.print(f"  Got price data for {len(price_data)}/{len(tickers)} tickers")
 
-    console.print("[bold]Fetching fundamentals (yfinance current snapshot — used as PIT-safe overlay)...[/bold]")
+    console.print("[bold]Fetching fundamentals (yfinance current snapshot - used as PIT-safe overlay)...[/bold]")
     fundamentals = fund_fetcher.fetch_batch(tickers)
     console.print(f"  Got fundamentals for {len(fundamentals)}/{len(tickers)} tickers")
 
@@ -215,10 +215,10 @@ def main() -> int:
     n_covered = sum(1 for t in price_data if t.upper() in loader.tickers)
     pct = (n_covered / max(1, len(price_data))) * 100
     console.print(f"  PIT coverage: {n_covered}/{len(price_data)} tickers ({pct:.0f}%) "
-                  f"— total rows {sum(coverage.values())}")
+                  f"- total rows {sum(coverage.values())}")
     if pct < 50:
         console.print(
-            f"[red]Coverage <50% — engine guard will not be bypassed.[/red] "
+            f"[red]Coverage <50% - engine guard will not be bypassed.[/red] "
             f"Backfill missing tickers via `python -m scripts.run_edgar_backfill --universe {args.universe}`."
         )
     console.print()
@@ -226,7 +226,7 @@ def main() -> int:
     all_rows: list[dict[str, Any]] = []
     for strategy_name in strategy_names:
         base_strategy = base_strategies[strategy_name]
-        console.print(f"\n[bold magenta]══ Strategy: {strategy_name} ══[/bold magenta]")
+        console.print(f"\n[bold magenta]== Strategy: {strategy_name} ==[/bold magenta]")
         for mode, accept_lookahead, use_loader in MODES:
             bt_cfg = BacktestConfig(
                 start_date=start,
@@ -247,7 +247,7 @@ def main() -> int:
             elapsed = time.time() - t0
             summary = _summarize(mode, strategy_name, result)
             console.print(
-                f"  done in {elapsed:.1f}s — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
+                f"  done in {elapsed:.1f}s - OOS Sharpe {summary['oos_sharpe']:+.2f}, "
                 f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%\n"
             )
             all_rows.append(summary)
