@@ -45,8 +45,16 @@ def _resolve_universe(name: str) -> list[str]:
         return config.get_watchlist()
     if name == "value_cohort":
         return config.get_value_cohort_tickers()
+    if name == "russell_1000":
+        return config.get_russell_1000_tickers()
+    if name == "all":
+        return sorted(
+            set(config.get_theme_tickers())
+            | set(config.get_value_cohort_tickers())
+            | set(config.get_russell_1000_tickers())
+        )
     raise ValueError(
-        f"Unknown universe {name!r}; choose themes|watchlist|value_cohort"
+        f"Unknown universe {name!r}; choose themes|watchlist|value_cohort|russell_1000|all"
     )
 
 
@@ -57,8 +65,11 @@ def main() -> int:
     src.add_argument(
         "--universe",
         type=str,
-        choices=("themes", "watchlist", "value_cohort"),
-        help="Universe to backfill (resolved from config/sectors.yaml)",
+        choices=("themes", "watchlist", "value_cohort", "russell_1000", "all"),
+        help=(
+            "Universe to backfill (resolved from config/sectors.yaml). "
+            "'all' = themes ∪ value_cohort ∪ russell_1000 (deduped)."
+        ),
     )
     parser.add_argument(
         "--days",

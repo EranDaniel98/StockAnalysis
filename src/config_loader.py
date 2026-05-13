@@ -128,6 +128,24 @@ class Config:
         (back-compat for older configs)."""
         return list(self.sectors.get("value_cohort", []))
 
+    def get_russell_1000_tickers(self):
+        """The current Russell 1000 constituents — top-1000 US listed
+        companies by market cap. Sourced from iShares IWB holdings via
+        ``scripts/fetch_russell_1000.py`` which writes
+        ``config/russell_1000_tickers.txt``. Returns [] when the file
+        doesn't exist yet — run the fetcher to populate.
+
+        Refresh schedule: iShares updates IWB daily; we typically re-run
+        the fetcher quarterly or after a Russell reconstitution (last
+        Friday of June each year)."""
+        path = self.config_dir / "russell_1000_tickers.txt"
+        if not path.exists():
+            return []
+        return sorted(
+            t.strip() for t in path.read_text(encoding="utf-8").splitlines()
+            if t.strip() and not t.startswith("#")
+        )
+
     def get_theme_tickers(self):
         """Get all known tickers from all themes (deduplicated)."""
         tickers = set()
