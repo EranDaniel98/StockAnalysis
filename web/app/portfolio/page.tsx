@@ -86,7 +86,12 @@ export default function PortfolioPage() {
   const liveUnrealizedPnl = liveLongMarketValue - liveCostBasis;
   const liveUnrealizedPnlPct =
     liveCostBasis > 0 ? (liveUnrealizedPnl / liveCostBasis) * 100 : 0;
-  const liveEquity = data ? data.account.cash + liveLongMarketValue : null;
+  // Total Equity must mirror Alpaca's dashboard exactly — `equity` is the
+  // authoritative server-side value (cash + market value − short value +
+  // any margin/accruals). Recomputing it client-side from cash +
+  // long_market_value drops shorts, margin, and pending settlements and
+  // drifts visibly from Alpaca.
+  const reportedEquity = data?.account.equity ?? null;
 
   return (
     <>
@@ -126,11 +131,17 @@ export default function PortfolioPage() {
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
           label="Total Equity"
-          value={fmtUSD(liveEquity ?? data?.account.equity)}
+          value={fmtUSD(reportedEquity)}
+          sub={
+            data
+              ? `${fmtUSD(data.account.portfolio_value, true)} portfolio value`
+              : undefined
+          }
+          subTone="muted"
           isLoading={isLoading}
           trailing={
             <EquitySparkline
-              equity={liveEquity ?? data?.account.equity ?? null}
+              equity={reportedEquity}
               variant="inline"
             />
           }
