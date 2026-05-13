@@ -80,11 +80,20 @@ class InsiderIngestor:
         if cik is None:
             raise DomainError(f"No CIK known for ticker {ticker!r}")
 
-        # Watermark: take the explicit `since` argument or the most
-        # recent ingested filing_date (+1 day so we don't re-fetch it).
+        # Watermark + since-floor: always consult the per-ticker watermark
+        # so we never re-fetch filings already in the DB. When the caller
+        # passes an explicit `since` (e.g. --days 730 for a full backfill
+        # window), we take the MORE-RECENT of the two as the lower bound:
+        #   - empty DB:        since = args_since (catch up the window)
+        #   - already covered: since = watermark + 1d (incremental only)
+        # This avoids wasted SEC requests on tickers backfilled in a prior
+        # run while still letting --days control the depth for new tickers.
+        wm = await self._watermark(ticker)
+        wm_floor = (wm + timedelta(days=1)) if wm is not None else None
         if since is None:
-            wm = await self._watermark(ticker)
-            since = (wm + timedelta(days=1)) if wm is not None else None
+            since = wm_floor
+        elif wm_floor is not None:
+            since = max(since, wm_floor)
 
         filings = await list_form4_filings(self._client, cik, since=since)
         if not filings:
