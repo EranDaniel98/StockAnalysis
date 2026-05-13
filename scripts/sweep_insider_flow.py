@@ -159,7 +159,11 @@ def _print_table(rows: list[dict[str, Any]], strategy_name: str, universe_label:
 def main() -> int:
     parser = argparse.ArgumentParser(description="A/B sweep on insider_flow analyzer.")
     parser.add_argument("--strategy", default="swing_trading")
-    parser.add_argument("--universe", choices=["themes", "watchlist"], default="themes")
+    parser.add_argument(
+        "--universe",
+        choices=["themes", "watchlist", "value_cohort", "russell_1000"],
+        default="themes",
+    )
     parser.add_argument("--years", type=float, default=3.0)
     parser.add_argument("--min-score", type=float, default=50.0)
     parser.add_argument("--atr-stop", type=float, default=2.0)
@@ -178,10 +182,15 @@ def main() -> int:
 
     if args.universe == "themes":
         tickers = config.get_theme_tickers()
-        universe_label = f"themes ({len(tickers)})"
-    else:
+    elif args.universe == "watchlist":
         tickers = config.get_watchlist()
-        universe_label = f"watchlist ({len(tickers)})"
+    elif args.universe == "value_cohort":
+        tickers = config.get_value_cohort_tickers()
+    elif args.universe == "russell_1000":
+        tickers = config.get_russell_1000_tickers()
+    else:
+        tickers = []
+    universe_label = f"{args.universe} ({len(tickers)})"
 
     if not tickers:
         console.print(f"[red]No tickers found for universe '{args.universe}'[/red]")
