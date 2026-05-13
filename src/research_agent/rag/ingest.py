@@ -188,7 +188,7 @@ async def ingest_ticker(
     async with sessionmaker() as session:
         for meta in filings:
             try:
-                total_chunks += await _ingest_one_filing(
+                total_chunks += await ingest_one_filing(
                     session=session,
                     client=client,
                     ticker=ticker.upper(),

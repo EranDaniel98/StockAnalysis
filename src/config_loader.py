@@ -180,3 +180,28 @@ class Config:
         return self.get("risk_management", "analyst_score", default={
             "enabled": True,
         })
+
+    def get_insider_flow(self):
+        """Insider Form 4 cluster-buy scoring config.
+
+        Returns ``{enabled, enrich_narrative, lookback_days, window_days}``.
+        Defaults disabled — the 2026-05-13 A/B sweep on the themes
+        universe showed the signal is too sparse on large-cap tech to
+        move OOS Sharpe. Enable when the universe expands to mid/small-
+        cap value where insider buying actually clusters.
+
+        - ``enabled``: include insider_flow.analyze in the scan path
+        - ``enrich_narrative``: when a cluster fires, look up the
+          nearest 8-K in filings_corpus and attach an excerpt
+        - ``lookback_days``: how far back we look for insider rows to
+          feed the analyzer
+        - ``window_days`` / ``min_cluster_insiders``: forwarded to the
+          analyzer's InsiderFlowParams
+        """
+        return self.get("risk_management", "insider_flow", default={
+            "enabled": False,
+            "enrich_narrative": False,
+            "lookback_days": 60,
+            "window_days": 30,
+            "min_cluster_insiders": 2,
+        })

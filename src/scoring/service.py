@@ -14,6 +14,7 @@ src/presentation/.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any, Callable, Optional
 
 import pandas as pd
@@ -27,6 +28,7 @@ from src.contracts.entities.signal import Signal
 from src.scoring.analyzers import (
     alpha158,
     fundamental,
+    insider_flow,
     patterns,
     pead as pead_module,
     relative_strength,
@@ -34,6 +36,7 @@ from src.scoring.analyzers import (
     technical,
     trend_detector,
 )
+from src.scoring.analyzers.insider_flow import InsiderFlowParams
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import batch_score, calculate_composite_score
 from src.scoring.recommender import generate_recommendation
@@ -210,6 +213,7 @@ def analyze_and_score(
     *,
     on_event: AnalyzeEventCallback | None = None,
     benchmark_df: pd.DataFrame | None = None,
+    as_of: date | None = None,
 ) -> list[dict[str, Any]]:
     """Run all analyzers, composite-score every ticker, generate recommendations.
 
@@ -249,6 +253,35 @@ def analyze_and_score(
     if bench_df is None:
         bench_df = price_data_map.get("SPY")
 
+    # Insider-flow pre-pass: if enabled, bulk-load Postgres rows + run
+    # the cluster analyzer + optionally enrich with the nearest 8-K
+    # excerpt from filings_corpus. Done once for the whole universe
+    # before the per-ticker analyzer loop so each ticker just looks up
+    # its result. Empty dict when the feature is off (default) — the
+    # composite engine treats absent insider_flow_result as "no
+    # sub-score," same as alpha158/PEAD/rel_strength.
+    flow_cfg = config.get_insider_flow() if hasattr(config, "get_insider_flow") else {}
+    insider_results: dict[str, dict[str, Any]] = {}
+    if flow_cfg.get("enabled", False):
+        from src.scoring.insider_narrative import compute_insider_flow_results_sync
+        try:
+            insider_results = compute_insider_flow_results_sync(
+                list(price_data_map.keys()),
+                as_of=as_of or date.today(),
+                lookback_days=int(flow_cfg.get("lookback_days", 60)),
+                flow_params=InsiderFlowParams(
+                    window_days=int(flow_cfg.get("window_days", 30)),
+                    min_cluster_insiders=int(flow_cfg.get("min_cluster_insiders", 2)),
+                ),
+                enrich_narrative=bool(flow_cfg.get("enrich_narrative", False)),
+            )
+        except Exception as e:
+            # Don't fail the whole scan if Postgres/pgvector is offline.
+            # Insider flow is an additive signal; the rest of the
+            # pipeline should still produce output.
+            logger.warning("insider_flow pre-pass failed: %s", e)
+            insider_results = {}
+
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
 
@@ -268,6 +301,7 @@ def analyze_and_score(
                     relative_strength.analyze(df, bench_df, config)
                     if bench_df is not None else None
                 ),
+                "insider_flow": insider_results.get(ticker.upper()),
             }
             emit(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
