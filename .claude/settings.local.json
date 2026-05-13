@@ -32,7 +32,8 @@
       "Bash(python -m src.main portfolio --analyze)",
       "Bash(rtk python *)",
       "Bash(rtk ls *)",
-      "Bash(rtk git *)"
+      "Bash(rtk git *)",
+      "Bash(rtk grep *)"
     ]
   }
 }
