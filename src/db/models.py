@@ -416,6 +416,70 @@ class FilingNotification(Base):
     )
 
 
+class InsiderTransaction(Base):
+    """One non-derivative transaction reported on a Form 4 filing.
+
+    Backs the ``insider_flow`` analyzer's cluster-detection query path:
+    "all open-market buys (transaction_code='P') for ticker X over the
+    last N days." Indexed on (ticker, transaction_code, transaction_date)
+    to make that query a single index seek.
+
+    Why one row per (transaction × owner): joint filings (rare but
+    legal) list multiple reporting owners against the same transaction
+    block. Replicating per-owner keeps the cluster-count math (a key
+    component of the CMP-2012 opportunistic-cluster filter) trivial —
+    a count of distinct owner_cik values in the window is the answer.
+
+    The composite uniqueness on (accession, owner_cik, transaction_date,
+    transaction_code, shares) prevents an amended Form 4/A from double-
+    counting on re-ingestion of the same filing.
+    """
+
+    __tablename__ = "insider_transactions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Issuer identification
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    issuer_cik: Mapped[str] = mapped_column(String(16), nullable=False)
+    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Filing metadata
+    accession_no: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    filing_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    # Insider identification
+    owner_cik: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_name: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    """Comma-joined role flags: officer,director,ten_percent_owner."""
+    officer_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Transaction details
+    transaction_date: Mapped[datetime] = mapped_column(Date, nullable=False, index=True)
+    transaction_code: Mapped[str] = mapped_column(String(8), nullable=False)
+    """SEC Form 4 transaction codes — see migration 0007 for the legend."""
+    acquired_disposed: Mapped[str] = mapped_column(String(1), nullable=False)
+    """A=acquired (long), D=disposed (sold)."""
+    shares: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
+    price_per_share: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 4), nullable=True
+    )
+    value_usd: Mapped[Optional[float]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "accession_no",
+            "owner_cik",
+            "transaction_date",
+            "transaction_code",
+            "shares",
+            name="uq_insider_tx_natural_key",
+        ),
+    )
+
+
 class FactorSnapshot(Base):
     """RESERVED for Phase 4 ML feature store. Empty table at Phase 0 end.
 

@@ -21,6 +21,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from src.scoring.analyzers import technical, fundamental, patterns, statistical, alpha158
 from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers import relative_strength
+from src.scoring.analyzers import insider_flow
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.scoring.sector_stats import compute_sector_stats
@@ -177,6 +178,7 @@ def _score_ticker(
     as_of_date: Optional[pd.Timestamp] = None,
     sector_stats: Optional[dict] = None,
     benchmark_slice: Optional[pd.DataFrame] = None,
+    insider_txs_slice: Optional[list] = None,
 ) -> Optional[dict]:
     """Run all analyzers on a sliced df and return composite score result + ATR.
 
@@ -207,11 +209,20 @@ def _score_ticker(
             relative_strength.analyze(df_slice, benchmark_slice, config)
             if benchmark_slice is not None else None
         )
+        # Insider flow: pass through the per-ticker pre-sliced transaction
+        # list. Slicing happens once at the per-Monday level in the caller
+        # so we don't re-filter the global list N times.
+        if_result = None
+        if insider_txs_slice and as_of_date is not None:
+            if_result = insider_flow.analyze(
+                insider_txs_slice, as_of=as_of_date.date(),
+            )
         score_result = calculate_composite_score(
             tech, fnd, pat, stat, trnd, strategy,
             alpha158_result=a158,
             pead_result=pd_result,
             rel_strength_result=rs_result,
+            insider_flow_result=if_result,
         )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
@@ -260,6 +271,7 @@ def run_backtest(
     vix_df: Optional[pd.DataFrame] = None,
     earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
     earnings_history: Optional[dict[str, pd.DataFrame]] = None,
+    insider_transactions: Optional[dict[str, list]] = None,
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
@@ -268,6 +280,7 @@ def run_backtest(
     warnings: list[str] = []
     earnings_dates = earnings_dates or {}
     earnings_history = earnings_history or {}
+    insider_transactions = insider_transactions or {}
     skipped_earnings = 0
     skipped_regime = 0
     regime_history: list[dict] = []  # per-Monday {date, label, vix, spy_above_sma}
@@ -401,9 +414,16 @@ def run_backtest(
                         continue
                     fund = fundamentals.get(ticker, {}) or {}
                     eh = earnings_history.get(ticker)
+                    # Slice insider txs: only those on or before as_of
+                    # (lookahead-safe — we never read tomorrow's filings).
+                    all_ins = insider_transactions.get(ticker, []) or []
+                    ins_slice = [
+                        tx for tx in all_ins
+                        if tx.filing_date <= as_of.date()
+                    ] if all_ins else None
                     futures[ex.submit(
                         _score_ticker, ticker, df_slice, fund, config, strategy,
-                        eh, as_of, sector_stats, spy_slice,
+                        eh, as_of, sector_stats, spy_slice, ins_slice,
                     )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]

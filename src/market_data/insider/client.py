@@ -129,18 +129,25 @@ async def fetch_form4_xml(
     """Fetch the Form 4 XML body for one filing.
 
     Strategy:
-      1. If ``primary_document`` ends in ``.xml``, fetch it directly.
+      1. If ``primary_document`` ends in ``.xml``, take just the
+         file's basename (strip any ``xslF345X05/`` subdirectory —
+         that path serves the XSL-rendered HTML, not the raw XML).
       2. Otherwise list the archive directory and pick the first
-         ``.xml`` file that isn't ``FilingSummary.xml`` (which is
-         metadata, not the ownership document).
+         root-level ``.xml`` file (again skipping ``xsl*`` subdirs
+         and the ``FilingSummary.xml`` metadata file).
 
     Raises ``ExternalAPIError`` on HTTP failure or when no XML can be
     located — caller catches and skips so one broken filing doesn't
     sink a batch backfill.
     """
     if primary_document and primary_document.lower().endswith(".xml"):
+        # The raw XML lives at the root of the accession folder. EDGAR's
+        # submissions JSON sometimes points primaryDocument at the XSL
+        # subpath (e.g. "xslF345X05/form4.xml") which serves rendered
+        # HTML — drop the prefix so we hit the raw XML.
+        xml_name = primary_document.rsplit("/", 1)[-1]
         return await client.fetch_filing_text(
-            int(cik), accession_no, primary_document
+            int(cik), accession_no, xml_name
         )
 
     # Need to discover the XML filename — list the archive dir.
@@ -151,15 +158,20 @@ async def fetch_form4_xml(
         raise ExternalAPIError(
             f"Form 4 archive listing returned {resp.status_code} for {accession_no}"
         )
-    candidates = [
-        href for href in _XML_HREF_RE.findall(resp.text)
-        if not href.lower().endswith("filingsummary.xml")
-    ]
+    candidates = []
+    for href in _XML_HREF_RE.findall(resp.text):
+        lower = href.lower()
+        if lower.endswith("filingsummary.xml"):
+            continue
+        # The xslF* subdirectories serve XSL-rendered HTML — skip them.
+        # We want the root-level raw XML only.
+        basename = href.rsplit("/", 1)[-1]
+        path_only = href.rsplit("/", 1)[0] if "/" in href else ""
+        if path_only and path_only.lower().lstrip("/").startswith("xsl"):
+            continue
+        candidates.append(basename)
     if not candidates:
         raise ExternalAPIError(
-            f"No XML document found in Form 4 archive for {accession_no}"
+            f"No raw XML document found in Form 4 archive for {accession_no}"
         )
-    # Some archive listings return absolute URLs (start with /),
-    # others return bare filenames. Normalize to filename.
-    xml_name = candidates[0].rsplit("/", 1)[-1]
-    return await client.fetch_filing_text(int(cik), accession_no, xml_name)
+    return await client.fetch_filing_text(int(cik), accession_no, candidates[0])

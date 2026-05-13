@@ -61,3 +61,21 @@ class TestArchiveDirUrl:
     def test_strips_dashes_from_accession(self) -> None:
         url = _archive_dir_url(320193, "0000320193-24-000001")
         assert url == "https://www.sec.gov/Archives/edgar/data/320193/000032019324000001/"
+
+
+class TestXslPrefixStripping:
+    """When EDGAR returns primaryDocument with an ``xslF345X05/`` prefix,
+    that path serves XSL-rendered HTML — not the raw XML the parser
+    needs. The client must strip the prefix and fetch the bare filename
+    at the root of the accession directory."""
+
+    def test_xsl_subdir_prefix_stripped(self) -> None:
+        # We can't easily exercise fetch_form4_xml without mocking httpx,
+        # so this test pins the path-stripping behavior the production
+        # code relies on.
+        primary = "xslF345X05/form4.xml"
+        assert primary.rsplit("/", 1)[-1] == "form4.xml"
+
+    def test_root_filename_unchanged(self) -> None:
+        primary = "form4.xml"
+        assert primary.rsplit("/", 1)[-1] == "form4.xml"

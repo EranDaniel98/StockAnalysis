@@ -8,10 +8,12 @@ here, because OHLCV time-series scales better outside Postgres.
 from src.db.repositories.backtest import PostgresBacktestRepository
 from src.db.repositories.fundamentals import PostgresFundamentalsRepository
 from src.db.repositories.ic import PostgresICRepository
+from src.db.repositories.insider import InsiderTransactionRepository
 from src.db.repositories.recommendation import PostgresRecommendationRepository
 from src.db.repositories.score import PostgresScoreRepository
 
 __all__ = [
+    "InsiderTransactionRepository",
     "PostgresBacktestRepository",
     "PostgresFundamentalsRepository",
     "PostgresICRepository",
