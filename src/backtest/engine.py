@@ -19,6 +19,7 @@ import pandas as pd
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from src.scoring.analyzers import technical, fundamental, patterns, statistical, alpha158
+from src.scoring.fundamentals_adapter import PIT_SAFE_OVERLAY_KEYS as _PIT_SAFE_OVERLAY_KEYS
 from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers import relative_strength
 from src.scoring.analyzers import insider_flow
@@ -284,6 +285,7 @@ def run_backtest(
     earnings_history: Optional[dict[str, pd.DataFrame]] = None,
     insider_transactions: Optional[dict[str, list]] = None,
     narrative_snapshots: Optional[dict[str, list]] = None,
+    fundamentals_pit_loader=None,  # FundamentalsPITLoader | None
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
@@ -363,20 +365,38 @@ def run_backtest(
 
     fundamental_weight = strategy.get("weights", {}).get("fundamental", 0)
     if fundamental_weight > 0.05:
-        msg = (
-            f"Strategy weights fundamentals at {fundamental_weight*100:.0f}%. "
-            f"yfinance exposes only current fundamentals (not point-in-time historical), "
-            f"so the score function reads 2026 financials at every historical Monday — "
-            f"a hard look-ahead leak that produces fictitious alpha."
-        )
-        if not bt_cfg.accept_lookahead:
-            raise LookaheadGuardError(
-                msg + " Re-run with --accept-lookahead to override (results will be invalid)."
+        # PIT loader presence determines whether this is a real look-ahead risk.
+        # Coverage threshold: if the loader has rows for ≥50% of the price-data
+        # universe, we treat fundamentals as PIT-safe and skip the guard.
+        pit_coverage = 0.0
+        if fundamentals_pit_loader is not None and price_data:
+            covered = sum(1 for t in price_data if t.upper() in fundamentals_pit_loader.tickers)
+            pit_coverage = covered / max(1, len(price_data))
+        if fundamentals_pit_loader is not None and pit_coverage >= 0.5:
+            warnings.append(
+                f"PIT fundamentals active: loader covers {pit_coverage*100:.0f}% of universe. "
+                f"Fundamental weight {fundamental_weight*100:.0f}% scored against EDGAR PIT rows."
             )
-        warnings.append(
-            "LOOKAHEAD ACCEPTED: " + msg + " Output is for exploration only; do not "
-            "trust headline numbers."
-        )
+        else:
+            msg = (
+                f"Strategy weights fundamentals at {fundamental_weight*100:.0f}%. "
+                f"yfinance exposes only current fundamentals (not point-in-time historical), "
+                f"so the score function reads 2026 financials at every historical Monday — "
+                f"a hard look-ahead leak that produces fictitious alpha."
+            )
+            if fundamentals_pit_loader is not None:
+                msg += (
+                    f" PIT loader supplied but coverage is only {pit_coverage*100:.0f}% — "
+                    f"insufficient to override the guard (need ≥50%)."
+                )
+            if not bt_cfg.accept_lookahead:
+                raise LookaheadGuardError(
+                    msg + " Re-run with --accept-lookahead to override (results will be invalid)."
+                )
+            warnings.append(
+                "LOOKAHEAD ACCEPTED: " + msg + " Output is for exploration only; do not "
+                "trust headline numbers."
+            )
 
     with Progress(
         SpinnerColumn(),
@@ -425,7 +445,24 @@ def run_backtest(
                     df_slice = df.loc[df.index < as_of]
                     if len(df_slice) < bt_cfg.min_history_bars:
                         continue
-                    fund = fundamentals.get(ticker, {}) or {}
+                    raw_overlay = fundamentals.get(ticker, {}) or {}
+                    if fundamentals_pit_loader is not None:
+                        # PIT lookup: most-recent EDGAR row valid at as_of,
+                        # adapted to analyzer dict shape. Overlay is FILTERED
+                        # to PIT_SAFE keys (sector/analyst/etc.) — numeric
+                        # fields like pe_trailing / debt_to_equity come from
+                        # the EDGAR row only, never the current-snapshot dict,
+                        # to preserve PIT semantics.
+                        overlay = {
+                            k: v for k, v in raw_overlay.items()
+                            if k in _PIT_SAFE_OVERLAY_KEYS
+                        }
+                        last_close = float(df_slice["Close"].iloc[-1]) if not df_slice.empty else None
+                        fund = fundamentals_pit_loader.lookup_dict(
+                            ticker, as_of, price=last_close, overlay=overlay,
+                        )
+                    else:
+                        fund = raw_overlay
                     eh = earnings_history.get(ticker)
                     # Slice insider txs: only those on or before as_of
                     # (lookahead-safe — we never read tomorrow's filings).
