@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -476,6 +477,68 @@ class InsiderTransaction(Base):
             "transaction_code",
             "shares",
             name="uq_insider_tx_natural_key",
+        ),
+    )
+
+
+class InsiderNarrativeSnapshot(Base):
+    """One row per (ticker, cluster_end_date) snapshot — proactive
+    catalyst-narrative features. Populated by the offline backfill
+    job (``scripts/backfill_insider_narrative.py``), consumed by the
+    Phase 4 ML feature store.
+
+    Each ``sim_*`` column is the max cosine similarity between any
+    chunk of the nearest filing (8-K preferred, 10-Q/K fallback) and
+    one anchor phrase from ``src/scoring/catalyst_anchors.py``. The
+    ``narrative_skew`` field is ``top_bullish_sim - top_bearish_sim``,
+    pre-computed at snapshot time so feature joins are cheap.
+
+    Lookahead safety: the producer enforces
+    ``nearest_filing_date <= cluster_end_date``; the schema can't
+    express that across columns cheaply.
+    """
+
+    __tablename__ = "insider_narrative_snapshots"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False)
+    cluster_end_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    # Cluster metadata (denormalized so feature joins are single-table)
+    insider_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    senior_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    cluster_value_usd: Mapped[float] = mapped_column(Numeric(20, 2), nullable=False)
+    # Nearest filing — NULL when no filing was found in either window
+    has_recent_8k: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    nearest_filing_form: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    nearest_filing_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    nearest_filing_accession: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    days_to_filing: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Aggregates (NULL when no filing → no anchor sims computed)
+    top_bullish_anchor: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    top_bearish_anchor: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    top_bullish_sim: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    top_bearish_sim: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    narrative_skew: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Per-anchor cosines (10 columns). Order matches catalyst_anchors.ANCHORS.
+    sim_buyback_authorization: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_guidance_raised: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_product_approval: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_acquisition_announced: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_major_contract_win: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_going_concern: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_executive_departure: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_litigation_settlement: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_guidance_lowered: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sim_restructuring_layoffs: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Provenance
+    embedding_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "cluster_end_date", name="uq_narrative_snap_natural"
         ),
     )
 
