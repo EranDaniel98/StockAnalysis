@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
+import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,18 +46,19 @@ const EMPTY_RUN: RunState = {
   error: null,
 };
 
+const SECTION_LABEL =
+  "text-[10px] font-medium tracking-wider uppercase text-muted-foreground";
+
 function statusBadge(status: string) {
   if (status === "complete")
-    return <Badge className="bg-emerald-500/20 text-emerald-300">complete</Badge>;
+    return <Badge variant="bullish">complete</Badge>;
   if (status === "running" || status === "streaming")
-    return <Badge className="bg-sky-500/20 text-sky-300">running</Badge>;
+    return <Badge variant="default">running</Badge>;
   if (status === "budget_exceeded")
-    return (
-      <Badge className="bg-amber-500/20 text-amber-300">budget exceeded</Badge>
-    );
+    return <Badge variant="neutral">budget exceeded</Badge>;
   if (status === "failed" || status === "error")
-    return <Badge className="bg-red-500/20 text-red-300">failed</Badge>;
-  return <Badge className="bg-muted text-muted-foreground">{status}</Badge>;
+    return <Badge variant="bearish">failed</Badge>;
+  return <Badge variant="secondary">{status}</Badge>;
 }
 
 export default function ResearchPage() {
@@ -73,6 +75,23 @@ export default function ResearchPage() {
 
   // Cancel any in-flight stream on unmount so the worker task cleans up.
   useEffect(() => () => ctrlRef.current?.abort(), []);
+
+  const stats = useMemo(() => {
+    const list = runs.data ?? [];
+    const total = list.length;
+    let completed = 0;
+    let costSum = 0;
+    for (const r of list) {
+      if (r.status === "complete") completed += 1;
+      if (typeof r.estimated_cost_usd === "number") costSum += r.estimated_cost_usd;
+    }
+    const successPct = total > 0 ? (completed / total) * 100 : 0;
+    const avgCost = total > 0 ? costSum / total : 0;
+    return { total, completed, successPct, avgCost, costSum };
+  }, [runs.data]);
+
+  const successTone: "bullish" | "muted" =
+    stats.total > 0 && stats.successPct >= 80 ? "bullish" : "muted";
 
   const start = () => {
     if (!question.trim() || run.status === "streaming") return;
@@ -134,7 +153,54 @@ export default function ResearchPage() {
         description="Anthropic-backed analyst with tool access to your scanner, backtester, paper book, ML feature store, and EDGAR RAG corpus. Streams its thinking live."
       />
 
-      <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <ScoreboardTile
+          label="Total runs"
+          value={runs.isLoading ? "—" : String(stats.total)}
+          sub={runs.isLoading ? undefined : `last ${stats.total} runs`}
+          subTone="muted"
+          isLoading={runs.isLoading}
+        />
+        <ScoreboardTile
+          label="Completed"
+          value={runs.isLoading ? "—" : String(stats.completed)}
+          sub={
+            runs.isLoading || stats.total === 0
+              ? undefined
+              : `${stats.successPct.toFixed(0)}% success`
+          }
+          subTone={successTone}
+          isLoading={runs.isLoading}
+        />
+        <ScoreboardTile
+          label="Avg cost"
+          value={
+            runs.isLoading || stats.total === 0
+              ? "—"
+              : `$${fmtNumber(stats.avgCost, 4)}`
+          }
+          sub={
+            runs.isLoading || stats.total === 0
+              ? undefined
+              : `over ${stats.total} runs`
+          }
+          subTone="muted"
+          isLoading={runs.isLoading}
+        />
+        <ScoreboardTile
+          label="Total spend"
+          value={
+            runs.isLoading
+              ? "—"
+              : `$${fmtNumber(stats.costSum, 2)}`
+          }
+          sub={runs.isLoading ? undefined : "lifetime"}
+          subTone="muted"
+          isLoading={runs.isLoading}
+        />
+      </div>
+
+      <div className="mt-4 space-y-4">
         <Card>
           <CardHeader>
             <CardTitle>Ask</CardTitle>
@@ -160,7 +226,7 @@ export default function ResearchPage() {
                 disabled={run.status === "streaming"}
               />
               <div className="flex items-center justify-between">
-                <p className="text-muted-foreground text-xs">
+                <p className="text-muted-foreground text-xs font-mono">
                   Claude Sonnet 4.6 · max 8 tool-use turns · streams live.
                 </p>
                 <Button
@@ -176,10 +242,9 @@ export default function ResearchPage() {
               <div className="mt-6 space-y-3">
                 <div className="flex items-center gap-2">
                   {statusBadge(run.status)}
-                  <span className="text-muted-foreground text-xs">
-                    {run.events.length} events · $
-                    {fmtNumber(run.costUsd, 4)} · {run.inputTokens} in /{" "}
-                    {run.outputTokens} out
+                  <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {run.events.length} events · ${fmtNumber(run.costUsd, 4)} ·{" "}
+                    {run.inputTokens} in / {run.outputTokens} out
                   </span>
                 </div>
 
@@ -188,16 +253,18 @@ export default function ResearchPage() {
                 {run.finalAnswer ? (
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Final answer</CardTitle>
+                      <CardTitle className={SECTION_LABEL}>
+                        Final answer
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent className="prose prose-invert max-w-none text-sm whitespace-pre-wrap">
+                    <CardContent className="text-sm text-foreground whitespace-pre-wrap">
                       {run.finalAnswer}
                     </CardContent>
                   </Card>
                 ) : null}
 
                 {run.error ? (
-                  <p className="text-red-300 text-sm">{run.error}</p>
+                  <p className="text-bearish text-sm font-mono">{run.error}</p>
                 ) : null}
               </div>
             ) : null}
@@ -221,7 +288,9 @@ export default function ResearchPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-muted-foreground text-sm">No runs yet.</p>
+              <p className="text-muted-foreground text-sm py-8 text-center font-mono">
+                No runs yet.
+              </p>
             )}
             {runs.error ? <ErrorState error={runs.error} /> : null}
           </CardContent>
@@ -237,12 +306,15 @@ function Timeline({ events }: { events: ResearchEvent[] }) {
   if (visible.length === 0) return null;
   return (
     <details open>
-      <summary className="text-muted-foreground cursor-pointer text-xs">
+      <summary className={`${SECTION_LABEL} cursor-pointer`}>
         Live trail ({visible.length} events)
       </summary>
       <ul className="mt-2 space-y-1 font-mono text-[11px]">
         {visible.map((e, i) => (
-          <li key={i} className="bg-muted/40 rounded px-2 py-1">
+          <li
+            key={i}
+            className="bg-muted/30 border-l-2 border-border rounded px-2 py-1"
+          >
             <EventLine event={e} />
           </li>
         ))}
@@ -256,7 +328,7 @@ function EventLine({ event }: { event: ResearchEvent }) {
     case "started":
       return (
         <span>
-          <span className="text-sky-300">▸ started</span> run #{event.run_id}
+          <span className="text-primary">▸ started</span> run #{event.run_id}
         </span>
       );
     case "turn_start":
@@ -264,14 +336,14 @@ function EventLine({ event }: { event: ResearchEvent }) {
     case "assistant_text":
       return (
         <span>
-          <span className="text-emerald-300">✎ thinking</span>{" "}
+          <span className="text-bullish">✎ thinking</span>{" "}
           <span className="whitespace-pre-wrap">{event.text}</span>
         </span>
       );
     case "tool_call":
       return (
         <span>
-          <span className="text-amber-300">→ {event.tool}</span>{" "}
+          <span className="text-primary">→ {event.tool}</span>{" "}
           <span className="text-muted-foreground">
             {JSON.stringify(event.input)}
           </span>
@@ -280,7 +352,7 @@ function EventLine({ event }: { event: ResearchEvent }) {
     case "tool_result":
       return (
         <span>
-          <span className={event.is_error ? "text-red-300" : "text-emerald-300"}>
+          <span className={event.is_error ? "text-bearish" : "text-bullish"}>
             ← {event.tool}
           </span>{" "}
           <span className="text-muted-foreground">{event.summary}</span>
@@ -294,15 +366,15 @@ function EventLine({ event }: { event: ResearchEvent }) {
         </span>
       );
     case "final_answer":
-      return <span className="text-emerald-300">✓ final answer</span>;
+      return <span className="text-bullish">✓ final answer</span>;
     case "complete":
       return (
-        <span className="text-emerald-300">
+        <span className="text-bullish">
           ✓ complete (run #{event.run_id} · {event.status})
         </span>
       );
     case "error":
-      return <span className="text-red-300">✗ {event.detail}</span>;
+      return <span className="text-bearish">✗ {event.detail}</span>;
     default:
       return <span className="text-muted-foreground">…</span>;
   }
@@ -317,14 +389,16 @@ function RunRow({ run }: { run: ResearchRunSummary }) {
   });
 
   return (
-    <li className="border-border/40 rounded border p-3">
+    <li className="rounded border border-border p-3 hover:bg-muted/40 transition-colors">
       <button
         className="flex w-full items-start justify-between gap-3 text-left"
         onClick={() => setOpen((v) => !v)}
       >
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm font-medium">{run.question}</p>
-          <p className="text-muted-foreground mt-1 text-xs">
+          <p className="line-clamp-2 text-sm font-medium text-foreground">
+            {run.question}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs font-mono tabular-nums">
             {new Date(run.started_at).toLocaleString()} · {run.n_turns} turns ·
             ${fmtNumber(run.estimated_cost_usd, 4)}
           </p>
@@ -338,19 +412,24 @@ function RunRow({ run }: { run: ResearchRunSummary }) {
           ) : detail.data ? (
             <div className="space-y-2 text-xs">
               <Card>
-                <CardContent className="prose prose-invert max-w-none pt-3 text-sm whitespace-pre-wrap">
+                <CardContent className="text-sm text-foreground whitespace-pre-wrap pt-3">
                   {detail.data.final_answer ?? "(no answer)"}
                 </CardContent>
               </Card>
               {detail.data.tool_calls && detail.data.tool_calls.length > 0 ? (
                 <details>
-                  <summary className="text-muted-foreground cursor-pointer">
+                  <summary className={`${SECTION_LABEL} cursor-pointer`}>
                     Tool trail ({detail.data.tool_calls.length})
                   </summary>
                   <div className="mt-2 space-y-2 font-mono text-[11px]">
                     {detail.data.tool_calls.map((c, i) => (
-                      <div key={i} className="bg-muted/40 rounded p-2">
-                        <span className="font-semibold">{c.tool}</span>
+                      <div
+                        key={i}
+                        className="border border-border rounded p-2 bg-card"
+                      >
+                        <span className="font-mono text-xs font-semibold text-primary">
+                          {c.tool}
+                        </span>
                         <pre className="mt-1 whitespace-pre-wrap">
                           {c.result_summary}
                         </pre>
@@ -360,7 +439,7 @@ function RunRow({ run }: { run: ResearchRunSummary }) {
                 </details>
               ) : null}
               {run.error ? (
-                <p className="text-red-300">{run.error}</p>
+                <p className="text-bearish font-mono">{run.error}</p>
               ) : null}
             </div>
           ) : null}
