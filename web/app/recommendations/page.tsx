@@ -394,10 +394,12 @@ export default function RecommendationsPage() {
                       {fmtDate(r.scan_timestamp)}
                     </TableCell>
                     <TableCell className="py-2 px-3">
-                      <Link href={`/stocks/${r.ticker}`}>
-                        <span className="font-mono text-sm font-semibold hover:text-primary transition-colors">
-                          {r.ticker}
-                        </span>
+                      <Link
+                        href={`/stocks/${r.ticker}`}
+                        className="font-mono text-sm font-semibold text-primary hover:underline underline-offset-2"
+                        title="View trade plan"
+                      >
+                        {r.ticker}
                       </Link>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs py-2 px-3">

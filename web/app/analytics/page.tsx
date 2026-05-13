@@ -468,11 +468,10 @@ function TickerTable({
             <td className="text-left px-3 py-1.5">
               <Link
                 href={`/stocks/${encodeURIComponent(r.ticker)}`}
-                className="text-foreground"
+                className="text-primary hover:underline underline-offset-2"
+                title="View trade plan"
               >
-                <span className="hover:text-primary transition-colors">
-                  {r.ticker}
-                </span>
+                {r.ticker}
               </Link>
             </td>
             <td className="text-right px-3 py-1.5 text-muted-foreground">

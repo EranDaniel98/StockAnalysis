@@ -62,6 +62,25 @@ function num(v: unknown): number | null {
   return null;
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Risk values from the engine come in two shapes:
+ *   1. flat number  (legacy + simple keys like current_price)
+ *   2. nested dict  ({price, method, detail, pct_from_current}) — what
+ *      stop_loss / take_profit actually emit today.
+ * Extract the number if either shape resolves to one.
+ */
+function numFromRiskField(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (isPlainObject(v) && typeof v.price === "number" && Number.isFinite(v.price)) {
+    return v.price;
+  }
+  return null;
+}
+
 function prettifyKey(k: string): string {
   return k
     .replace(/_/g, " ")
@@ -161,9 +180,11 @@ function StockDetail({
   const history = data.history ?? [];
   const risk: RiskMgmt = (rec?.risk_management ?? {}) as RiskMgmt;
 
-  const entry = num(risk.entry_price);
-  const stop = num(risk.stop_loss);
-  const target = num(risk.take_profit);
+  // Engine emits `current_price` (entry baseline) + nested stop_loss /
+  // take_profit dicts with `.price`. Older callers may pass flat numbers.
+  const entry = num(risk.entry_price) ?? num(risk.current_price);
+  const stop = numFromRiskField(risk.stop_loss);
+  const target = numFromRiskField(risk.take_profit);
   const lastClose = history.length > 0 ? history[history.length - 1].close : null;
 
   const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;
@@ -567,10 +588,31 @@ function SubScoreBars({ sub }: { sub: Record<string, number | undefined> }) {
   );
 }
 
+function flattenRiskRows(risk: RiskMgmt): Array<{ label: string; value: string }> {
+  const out: Array<{ label: string; value: string }> = [];
+  for (const [k, v] of Object.entries(risk)) {
+    if (v === null || v === undefined) continue;
+    if (isPlainObject(v)) {
+      // One level of nesting only — explode each primitive child as its
+      // own row with the parent key prefixed (e.g. "Stop Loss · Price").
+      for (const [childKey, childVal] of Object.entries(v)) {
+        if (childVal === null || childVal === undefined) continue;
+        if (isPlainObject(childVal) || Array.isArray(childVal)) continue;
+        out.push({
+          label: `${prettifyKey(k)} · ${prettifyKey(childKey)}`,
+          value: formatRiskValue(childKey, childVal),
+        });
+      }
+      continue;
+    }
+    if (Array.isArray(v)) continue;
+    out.push({ label: prettifyKey(k), value: formatRiskValue(k, v) });
+  }
+  return out;
+}
+
 function RiskTable({ risk }: { risk: RiskMgmt }) {
-  const rows = Object.entries(risk).filter(
-    ([, v]) => v !== null && v !== undefined,
-  );
+  const rows = flattenRiskRows(risk);
   if (rows.length === 0) {
     return (
       <p className="text-muted-foreground text-sm font-mono">
@@ -580,16 +622,16 @@ function RiskTable({ risk }: { risk: RiskMgmt }) {
   }
   return (
     <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-      {rows.map(([k, v]) => (
+      {rows.map(({ label, value }) => (
         <div
-          key={k}
+          key={label}
           className="col-span-2 grid grid-cols-2 items-center border-b border-border last:border-b-0 pb-1.5"
         >
           <dt className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-            {prettifyKey(k)}
+            {label}
           </dt>
           <dd className="font-mono tabular-nums text-xs text-foreground text-right">
-            {formatRiskValue(k, v)}
+            {value}
           </dd>
         </div>
       ))}

@@ -427,10 +427,12 @@ function ResultsTable({ results }: { results: ScanResultItem[] }) {
         {results.map((r) => (
           <TableRow key={r.ticker} mono>
             <TableCell>
-              <Link href={`/stocks/${r.ticker}`}>
-                <span className="font-mono text-foreground hover:text-primary transition-colors">
-                  {r.ticker}
-                </span>
+              <Link
+                href={`/stocks/${r.ticker}`}
+                className="font-mono text-primary hover:underline underline-offset-2"
+                title="View trade plan"
+              >
+                {r.ticker}
               </Link>
             </TableCell>
             <TableCell>
