@@ -1,60 +1,28 @@
 "use client";
 
-import { Check, Loader2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import type { ScanStage } from "@/lib/api/scan-stream";
 import type { ScanStreamState } from "@/lib/api/use-scan-stream";
 
 type StageSpec = {
+  /** Short uppercase bracket label, Bloomberg-style. */
+  code: string;
+  /** Stage event that marks this step as started/active. */
   start: ScanStage;
+  /** Stage event that marks this step as completed (carrying a count). */
   done: ScanStage;
-  label: string;
-  countLabel: (n: number) => string;
 };
 
-// Pipeline stages in order. `start` marks the in-progress trigger; `done`
-// carries the count once the stage completes.
+// Pipeline order matches the SSE event sequence. Codes are kept short so a
+// full row of brackets fits on one line on a 1280px viewport.
 const PIPELINE: StageSpec[] = [
-  {
-    start: "discover_start",
-    done: "discover_done",
-    label: "Discover universe",
-    countLabel: (n) => `${n} tickers`,
-  },
-  {
-    start: "fundamentals_start",
-    done: "fundamentals_done",
-    label: "Fundamentals",
-    countLabel: (n) => `${n} fetched`,
-  },
-  {
-    // Stage 2 filter is part of the fundamentals phase visually but emits
-    // its own event with the filtered count.
-    start: "fundamentals_done",
-    done: "stage2_done",
-    label: "Fundamentals filter",
-    countLabel: (n) => `${n} kept`,
-  },
-  {
-    start: "prices_start",
-    done: "prices_done",
-    label: "Price history",
-    countLabel: (n) => `${n} fetched`,
-  },
-  {
-    start: "analyze_start",
-    done: "score_done",
-    label: "Analyze + score",
-    countLabel: (n) => `${n} candidates`,
-  },
+  { code: "DISCOVER", start: "discover_start", done: "discover_done" },
+  { code: "FUNDS", start: "fundamentals_start", done: "fundamentals_done" },
+  { code: "FILTER", start: "fundamentals_done", done: "stage2_done" },
+  { code: "PRICES", start: "prices_start", done: "prices_done" },
+  { code: "ANALYZE", start: "analyze_start", done: "score_done" },
 ];
 
 type StageStatus = "pending" | "active" | "done";
@@ -77,118 +45,191 @@ function countForStage(
   return found?.n ?? null;
 }
 
-export function ScanProgress({ state }: { state: ScanStreamState }) {
-  const reached = new Set(state.stages.map((s) => s.stage));
-  const doneCount = PIPELINE.filter((p) => reached.has(p.done)).length;
-  // While ticker events are flowing through the analyze stage, give that
-  // stage partial credit so the bar advances per-ticker instead of
-  // sitting at the post-prices waypoint until score_done lands.
-  const analyzeSpec = PIPELINE[PIPELINE.length - 1];
-  const analyzeFraction =
-    !reached.has(analyzeSpec.done) &&
-    state.currentTicker &&
-    state.currentTicker.n > 0
-      ? state.currentTicker.i / state.currentTicker.n
-      : 0;
-  const pct = ((doneCount + analyzeFraction) / PIPELINE.length) * 100;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          {state.error
-            ? "Scan failed"
-            : state.complete
-              ? "Scan complete"
-              : "Scan in progress"}
-        </CardTitle>
-        <CardDescription>
-          {state.complete
-            ? `${state.complete.n_results} candidates ready — loading results…`
-            : state.error
-              ? state.error
-              : "Streaming progress from the backend."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Progress value={pct} className="h-2" />
-
-        <ul className="space-y-2">
-          {PIPELINE.map((spec) => {
-            const status = statusForStage(spec, reached, state.currentStage);
-            const n = countForStage(spec, state.stages);
-            const isAnalyzeActive =
-              spec.start === "analyze_start" &&
-              status === "active" &&
-              state.currentTicker;
-            return (
-              <li
-                key={spec.start}
-                className="flex items-center justify-between text-sm"
-              >
-                <div className="flex items-center gap-2">
-                  <StageIcon status={status} hasError={!!state.error} />
-                  <span
-                    className={
-                      status === "done"
-                        ? "text-foreground"
-                        : status === "active"
-                          ? "text-foreground font-medium"
-                          : "text-muted-foreground"
-                    }
-                  >
-                    {spec.label}
-                  </span>
-                  {isAnalyzeActive && state.currentTicker ? (
-                    <span className="text-muted-foreground font-mono text-xs">
-                      → {state.currentTicker.ticker}
-                    </span>
-                  ) : null}
-                </div>
-                {isAnalyzeActive && state.currentTicker ? (
-                  <span className="text-muted-foreground text-xs tabular-nums">
-                    {state.currentTicker.i} / {state.currentTicker.n}
-                  </span>
-                ) : n !== null ? (
-                  <span className="text-muted-foreground text-xs tabular-nums">
-                    {spec.countLabel(n)}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-
-        {state.failedTickers.length > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            {state.failedTickers.length} ticker
-            {state.failedTickers.length === 1 ? "" : "s"} skipped on error:{" "}
-            <span className="font-mono">
-              {state.failedTickers.slice(0, 8).join(", ")}
-              {state.failedTickers.length > 8 ? "…" : ""}
-            </span>
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
+/** Last `n` of `total` for the ANALYZE stage, drawn from per-ticker events. */
+function analyzeProgress(state: ScanStreamState): { i: number; n: number } | null {
+  if (!state.currentTicker) return null;
+  if (state.currentTicker.n <= 0) return null;
+  return { i: state.currentTicker.i, n: state.currentTicker.n };
 }
 
-function StageIcon({
-  status,
-  hasError,
-}: {
-  status: StageStatus;
-  hasError: boolean;
-}) {
-  if (hasError && status === "active") {
-    return <X className="h-4 w-4 text-red-500" />;
-  }
-  if (status === "done") {
-    return <Check className="h-4 w-4 text-emerald-500" />;
-  }
-  if (status === "active") {
-    return <Loader2 className="text-primary h-4 w-4 animate-spin" />;
-  }
-  return <div className="border-muted-foreground/30 h-4 w-4 rounded-full border" />;
+type LogLine = { at: number; text: string };
+
+/**
+ * Append-only buffer of stage transitions + recent tickers. Bounded so the
+ * tail stays cheap to render even on a 1000-ticker scan.
+ */
+function useLogLines(state: ScanStreamState): LogLine[] {
+  const [lines, setLines] = useState<LogLine[]>([]);
+  const lastStageIdx = useRef(0);
+  const lastTicker = useRef<string | null>(null);
+
+  useEffect(() => {
+    // New stage checkpoints since last render — emit one log line per stage.
+    if (state.stages.length > lastStageIdx.current) {
+      const fresh = state.stages.slice(lastStageIdx.current);
+      lastStageIdx.current = state.stages.length;
+      setLines((prev) => {
+        const next = [
+          ...prev,
+          ...fresh.map((s) => ({
+            at: s.at,
+            text:
+              s.n != null
+                ? `${s.stage.toUpperCase()} ${s.n}`
+                : s.stage.toUpperCase(),
+          })),
+        ];
+        return next.slice(-12);
+      });
+    }
+  }, [state.stages]);
+
+  useEffect(() => {
+    const t = state.currentTicker;
+    if (!t) return;
+    if (t.ticker === lastTicker.current) return;
+    lastTicker.current = t.ticker;
+    setLines((prev) => {
+      const next = [
+        ...prev,
+        { at: Date.now(), text: `ANALYZE ${t.ticker} ${t.i}/${t.n}` },
+      ];
+      return next.slice(-12);
+    });
+  }, [state.currentTicker]);
+
+  useEffect(() => {
+    if (state.complete) {
+      setLines((prev) =>
+        [...prev, { at: Date.now(), text: `COMPLETE ${state.complete!.n_results} candidates` }].slice(-12),
+      );
+    }
+  }, [state.complete]);
+
+  useEffect(() => {
+    if (state.error) {
+      setLines((prev) =>
+        [...prev, { at: Date.now(), text: `ERROR ${state.error}` }].slice(-12),
+      );
+    }
+  }, [state.error]);
+
+  return lines;
+}
+
+export function ScanProgress({ state }: { state: ScanStreamState }) {
+  const reached = useMemo(
+    () => new Set(state.stages.map((s) => s.stage)),
+    [state.stages],
+  );
+  const analyze = analyzeProgress(state);
+  const lines = useLogLines(state);
+
+  const statusWord = state.error
+    ? "FAILED"
+    : state.complete
+      ? "COMPLETE"
+      : "RUNNING";
+  const statusTone = state.error
+    ? "text-bearish"
+    : state.complete
+      ? "text-bullish"
+      : "text-primary";
+
+  return (
+    <div className="border border-border rounded-md bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span
+          className={cn(
+            "inline-block h-1.5 w-1.5 rounded-full",
+            state.error
+              ? "bg-bearish"
+              : state.complete
+                ? "bg-bullish"
+                : "bg-primary animate-pulse",
+          )}
+          aria-hidden
+        />
+        <span
+          className={cn(
+            "font-mono text-[10px] tracking-wider uppercase",
+            statusTone,
+          )}
+        >
+          {statusWord}
+        </span>
+        {state.complete ? (
+          <span className="font-mono text-[10px] text-muted-foreground tracking-wider uppercase">
+            · {state.complete.n_results} candidates · {state.complete.strategy}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 font-mono text-[11px]">
+        {PIPELINE.map((spec) => {
+          const status = statusForStage(spec, reached, state.currentStage);
+          const n = countForStage(spec, state.stages);
+          const isAnalyze = spec.code === "ANALYZE";
+          const tone =
+            status === "done"
+              ? "text-muted-foreground"
+              : status === "active"
+                ? "text-primary"
+                : "text-muted-foreground/40";
+
+          let body: string;
+          if (isAnalyze && status === "active" && analyze) {
+            body = `${spec.code} ${analyze.i}/${analyze.n}`;
+          } else if (status === "done" && n != null) {
+            body = `${spec.code} ${n}`;
+          } else if (status === "active") {
+            body = spec.code;
+          } else {
+            body = spec.code;
+          }
+
+          return (
+            <span key={spec.code} className={cn("tabular-nums", tone)}>
+              <span className="text-muted-foreground/40">[ </span>
+              <span>{body}</span>
+              <span className="text-muted-foreground/40"> ]</span>
+            </span>
+          );
+        })}
+        {state.currentTicker && !state.complete ? (
+          <span className="text-foreground tabular-nums">
+            <span className="text-muted-foreground/40">→ </span>
+            {state.currentTicker.ticker}
+          </span>
+        ) : null}
+      </div>
+
+      {lines.length > 0 ? (
+        <div className="border-t border-border px-3 py-2 font-mono text-[10px] text-muted-foreground/70 space-y-0.5 max-h-32 overflow-y-auto">
+          {lines.map((l, idx) => (
+            <div key={`${l.at}-${idx}`} className="tabular-nums">
+              <span className="text-muted-foreground/40">
+                {new Date(l.at).toLocaleTimeString(undefined, {
+                  hour12: false,
+                })}
+              </span>{" "}
+              {l.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {state.failedTickers.length > 0 ? (
+        <div className="border-t border-border px-3 py-2 font-mono text-[10px]">
+          <span className="text-bearish tracking-wider uppercase">
+            SKIPPED {state.failedTickers.length}
+          </span>{" "}
+          <span className="text-muted-foreground tabular-nums">
+            {state.failedTickers.slice(0, 12).join(" ")}
+            {state.failedTickers.length > 12 ? " …" : ""}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
 }
