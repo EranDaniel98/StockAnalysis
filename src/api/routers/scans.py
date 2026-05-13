@@ -51,9 +51,11 @@ async def trigger_scan(
         run_scan_sync,
         config,
         strategy,
+        universe=body.universe,
         theme=body.theme,
         sector=body.sector,
         fresh=body.fresh,
+        live_signals=body.live_signals,
     )
 
     if body.top is not None:

@@ -190,10 +190,12 @@ async def _scan_event_stream(
     *,
     strategy_name: str,
     budget: float | None,
+    universe: str | None,
     theme: str | None,
     sector: str | None,
     top: int | None,
     fresh: bool,
+    live_signals: bool,
 ) -> AsyncIterator[dict]:
     """Run a scan in a worker thread, drain its progress events to the SSE
     client, then emit a final `complete` event carrying the persisted run_id.
@@ -223,9 +225,11 @@ async def _scan_event_stream(
                 run_scan_sync,
                 config,
                 strategy_cfg,
+                universe=universe,
                 theme=theme,
                 sector=sector,
                 fresh=fresh,
+                live_signals=live_signals,
                 on_event=on_event,
             )
             if top is not None:
@@ -300,10 +304,12 @@ async def stream_scan(
     request: Request,
     strategy: str = Query(default="swing_trading"),
     budget: float | None = Query(default=None, gt=0),
+    universe: str | None = Query(default=None),
     theme: str | None = Query(default=None),
     sector: str | None = Query(default=None),
     top: int | None = Query(default=None, gt=0, le=200),
     fresh: bool = Query(default=False),
+    live_signals: bool = Query(default=True),
     config: Config = Depends(get_config),
     db: AsyncSession = Depends(get_db_session),
 ) -> EventSourceResponse:
@@ -326,9 +332,11 @@ async def stream_scan(
             db,
             strategy_name=strategy,
             budget=budget,
+            universe=universe,
             theme=theme,
             sector=sector,
             top=top,
             fresh=fresh,
+            live_signals=live_signals,
         )
     )

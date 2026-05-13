@@ -53,10 +53,12 @@ export type ErrorEvent = {
 export type ScanStreamRequest = {
   strategy: string;
   budget?: number | null;
+  universe?: "themes" | "russell_1000" | "value_cohort" | "watchlist" | null;
   theme?: string | null;
   sector?: string | null;
   top?: number | null;
   fresh?: boolean;
+  live_signals?: boolean;
 };
 
 export type ScanStreamHandlers = {
@@ -78,10 +80,12 @@ export function startScanStream(
   const params = new URLSearchParams();
   params.set("strategy", req.strategy);
   if (req.budget != null) params.set("budget", String(req.budget));
+  if (req.universe) params.set("universe", req.universe);
   if (req.theme) params.set("theme", req.theme);
   if (req.sector) params.set("sector", req.sector);
   if (req.top != null) params.set("top", String(req.top));
   if (req.fresh) params.set("fresh", "true");
+  if (req.live_signals === false) params.set("live_signals", "false");
 
   const url = `${API_BASE}/api/stream/scan?${params.toString()}`;
   const source = new EventSource(url);

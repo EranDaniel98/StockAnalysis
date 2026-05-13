@@ -15,13 +15,34 @@ from pydantic import BaseModel, Field
 DEFAULT_STRATEGY = "swing_trading"
 
 
+Universe = Literal["themes", "russell_1000", "value_cohort", "watchlist"]
+
+
 class ScanRequest(BaseModel):
     strategy: str = Field(default=DEFAULT_STRATEGY)
     budget: float | None = Field(default=None, gt=0)
+    universe: Universe | None = Field(
+        default=None,
+        description=(
+            "Ticker universe. 'themes' (default) uses the configured theme "
+            "set (~67 tickers, fast). 'russell_1000' scans the full "
+            "Russell-1000 holdings (~1000 tickers, slow — ~15-30min with "
+            "live_signals=True). 'value_cohort' / 'watchlist' use the "
+            "configured lists. When omitted, falls back to 'themes' OR a "
+            "theme/sector filter if provided."
+        ),
+    )
     theme: str | None = None
     sector: str | None = None
     top: int | None = Field(default=None, gt=0, le=200)
     fresh: bool = Field(default=False, description="Bypass cache, fetch live data")
+    live_signals: bool = Field(
+        default=True,
+        description=(
+            "Fetch yfinance-backed analyst_revisions + options_skew. "
+            "Disable on large universes (russell_1000) for speed."
+        ),
+    )
 
 
 class ScanResultItem(BaseModel):

@@ -1567,6 +1567,11 @@ export interface components {
             strategy: string;
             /** Budget */
             budget?: number | null;
+            /**
+             * Universe
+             * @description Ticker universe. 'themes' (default) uses the configured theme set (~67 tickers, fast). 'russell_1000' scans the full Russell-1000 holdings (~1000 tickers, slow — ~15-30min with live_signals=True). 'value_cohort' / 'watchlist' use the configured lists. When omitted, falls back to 'themes' OR a theme/sector filter if provided.
+             */
+            universe?: ("themes" | "russell_1000" | "value_cohort" | "watchlist") | null;
             /** Theme */
             theme?: string | null;
             /** Sector */
@@ -1579,6 +1584,12 @@ export interface components {
              * @default false
              */
             fresh: boolean;
+            /**
+             * Live Signals
+             * @description Fetch yfinance-backed analyst_revisions + options_skew. Disable on large universes (russell_1000) for speed.
+             * @default true
+             */
+            live_signals: boolean;
         };
         /** ScanResponse */
         ScanResponse: {
@@ -2514,10 +2525,12 @@ export interface operations {
             query?: {
                 strategy?: string;
                 budget?: number | null;
+                universe?: string | null;
                 theme?: string | null;
                 sector?: string | null;
                 top?: number | null;
                 fresh?: boolean;
+                live_signals?: boolean;
             };
             header?: never;
             path?: never;

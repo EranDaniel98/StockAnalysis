@@ -980,6 +980,22 @@
             }
           },
           {
+            "name": "universe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Universe"
+            }
+          },
+          {
             "name": "theme",
             "in": "query",
             "required": false,
@@ -1037,6 +1053,16 @@
               "type": "boolean",
               "default": false,
               "title": "Fresh"
+            }
+          },
+          {
+            "name": "live_signals",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Live Signals"
             }
           }
         ],
@@ -3602,6 +3628,24 @@
             ],
             "title": "Budget"
           },
+          "universe": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "themes",
+                  "russell_1000",
+                  "value_cohort",
+                  "watchlist"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Universe",
+            "description": "Ticker universe. 'themes' (default) uses the configured theme set (~67 tickers, fast). 'russell_1000' scans the full Russell-1000 holdings (~1000 tickers, slow \u2014 ~15-30min with live_signals=True). 'value_cohort' / 'watchlist' use the configured lists. When omitted, falls back to 'themes' OR a theme/sector filter if provided."
+          },
           "theme": {
             "anyOf": [
               {
@@ -3642,6 +3686,12 @@
             "title": "Fresh",
             "description": "Bypass cache, fetch live data",
             "default": false
+          },
+          "live_signals": {
+            "type": "boolean",
+            "title": "Live Signals",
+            "description": "Fetch yfinance-backed analyst_revisions + options_skew. Disable on large universes (russell_1000) for speed.",
+            "default": true
           }
         },
         "type": "object",

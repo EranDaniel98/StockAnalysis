@@ -47,10 +47,19 @@ const STRATEGIES = [
 
 type FormShape = {
   strategy: string;
+  universe: "themes" | "russell_1000" | "value_cohort" | "watchlist";
   budget: string;
   theme: string;
   top: string;
+  live_signals: boolean;
 };
+
+const UNIVERSES: ReadonlyArray<FormShape["universe"]> = [
+  "themes",
+  "russell_1000",
+  "value_cohort",
+  "watchlist",
+];
 
 // ─── Score / action variant mapping ──────────────────────────────────────────
 // Bands per the reskin contract: >=75 bullish, >=55 default outline,
@@ -113,9 +122,11 @@ export default function ScanPage() {
   const { register, handleSubmit, watch, setValue } = useForm<FormShape>({
     defaultValues: {
       strategy: "swing_trading",
+      universe: "themes",
       budget: "",
       theme: "",
       top: "10",
+      live_signals: true,
     },
   });
 
@@ -152,14 +163,19 @@ export default function ScanPage() {
     startStream({
       strategy: values.strategy,
       budget: values.budget ? Number(values.budget) : null,
-      theme: values.theme || null,
+      // Explicit universe wins; theme only applies inside the themes universe.
+      universe: values.universe,
+      theme: values.universe === "themes" && values.theme ? values.theme : null,
       sector: null,
       top: values.top ? Number(values.top) : null,
       fresh: false,
+      live_signals: values.live_signals,
     });
   }
 
   const strategy = watch("strategy");
+  const universe = watch("universe");
+  const liveSignals = watch("live_signals");
   const showProgress =
     streamState.active || streamState.complete || streamState.error;
 
@@ -175,7 +191,7 @@ export default function ScanPage() {
         onSubmit={handleSubmit(onSubmit)}
         className="border border-border rounded-md bg-card p-3 mb-4"
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.4fr_1.6fr_1fr_0.7fr_auto] md:items-end">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1.2fr_1.2fr_0.8fr_0.6fr_auto] md:items-end">
           <div className="space-y-1">
             <Label
               htmlFor="strategy"
@@ -205,15 +221,58 @@ export default function ScanPage() {
 
           <div className="space-y-1">
             <Label
+              htmlFor="universe"
+              className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
+            >
+              Universe
+            </Label>
+            <Select
+              value={universe}
+              onValueChange={(v) =>
+                v && setValue("universe", v as FormShape["universe"])
+              }
+            >
+              <SelectTrigger
+                id="universe"
+                className="w-full font-mono text-xs h-8"
+                title={
+                  universe === "russell_1000"
+                    ? "1002 tickers — full Russell 1000; 5-15 min scan"
+                    : universe === "value_cohort"
+                      ? "value_cohort tickers from sectors.yaml"
+                      : universe === "watchlist"
+                        ? "watchlist tickers from portfolio.yaml"
+                        : "themes universe (~67 tickers, fast)"
+                }
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UNIVERSES.map((u) => (
+                  <SelectItem key={u} value={u} className="font-mono text-xs">
+                    {u}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label
               htmlFor="theme"
               className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
             >
-              Theme / Universe
+              Theme filter
             </Label>
             <Input
               id="theme"
-              placeholder="all · or e.g. artificial_intelligence"
+              placeholder={
+                universe === "themes"
+                  ? "all · or e.g. artificial_intelligence"
+                  : `n/a — using ${universe}`
+              }
               className="font-mono text-xs"
+              disabled={universe !== "themes"}
               {...register("theme")}
             />
           </div>
@@ -290,6 +349,23 @@ export default function ScanPage() {
               </Button>
             ) : null}
           </div>
+        </div>
+        <div className="mt-2 flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          <label className="inline-flex items-center gap-1.5 cursor-pointer hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              className="accent-primary h-3 w-3"
+              checked={liveSignals}
+              onChange={(e) => setValue("live_signals", e.target.checked)}
+              disabled={streamState.active}
+            />
+            <span>Live signals (analyst + options)</span>
+          </label>
+          {universe === "russell_1000" ? (
+            <span className="text-primary/70">
+              · russell_1000: ~5min without live, ~25min with live
+            </span>
+          ) : null}
         </div>
       </form>
 

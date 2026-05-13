@@ -35,6 +35,7 @@ def run_scan_sync(
     config,
     strategy: dict,
     *,
+    universe: str | None = None,
     theme: str | None = None,
     sector: str | None = None,
     fresh: bool = False,
@@ -83,7 +84,17 @@ def run_scan_sync(
     fetcher = DataFetcher(config, cache)
     fund_fetcher = FundamentalsFetcher(config, cache)
 
-    if theme:
+    # Explicit universe selectors bypass the screener entirely — the list
+    # is canonical (Russell 1000 from iShares IWB, value_cohort from
+    # sectors.yaml, watchlist from portfolio.yaml). The screener path is
+    # reserved for theme/sector filters where the universe is dynamic.
+    if universe == "russell_1000":
+        tickers = config.get_russell_1000_tickers()
+    elif universe == "value_cohort":
+        tickers = config.get_value_cohort_tickers()
+    elif universe == "watchlist":
+        tickers = config.get_watchlist()
+    elif theme:
         tickers = screener.discover(theme_filter=theme)
     elif sector:
         tickers = screener.discover(sector_filter=sector)
