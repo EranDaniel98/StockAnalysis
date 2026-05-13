@@ -49,4 +49,10 @@ export const qk = {
     detail: (ticker: string, historyDays?: number) =>
       ["stocks", "detail", ticker.toUpperCase(), historyDays ?? null] as const,
   },
+
+  analytics: {
+    calibration: (params?: { min_score?: number }) =>
+      ["analytics", "calibration", params ?? {}] as const,
+    tradesSummary: () => ["analytics", "trades-summary"] as const,
+  },
 } as const;

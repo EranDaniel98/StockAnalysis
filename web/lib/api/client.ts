@@ -78,6 +78,13 @@ export type SectorsResponse = Schemas["SectorsResponse"];
 export type SectorMetric = Schemas["SectorMetric"];
 export type ScoreCalibration = Schemas["ScoreCalibration"];
 export type CalibrationBucket = Schemas["CalibrationBucket"];
+export type TradeAnalytics = Schemas["TradeAnalytics"];
+export type TradeHeadline = Schemas["TradeHeadline"];
+export type CumulativePnlPoint = Schemas["CumulativePnlPoint"];
+export type ExitReasonStat = Schemas["ExitReasonStat"];
+export type StrategyStat = Schemas["StrategyStat"];
+export type HoldTimeBucket = Schemas["HoldTimeBucket"];
+export type TickerStat = Schemas["TickerStat"];
 export type PaperTradeItem = Schemas["PaperTradeItem"];
 export type TradeNotesUpdate = Schemas["TradeNotesUpdate"];
 
@@ -171,6 +178,8 @@ export const api = {
         `/api/analytics/calibration${qs ? `?${qs}` : ""}`,
       );
     },
+    tradesSummary: () =>
+      request<TradeAnalytics>("/api/analytics/trades-summary"),
   },
 
   trades: {

@@ -1083,6 +1083,28 @@
         }
       }
     },
+    "/api/analytics/trades-summary": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Trades Summary",
+        "description": "Aggregate analytics across every closed paper trade.\n\nRead-only \u2014 pulls all closed trades + their parent recommendation (for\nstrategy attribution) in one query, then computes everything in memory.\nThe trade table is unlikely to outgrow this scope for personal use; if\nit ever does, the per-section work each isolates cleanly.",
+        "operationId": "trades_summary_api_analytics_trades_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeAnalytics"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/trades": {
       "get": {
         "tags": [
@@ -2035,6 +2057,30 @@
         ],
         "title": "CalibrationBucket"
       },
+      "CumulativePnlPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "cumulative_pnl": {
+            "type": "number",
+            "title": "Cumulative Pnl"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "cumulative_pnl",
+          "n_trades"
+        ],
+        "title": "CumulativePnlPoint"
+      },
       "DiagnosticRequest": {
         "properties": {
           "strategy": {
@@ -2256,6 +2302,39 @@
         ],
         "title": "DiagnosticSummary"
       },
+      "ExitReasonStat": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "avg_pnl_pct": {
+            "type": "number",
+            "title": "Avg Pnl Pct"
+          },
+          "win_rate": {
+            "type": "number",
+            "title": "Win Rate"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "n_trades",
+          "avg_pnl_pct",
+          "win_rate",
+          "total_pnl"
+        ],
+        "title": "ExitReasonStat"
+      },
       "FilingNotificationItem": {
         "properties": {
           "id": {
@@ -2399,6 +2478,56 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HoldTimeBucket": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "lower": {
+            "type": "integer",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "integer",
+            "title": "Upper"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "avg_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Pnl Pct"
+          },
+          "win_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "lower",
+          "upper",
+          "n_trades"
+        ],
+        "title": "HoldTimeBucket"
       },
       "MLModelsResponse": {
         "properties": {
@@ -3747,6 +3876,39 @@
         ],
         "title": "StockDetail"
       },
+      "StrategyStat": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "avg_pnl_pct": {
+            "type": "number",
+            "title": "Avg Pnl Pct"
+          },
+          "win_rate": {
+            "type": "number",
+            "title": "Win Rate"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy",
+          "n_trades",
+          "avg_pnl_pct",
+          "win_rate",
+          "total_pnl"
+        ],
+        "title": "StrategyStat"
+      },
       "SummarizeNotificationResponse": {
         "properties": {
           "notification": {
@@ -3763,6 +3925,34 @@
         ],
         "title": "SummarizeNotificationResponse",
         "description": "What ``POST /api/research/notifications/{id}/summarize`` returns:\nthe notification (now linked to a run) plus the run detail itself."
+      },
+      "TickerStat": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          },
+          "avg_pnl_pct": {
+            "type": "number",
+            "title": "Avg Pnl Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "n_trades",
+          "total_pnl",
+          "avg_pnl_pct"
+        ],
+        "title": "TickerStat"
       },
       "ToolCallEntry": {
         "properties": {
@@ -3791,6 +3981,210 @@
           "tool"
         ],
         "title": "ToolCallEntry"
+      },
+      "TradeAnalytics": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "headline": {
+            "$ref": "#/components/schemas/TradeHeadline"
+          },
+          "cumulative_pnl": {
+            "items": {
+              "$ref": "#/components/schemas/CumulativePnlPoint"
+            },
+            "type": "array",
+            "title": "Cumulative Pnl"
+          },
+          "by_exit_reason": {
+            "items": {
+              "$ref": "#/components/schemas/ExitReasonStat"
+            },
+            "type": "array",
+            "title": "By Exit Reason"
+          },
+          "by_strategy": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyStat"
+            },
+            "type": "array",
+            "title": "By Strategy"
+          },
+          "hold_time_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/HoldTimeBucket"
+            },
+            "type": "array",
+            "title": "Hold Time Distribution"
+          },
+          "top_winners": {
+            "items": {
+              "$ref": "#/components/schemas/TickerStat"
+            },
+            "type": "array",
+            "title": "Top Winners"
+          },
+          "top_losers": {
+            "items": {
+              "$ref": "#/components/schemas/TickerStat"
+            },
+            "type": "array",
+            "title": "Top Losers"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "headline"
+        ],
+        "title": "TradeAnalytics"
+      },
+      "TradeHeadline": {
+        "properties": {
+          "n_trades": {
+            "type": "integer",
+            "title": "N Trades"
+          },
+          "n_winners": {
+            "type": "integer",
+            "title": "N Winners"
+          },
+          "n_losers": {
+            "type": "integer",
+            "title": "N Losers"
+          },
+          "n_breakeven": {
+            "type": "integer",
+            "title": "N Breakeven"
+          },
+          "win_rate": {
+            "type": "number",
+            "title": "Win Rate"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          },
+          "avg_pnl": {
+            "type": "number",
+            "title": "Avg Pnl"
+          },
+          "avg_pnl_pct": {
+            "type": "number",
+            "title": "Avg Pnl Pct"
+          },
+          "avg_win_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Win Pct"
+          },
+          "avg_loss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Loss Pct"
+          },
+          "expectancy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectancy Pct"
+          },
+          "profit_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor"
+          },
+          "avg_hold_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hold Days"
+          },
+          "median_hold_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Hold Days"
+          },
+          "max_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Pnl Pct"
+          },
+          "min_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Pnl Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_trades",
+          "n_winners",
+          "n_losers",
+          "n_breakeven",
+          "win_rate",
+          "total_pnl",
+          "avg_pnl",
+          "avg_pnl_pct"
+        ],
+        "title": "TradeHeadline",
+        "description": "Top-line aggregate stats over all closed paper trades."
       },
       "TradeNotesUpdate": {
         "properties": {

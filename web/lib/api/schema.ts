@@ -460,6 +460,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/trades-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trades Summary
+         * @description Aggregate analytics across every closed paper trade.
+         *
+         *     Read-only — pulls all closed trades + their parent recommendation (for
+         *     strategy attribution) in one query, then computes everything in memory.
+         *     The trade table is unlikely to outgrow this scope for personal use; if
+         *     it ever does, the per-section work each isolates cleanly.
+         */
+        get: operations["trades_summary_api_analytics_trades_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trades": {
         parameters: {
             query?: never;
@@ -893,6 +918,18 @@ export interface components {
             /** Win Rate */
             win_rate?: number | null;
         };
+        /** CumulativePnlPoint */
+        CumulativePnlPoint: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Cumulative Pnl */
+            cumulative_pnl: number;
+            /** N Trades */
+            n_trades: number;
+        };
         /** DiagnosticRequest */
         DiagnosticRequest: {
             /**
@@ -1020,6 +1057,19 @@ export interface components {
              */
             verdict: string;
         };
+        /** ExitReasonStat */
+        ExitReasonStat: {
+            /** Reason */
+            reason: string;
+            /** N Trades */
+            n_trades: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct: number;
+            /** Win Rate */
+            win_rate: number;
+            /** Total Pnl */
+            total_pnl: number;
+        };
         /**
          * FilingNotificationItem
          * @description Row from filing_notifications — what the /research/feed page lists.
@@ -1074,6 +1124,21 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HoldTimeBucket */
+        HoldTimeBucket: {
+            /** Label */
+            label: string;
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** N Trades */
+            n_trades: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct?: number | null;
+            /** Win Rate */
+            win_rate?: number | null;
         };
         /**
          * MLModelsResponse
@@ -1618,6 +1683,19 @@ export interface components {
              */
             history?: components["schemas"]["OHLCBar"][];
         };
+        /** StrategyStat */
+        StrategyStat: {
+            /** Strategy */
+            strategy: string;
+            /** N Trades */
+            n_trades: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct: number;
+            /** Win Rate */
+            win_rate: number;
+            /** Total Pnl */
+            total_pnl: number;
+        };
         /**
          * SummarizeNotificationResponse
          * @description What ``POST /api/research/notifications/{id}/summarize`` returns:
@@ -1626,6 +1704,17 @@ export interface components {
         SummarizeNotificationResponse: {
             notification: components["schemas"]["FilingNotificationItem"];
             run: components["schemas"]["ResearchRunDetail"];
+        };
+        /** TickerStat */
+        TickerStat: {
+            /** Ticker */
+            ticker: string;
+            /** N Trades */
+            n_trades: number;
+            /** Total Pnl */
+            total_pnl: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct: number;
         };
         /** ToolCallEntry */
         ToolCallEntry: {
@@ -1645,6 +1734,67 @@ export interface components {
              * @default
              */
             result_summary: string;
+        };
+        /** TradeAnalytics */
+        TradeAnalytics: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            headline: components["schemas"]["TradeHeadline"];
+            /** Cumulative Pnl */
+            cumulative_pnl?: components["schemas"]["CumulativePnlPoint"][];
+            /** By Exit Reason */
+            by_exit_reason?: components["schemas"]["ExitReasonStat"][];
+            /** By Strategy */
+            by_strategy?: components["schemas"]["StrategyStat"][];
+            /** Hold Time Distribution */
+            hold_time_distribution?: components["schemas"]["HoldTimeBucket"][];
+            /** Top Winners */
+            top_winners?: components["schemas"]["TickerStat"][];
+            /** Top Losers */
+            top_losers?: components["schemas"]["TickerStat"][];
+            /** Notes */
+            notes?: string[];
+        };
+        /**
+         * TradeHeadline
+         * @description Top-line aggregate stats over all closed paper trades.
+         */
+        TradeHeadline: {
+            /** N Trades */
+            n_trades: number;
+            /** N Winners */
+            n_winners: number;
+            /** N Losers */
+            n_losers: number;
+            /** N Breakeven */
+            n_breakeven: number;
+            /** Win Rate */
+            win_rate: number;
+            /** Total Pnl */
+            total_pnl: number;
+            /** Avg Pnl */
+            avg_pnl: number;
+            /** Avg Pnl Pct */
+            avg_pnl_pct: number;
+            /** Avg Win Pct */
+            avg_win_pct?: number | null;
+            /** Avg Loss Pct */
+            avg_loss_pct?: number | null;
+            /** Expectancy Pct */
+            expectancy_pct?: number | null;
+            /** Profit Factor */
+            profit_factor?: number | null;
+            /** Avg Hold Days */
+            avg_hold_days?: number | null;
+            /** Median Hold Days */
+            median_hold_days?: number | null;
+            /** Max Pnl Pct */
+            max_pnl_pct?: number | null;
+            /** Min Pnl Pct */
+            min_pnl_pct?: number | null;
         };
         /** TradeNotesUpdate */
         TradeNotesUpdate: {
@@ -2372,6 +2522,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trades_summary_api_analytics_trades_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeAnalytics"];
                 };
             };
         };
