@@ -111,11 +111,13 @@ async def _load_narrative_snapshots(
 
 
 def _summarize(
-    mode: str, weight: float, run_analyzer: bool, result: dict[str, Any]
+    mode: str, weight: float, run_analyzer: bool, result: dict[str, Any],
+    strategy: str = "",
 ) -> dict[str, Any]:
     full = result["full"]
     oos = result["out_of_sample"]
     return {
+        "strategy": strategy,
         "mode": mode,
         "catalyst_weight": weight,
         "analyzer_active": run_analyzer,
@@ -161,9 +163,60 @@ def _print_table(rows: list[dict[str, Any]], strategy_name: str, universe_label:
     console.print(table)
 
 
+def _print_cross_strategy_table(rows: list[dict[str, Any]], universe_label: str) -> None:
+    """Cross-strategy summary: one row per (strategy, mode) showing
+    the OOS Sharpe / DELTA-vs-off / win rate that matter most.
+    Designed to read quickly when comparing 6 strategies × 3 modes.
+    """
+    # Compute the off-baseline OOS Sharpe per strategy so we can show
+    # the per-strategy delta of signal_only / weighted relative to off.
+    off_oos = {
+        r["strategy"]: r["oos_sharpe"] for r in rows if r["mode"] == "off"
+    }
+    table = Table(
+        title=f"Catalyst A/B cross-strategy summary on {universe_label}",
+        show_lines=False,
+    )
+    table.add_column("Strategy", style="bold")
+    table.add_column("Mode")
+    table.add_column("Trades", justify="right")
+    table.add_column("OOS Sharpe", justify="right", style="bold")
+    table.add_column("Δ vs off", justify="right")
+    table.add_column("OOS ret %", justify="right")
+    table.add_column("Max DD %", justify="right")
+    table.add_column("Win %", justify="right")
+    for r in rows:
+        baseline = off_oos.get(r["strategy"])
+        if baseline is None or r["mode"] == "off":
+            delta_str = "-"
+        else:
+            d = r["oos_sharpe"] - baseline
+            delta_str = f"{d:+.3f}"
+        table.add_row(
+            r["strategy"],
+            r["mode"],
+            str(r["n_trades"]),
+            f"{r['oos_sharpe']:+.2f}",
+            delta_str,
+            f"{r['oos_return_pct']:+.2f}",
+            f"{r['max_dd_pct']:.2f}",
+            f"{r['win_rate_pct']:.1f}",
+        )
+    console.print(table)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="A/B sweep on catalyst analyzer.")
-    parser.add_argument("--strategy", default="swing_trading")
+    parser.add_argument(
+        "--strategy",
+        default="swing_trading",
+        help=(
+            "Strategy name to sweep, OR a comma-separated list of strategies "
+            "(e.g. swing_trading,mean_reversion). When multiple are passed, "
+            "each gets its own 3-mode A/B and a cross-strategy summary table "
+            "prints at the end."
+        ),
+    )
     parser.add_argument(
         "--universe",
         choices=["themes", "watchlist", "value_cohort"],
@@ -183,7 +236,10 @@ def main() -> int:
     args = parser.parse_args()
 
     config = Config()
-    base_strategy = config.get_strategy(args.strategy)
+    # Parse the --strategy argument as a comma-separated list. Single
+    # values still work (one-element list).
+    strategy_names = [s.strip() for s in args.strategy.split(",") if s.strip()]
+    base_strategies = {s: config.get_strategy(s) for s in strategy_names}
 
     if args.universe == "themes":
         tickers = config.get_theme_tickers()
@@ -205,7 +261,10 @@ def main() -> int:
     fetch_period = f"{int(fetch_period_years)}y"
 
     console.print(f"\n[bold cyan]Catalyst A/B sweep[/bold cyan]")
-    console.print(f"  Strategy: [bold]{args.strategy}[/bold]")
+    if len(strategy_names) == 1:
+        console.print(f"  Strategy: [bold]{strategy_names[0]}[/bold]")
+    else:
+        console.print(f"  Strategies: [bold]{', '.join(strategy_names)}[/bold] ({len(strategy_names)} total)")
     console.print(f"  Universe: [bold]{universe_label}[/bold]")
     console.print(f"  Window:   {start.strftime('%Y-%m-%d')} -> {end.strftime('%Y-%m-%d')}\n")
 
@@ -268,36 +327,53 @@ def main() -> int:
         bootstrap_resamples=args.bootstrap_resamples,
     )
 
-    rows: list[dict[str, Any]] = []
-    for mode, weight, run_analyzer in MODES:
-        strat = _strategy_with_catalyst_weight(base_strategy, weight)
-        # Withhold the narrative snapshots in 'off' mode so the
-        # analyzer can't even fire into the consensus adjustment.
-        snaps_for_run = snaps if run_analyzer else None
+    all_rows: list[dict[str, Any]] = []
+    for strategy_name in strategy_names:
+        base_strategy = base_strategies[strategy_name]
         console.print(
-            f"[bold cyan]Running mode={mode} (weight={weight}, "
-            f"analyzer={'on' if run_analyzer else 'off'})...[/bold cyan]"
+            f"\n[bold magenta]══ Strategy: {strategy_name} ══[/bold magenta]"
         )
-        t0 = time.time()
-        result = run_backtest(
-            price_data, fundamentals, config, strat, bt_cfg,
-            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
-            narrative_snapshots=snaps_for_run,
-        )
-        elapsed = time.time() - t0
-        summary = _summarize(mode, weight, run_analyzer, result)
-        console.print(
-            f"  done in {elapsed:.1f}s — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
-            f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%\n"
-        )
-        rows.append(summary)
+        strat_rows: list[dict[str, Any]] = []
+        for mode, weight, run_analyzer in MODES:
+            strat = _strategy_with_catalyst_weight(base_strategy, weight)
+            # Withhold the narrative snapshots in 'off' mode so the
+            # analyzer can't even fire into the consensus adjustment.
+            snaps_for_run = snaps if run_analyzer else None
+            console.print(
+                f"[bold cyan]Running mode={mode} (weight={weight}, "
+                f"analyzer={'on' if run_analyzer else 'off'})...[/bold cyan]"
+            )
+            t0 = time.time()
+            result = run_backtest(
+                price_data, fundamentals, config, strat, bt_cfg,
+                spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+                narrative_snapshots=snaps_for_run,
+            )
+            elapsed = time.time() - t0
+            summary = _summarize(
+                mode, weight, run_analyzer, result, strategy=strategy_name,
+            )
+            console.print(
+                f"  done in {elapsed:.1f}s — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
+                f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%\n"
+            )
+            strat_rows.append(summary)
+        all_rows.extend(strat_rows)
+        # Per-strategy detail table — same format as the original
+        # single-strategy sweep so existing readers don't have to
+        # learn a new shape.
+        _print_table(strat_rows, strategy_name, universe_label)
 
-    _print_table(rows, args.strategy, universe_label)
+    # Cross-strategy summary table is the value-add when running
+    # multiple strategies; suppress when there's only one.
+    if len(strategy_names) > 1:
+        console.print()
+        _print_cross_strategy_table(all_rows, universe_label)
 
     save_path = Path(args.save)
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.write_text(json.dumps(rows, indent=2, default=str), encoding="utf-8")
-    console.print(f"\n[dim]Saved comparison rows to {save_path}[/dim]")
+    save_path.write_text(json.dumps(all_rows, indent=2, default=str), encoding="utf-8")
+    console.print(f"\n[dim]Saved {len(all_rows)} comparison rows to {save_path}[/dim]")
     return 0
 
 
