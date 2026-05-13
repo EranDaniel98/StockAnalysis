@@ -53,6 +53,73 @@ function ReturnRow({
   );
 }
 
+const SPARK_WIDTH = 200;
+const SPARK_HEIGHT = 32;
+
+function SectorSpark({ history }: { history: number[] }) {
+  if (history.length < 5) {
+    return (
+      <div className="h-8 flex items-center justify-center text-[9px] uppercase tracking-wider text-muted-foreground/50 font-mono">
+        no history
+      </div>
+    );
+  }
+
+  const maxAbs = history.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+  if (maxAbs === 0) return null;
+
+  // Symmetric Y so the 0% baseline stays centered across all sectors.
+  const scale = (SPARK_HEIGHT / 2) * 0.9;
+  const mid = SPARK_HEIGHT / 2;
+  const step = SPARK_WIDTH / (history.length - 1);
+
+  const points = history.map((v, i) => {
+    const x = i * step;
+    const y = mid - (v / maxAbs) * scale;
+    return [x, y] as const;
+  });
+
+  const last = history[history.length - 1];
+  const stroke =
+    last > 0 ? "var(--bullish)" : last < 0 ? "var(--bearish)" : "var(--neutral)";
+
+  const linePath = points.map(([x, y]) => `${x},${y}`).join(" ");
+  const fillPath = [
+    `${points[0][0]},${mid}`,
+    ...points.map(([x, y]) => `${x},${y}`),
+    `${points[points.length - 1][0]},${mid}`,
+  ].join(" ");
+
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
+      preserveAspectRatio="none"
+      className="block w-full h-8"
+      aria-hidden="true"
+    >
+      <line
+        x1={0}
+        x2={SPARK_WIDTH}
+        y1={mid}
+        y2={mid}
+        stroke="var(--muted-foreground)"
+        strokeDasharray="2 2"
+        strokeOpacity={0.4}
+        strokeWidth={1}
+      />
+      <polygon points={fillPath} fill={stroke} fillOpacity={0.1} />
+      <polyline
+        points={linePath}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function SectorTile({ s }: { s: SectorMetric }) {
   return (
     <Card
@@ -81,6 +148,9 @@ function SectorTile({ s }: { s: SectorMetric }) {
         <h3 className="text-xs uppercase tracking-wider text-muted-foreground">
           {s.name}
         </h3>
+        <div className="px-0 py-1">
+          <SectorSpark history={s.history_30d_pct ?? []} />
+        </div>
         <div className="space-y-1">
           <ReturnRow label="1d" pct={s.return_1d_pct} />
           <ReturnRow label="5d" pct={s.return_5d_pct} emphasis />
