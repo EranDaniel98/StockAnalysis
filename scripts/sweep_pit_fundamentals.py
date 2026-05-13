@@ -154,6 +154,12 @@ def main() -> int:
         default="all",
     )
     parser.add_argument("--years", type=float, default=3.0)
+    parser.add_argument(
+        "--period",
+        default=None,
+        help="yfinance period override (e.g. 'max', '10y'). "
+        "Default: max(years+2, 5)y. Use 'max' to fetch full per-ticker history.",
+    )
     parser.add_argument("--min-score", type=float, default=50.0)
     parser.add_argument("--atr-stop", type=float, default=2.0)
     parser.add_argument("--cash", type=float, default=10_000.0)
@@ -173,8 +179,7 @@ def main() -> int:
 
     end = pd.Timestamp.now().normalize()
     start = end - pd.Timedelta(days=int(365.25 * args.years))
-    fetch_period_years = max(args.years + 2, 5)
-    fetch_period = f"{int(fetch_period_years)}y"
+    fetch_period = args.period or f"{int(max(args.years + 2, 5))}y"
 
     console.print("\n[bold cyan]PIT-fundamentals A/B sweep[/bold cyan]")
     console.print(f"  Strategies: [bold]{', '.join(strategy_names)}[/bold] ({len(strategy_names)} total)")
