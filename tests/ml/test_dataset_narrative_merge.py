@@ -57,7 +57,11 @@ class TestNoNarrativeData:
         merged = _merge_narrative_asof(snaps, _make_narratives([]))
         assert (merged["has_recent_narrative"] == False).all()  # noqa: E712
         assert (merged["sim_buyback_authorization"] == 0.0).all()
-        assert merged["narrative_age_days"].isna().all()
+        # narrative_age_days defaults to 0.0 (sentinel) for unmatched
+        # rows so the column stays numeric — LightGBM rejects object
+        # columns and the trainer's dropna would otherwise discard
+        # every row.
+        assert (merged["narrative_age_days"] == 0.0).all()
 
     def test_empty_snapshots_returns_empty(self) -> None:
         empty_snaps = _make_snapshots([])
@@ -121,7 +125,7 @@ class TestOutsideTolerance:
         row = merged.iloc[0]
         assert row["has_recent_narrative"] == False  # noqa: E712
         assert row["sim_buyback_authorization"] == 0.0
-        assert pd.isna(row["narrative_age_days"])
+        assert row["narrative_age_days"] == 0.0  # sentinel for unmatched
 
     def test_custom_tolerance_can_widen_window(self) -> None:
         snaps = _make_snapshots([

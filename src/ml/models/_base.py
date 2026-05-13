@@ -132,11 +132,28 @@ class FitPredictFn(Protocol):
 
 def _select_features(matrix: TrainingMatrix, *, use_z_scores: bool) -> list[str]:
     """Pick the z-score columns or the raw sub-score columns — never both,
-    because they're collinear by construction."""
+    because they're collinear by construction.
+
+    Narrative features (``sim_*``, ``narrative_skew``, ``has_recent_*``,
+    ``narrative_age_days``, ``days_to_filing``) are NEUTRAL with respect
+    to the z-vs-raw split — they don't have z-mirrors. Include them in
+    both modes."""
+    # Narrative columns live in src/ml/dataset.NARRATIVE_FEATURE_COLUMNS;
+    # imported lazily to avoid a circular dep at module load.
+    from src.ml.dataset import NARRATIVE_FEATURE_COLUMNS
+
+    narrative_set = set(NARRATIVE_FEATURE_COLUMNS)
+
     if use_z_scores:
-        cols = [c for c in matrix.feature_cols if c.startswith("z_")]
+        cols = [
+            c for c in matrix.feature_cols
+            if c.startswith("z_") or c in narrative_set
+        ]
     else:
-        cols = [c for c in matrix.feature_cols if not c.startswith("z_")]
+        cols = [
+            c for c in matrix.feature_cols
+            if (not c.startswith("z_")) or c in narrative_set
+        ]
     if not cols:
         raise ValueError("no feature columns selected — check use_z_scores vs matrix")
     return cols

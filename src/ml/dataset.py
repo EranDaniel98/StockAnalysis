@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -173,16 +173,18 @@ def _merge_narrative_asof(
         return snapshots.copy()
 
     out = snapshots.copy()
-    # Defaults for rows where the merge finds nothing — set up here so
-    # the post-merge fill is a simple ``combine_first`` instead of
-    # column-by-column conditional writes.
+    # Defaults for unmatched rows. Use numeric 0.0 (not NaN) so:
+    #   1. dtype stays float64 / int — LightGBM rejects object columns
+    #   2. ``run_walk_forward`` doesn't drop the row via dropna(subset=...)
+    # The ``has_recent_narrative`` bool carries the "no signal" semantics
+    # — model learns: if False, treat the sims / age / skew as inert.
     for col in NARRATIVE_SIM_COLUMNS:
         out[col] = 0.0
     out["has_recent_narrative"] = False
     out["has_recent_8k"] = False
-    out["days_to_filing"] = None
-    out["narrative_age_days"] = None
-    out["narrative_skew"] = None
+    out["days_to_filing"] = 0.0
+    out["narrative_age_days"] = 0.0
+    out["narrative_skew"] = 0.0
 
     if narratives.empty:
         return out
@@ -191,8 +193,19 @@ def _merge_narrative_asof(
     # backward (find latest <= as_of) with a calendar-day tolerance.
     snaps_sorted = out[["ticker", "as_of"]].copy()
     snaps_sorted["_orig_idx"] = snaps_sorted.index
+    # Normalize tz: Postgres returns ``as_of`` as tz-aware UTC, while
+    # ``cluster_end_date`` is a tz-naive DATE. merge_asof rejects dtype
+    # mismatch — strip tz on both sides for the merge, restore on the
+    # output (we never use the merged cluster_end_date downstream).
+    if isinstance(snaps_sorted["as_of"].dtype, pd.DatetimeTZDtype):
+        snaps_sorted["as_of"] = snaps_sorted["as_of"].dt.tz_localize(None)
     snaps_sorted = snaps_sorted.sort_values("as_of")
-    nars_sorted = narratives.sort_values("cluster_end_date")
+    nars_sorted = narratives.copy()
+    if isinstance(nars_sorted["cluster_end_date"].dtype, pd.DatetimeTZDtype):
+        nars_sorted["cluster_end_date"] = (
+            nars_sorted["cluster_end_date"].dt.tz_localize(None)
+        )
+    nars_sorted = nars_sorted.sort_values("cluster_end_date")
 
     merged = pd.merge_asof(
         snaps_sorted,
@@ -215,9 +228,16 @@ def _merge_narrative_asof(
     )
     out.loc[matched_mask, "days_to_filing"] = merged.loc[matched_mask, "days_to_filing"]
     out.loc[matched_mask, "narrative_skew"] = merged.loc[matched_mask, "narrative_skew"]
+    # narrative_age_days = as_of - cluster_end_date. Normalize tz on both
+    # sides for the subtraction; same tz-mismatch concern as the merge keys.
+    as_of_naive = out.loc[matched_mask, "as_of"]
+    if isinstance(as_of_naive.dtype, pd.DatetimeTZDtype):
+        as_of_naive = as_of_naive.dt.tz_localize(None)
+    cluster_naive = merged.loc[matched_mask, "cluster_end_date"]
+    if isinstance(cluster_naive.dtype, pd.DatetimeTZDtype):
+        cluster_naive = cluster_naive.dt.tz_localize(None)
     out.loc[matched_mask, "narrative_age_days"] = (
-        (out.loc[matched_mask, "as_of"] - merged.loc[matched_mask, "cluster_end_date"])
-        .dt.days
+        (as_of_naive.values - cluster_naive.values).astype("timedelta64[D]").astype(int)
     )
     return out
 
