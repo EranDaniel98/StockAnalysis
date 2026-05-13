@@ -2,48 +2,69 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { use } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
+import { DrawdownChart } from "@/components/backtests/drawdown-chart";
+import { EquityCurveChart } from "@/components/backtests/equity-curve-chart";
+import { RegimeBreakdown } from "@/components/backtests/regime-breakdown";
+import { SectionStatsTable } from "@/components/backtests/section-stats-table";
+import { TradeTable, type Trade } from "@/components/backtests/trade-table";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtNumber, fmtPct, pnlColorClass } from "@/lib/format";
+import { fmtNumber, fmtPct } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-type EquityPoint = { date?: string; equity?: number; [k: string]: unknown };
-type Trade = {
-  ticker?: string;
-  entry_date?: string;
-  exit_date?: string;
-  pnl_pct?: number;
-  hold_days?: number;
-  exit_reason?: string;
-  [k: string]: unknown;
+type EquityPoint = { date: string; equity: number; [k: string]: unknown };
+
+type SectionSummary = {
+  n_trades?: number;
+  total_return_pct?: number;
+  cagr_pct?: number;
+  win_rate_pct?: number;
+  expectancy_pct?: number;
+  avg_hold_days?: number;
+  sharpe_per_trade?: number;
+  spy_return_pct?: number | null;
+  alpha_vs_spy_pct?: number | null;
 };
+type SectionEquity = {
+  max_drawdown_pct?: number;
+  time_in_dd_pct?: number;
+  ann_sharpe?: number;
+  ann_sortino?: number;
+  calmar?: number;
+  ann_volatility_pct?: number;
+};
+type Section = { summary?: SectionSummary; equity_stats?: SectionEquity };
+
+type Regimes = {
+  spy_bull?: Record<string, number>;
+  spy_bear?: Record<string, number>;
+  vix_low?: Record<string, number>;
+  vix_normal?: Record<string, number>;
+  vix_high?: Record<string, number>;
+};
+
+function toneClass(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return "text-foreground";
+  if (n > 0) return "text-bullish";
+  if (n < 0) return "text-bearish";
+  return "text-muted-foreground";
+}
+
+function toneFor(
+  n: number | null | undefined,
+): "bullish" | "bearish" | "neutral" | "muted" {
+  if (n == null || Number.isNaN(n)) return "muted";
+  if (n > 0) return "bullish";
+  if (n < 0) return "bearish";
+  return "neutral";
+}
 
 export default function BacktestDetailPage({
   params,
@@ -63,21 +84,39 @@ export default function BacktestDetailPage({
     return <ErrorState error={new Error(`Invalid backtest id: ${idParam}`)} />;
   }
 
+  const windowLabel = data
+    ? `${new Date(data.window_start).toLocaleDateString()} -> ${new Date(data.window_end).toLocaleDateString()}`
+    : "Loading...";
+
   return (
     <>
       <PageHeader
         title={data ? `Backtest #${data.id}` : "Backtest"}
         description={
           data
-            ? `${data.strategy} · ${new Date(data.window_start).toLocaleDateString()} → ${new Date(data.window_end).toLocaleDateString()}`
-            : "Loading…"
+            ? `${data.strategy} | ${windowLabel}`
+            : "Loading run metadata..."
+        }
+        actions={
+          data ? (
+            <Badge variant="outline" className="font-mono">
+              {data.strategy}
+            </Badge>
+          ) : null
         }
       />
 
       {error ? <ErrorState error={error} /> : null}
 
       {isLoading || !data ? (
-        <Skeleton className="h-96 w-full" />
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-72 w-full" />
+        </div>
       ) : (
         <BacktestDetail result={data.result} />
       )}
@@ -86,168 +125,198 @@ export default function BacktestDetailPage({
 }
 
 function BacktestDetail({ result }: { result: Record<string, unknown> }) {
-  const oos = (result.out_of_sample ?? {}) as Record<string, number | undefined>;
-  const inSample = (result.in_sample ?? {}) as Record<
-    string,
-    number | undefined
-  >;
+  const full = (result.full ?? {}) as Section;
+  const inSample = (result.in_sample ?? {}) as Section;
+  const outOfSample = (result.out_of_sample ?? {}) as Section;
   const equity = (result.equity_curve ?? []) as EquityPoint[];
   const trades = (result.trades ?? []) as Trade[];
+  const regimes = (result.regimes ?? {}) as Regimes;
+  const splitDate = (result.split_date ?? null) as string | null;
+  const verdict = (result.verdict_oos ?? null) as string | null;
+
+  const fullSummary = full.summary ?? {};
+  const fullEq = full.equity_stats ?? {};
+  const oosSummary = outOfSample.summary ?? {};
+  const oosEq = outOfSample.equity_stats ?? {};
+
+  const oosTradeShare =
+    fullSummary.n_trades && oosSummary.n_trades != null
+      ? `${oosSummary.n_trades}/${fullSummary.n_trades} OOS`
+      : undefined;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard
+    <div className="space-y-4">
+      {/* ── Scoreboard strip: 6 dense tiles ─────────────────────────────── */}
+      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <ScoreboardTile
+          label="Total Return"
+          value={
+            <span className={cn(toneClass(fullSummary.total_return_pct))}>
+              {fmtPct(fullSummary.total_return_pct, 2, true)}
+            </span>
+          }
+          sub={
+            fullSummary.cagr_pct != null
+              ? `${fmtPct(fullSummary.cagr_pct, 2, true)} CAGR`
+              : undefined
+          }
+          subTone={toneFor(fullSummary.cagr_pct)}
+        />
+        <ScoreboardTile
+          label="OOS Return"
+          value={
+            <span className={cn(toneClass(oosSummary.total_return_pct))}>
+              {fmtPct(oosSummary.total_return_pct, 2, true)}
+            </span>
+          }
+          sub={
+            oosSummary.alpha_vs_spy_pct != null
+              ? `alpha ${fmtPct(oosSummary.alpha_vs_spy_pct, 2, true)}`
+              : "vs SPY n/a"
+          }
+          subTone={toneFor(oosSummary.alpha_vs_spy_pct)}
+        />
+        <ScoreboardTile
+          label="Full Sharpe"
+          value={fmtNumber(fullEq.ann_sharpe, 2)}
+          sub={
+            fullEq.ann_sortino != null
+              ? `Sortino ${fmtNumber(fullEq.ann_sortino, 2)}`
+              : undefined
+          }
+          subTone="muted"
+        />
+        <ScoreboardTile
           label="OOS Sharpe"
-          value={fmtNumber(oos.sharpe, 2)}
-          accent={pnlColorClass(oos.sharpe)}
+          value={
+            <span className={cn(toneClass(oosEq.ann_sharpe))}>
+              {fmtNumber(oosEq.ann_sharpe, 2)}
+            </span>
+          }
+          sub={
+            oosEq.calmar != null
+              ? `Calmar ${fmtNumber(oosEq.calmar, 2)}`
+              : undefined
+          }
+          subTone={toneFor(oosEq.ann_sharpe)}
         />
-        <MetricCard
-          label="OOS total return"
-          value={fmtPct(oos.total_return_pct, 1, true)}
-          accent={pnlColorClass(oos.total_return_pct)}
+        <ScoreboardTile
+          label="Max DD"
+          value={
+            <span className={cn(toneClass(-(fullEq.max_drawdown_pct ?? 0)))}>
+              {fmtPct(fullEq.max_drawdown_pct, 2)}
+            </span>
+          }
+          sub={
+            fullEq.time_in_dd_pct != null
+              ? `${fmtPct(fullEq.time_in_dd_pct, 1)} time in DD`
+              : undefined
+          }
+          subTone="muted"
         />
-        <MetricCard
-          label="OOS max DD"
-          value={fmtPct(oos.max_drawdown_pct, 1)}
-          accent={pnlColorClass(-(oos.max_drawdown_pct ?? 0))}
-        />
-        <MetricCard
-          label="IS Sharpe"
-          value={fmtNumber(inSample.sharpe, 2)}
-          accent={pnlColorClass(inSample.sharpe)}
+        <ScoreboardTile
+          label="Win % / Trades"
+          value={fmtPct(fullSummary.win_rate_pct, 1)}
+          sub={
+            oosTradeShare ??
+            (fullSummary.n_trades != null
+              ? `${fullSummary.n_trades} trades`
+              : undefined)
+          }
+          subTone="muted"
         />
       </div>
 
+      {verdict ? (
+        <div className="border-border text-muted-foreground flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 font-mono text-[11px] tracking-wider uppercase">
+          <span>OOS VERDICT</span>
+          <span className="text-foreground">[ {verdict} ]</span>
+          {splitDate ? (
+            <span className="ml-auto">SPLIT {splitDate}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* ── Equity curve + drawdown ─────────────────────────────────────── */}
       {equity.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Equity curve</CardTitle>
-            <CardDescription>
-              {equity.length.toLocaleString()} weekly mark-to-market points.
-            </CardDescription>
+            <CardTitle className="flex items-center justify-between">
+              <span>Equity curve</span>
+              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
+                {equity.length} weekly marks
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={equity}>
-                  <defs>
-                    <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="5%"
-                        stopColor="hsl(var(--primary))"
-                        stopOpacity={0.5}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor="hsl(var(--primary))"
-                        stopOpacity={0}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={(d) => new Date(d).toLocaleDateString()}
-                    fontSize={11}
-                    tick={{ fill: "currentColor", opacity: 0.6 }}
-                  />
-                  <YAxis
-                    fontSize={11}
-                    tick={{ fill: "currentColor", opacity: 0.6 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: 8,
-                    }}
-                    labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="equity"
-                    stroke="hsl(var(--primary))"
-                    fillOpacity={1}
-                    fill="url(#eq)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="h-64">
+              <EquityCurveChart equity={equity} splitDate={splitDate} />
+            </div>
+            <div className="border-border mt-3 border-t pt-3">
+              <div className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wider uppercase">
+                Drawdown (% from running peak)
+              </div>
+              <div className="h-32">
+                <DrawdownChart equity={equity} splitDate={splitDate} />
+              </div>
             </div>
           </CardContent>
         </Card>
       ) : null}
 
+      {/* ── IS / OOS / Full comparison ─────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Section stats</span>
+            <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
+              IS | OOS | Full
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-0">
+          <SectionStatsTable
+            full={full}
+            inSample={inSample}
+            outOfSample={outOfSample}
+            splitDate={splitDate}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── Regime breakdown (optional) ─────────────────────────────────── */}
+      {regimes && Object.keys(regimes).length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Regime breakdown</span>
+              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
+                trade entry context
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RegimeBreakdown regimes={regimes} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ── Trades ─────────────────────────────────────────────────────── */}
       {trades.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Trades ({trades.length})</CardTitle>
+            <CardTitle className="flex items-center justify-between">
+              <span>Trades</span>
+              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
+                {trades.length} closed
+              </span>
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="max-h-[480px] overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ticker</TableHead>
-                    <TableHead>Entry</TableHead>
-                    <TableHead>Exit</TableHead>
-                    <TableHead className="text-right">P&amp;L %</TableHead>
-                    <TableHead className="text-right">Hold (d)</TableHead>
-                    <TableHead>Exit reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {trades.slice(0, 200).map((t, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-mono">{t.ticker}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {t.entry_date}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {t.exit_date}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${pnlColorClass(t.pnl_pct)}`}
-                      >
-                        {fmtPct(t.pnl_pct, 1, true)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {t.hold_days ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {t.exit_reason ?? "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+          <CardContent className="px-0">
+            <TradeTable trades={trades} />
           </CardContent>
         </Card>
       ) : null}
     </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{label}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className={`text-2xl font-semibold tabular-nums ${accent ?? ""}`}>
-          {value}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
