@@ -31,6 +31,7 @@ from src.api.routers import (
     recommendations,
     research,
     scans,
+    stocks,
     stream,
     trades,
 )
@@ -116,6 +117,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
     app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
+    app.include_router(stocks.router, prefix="/api/stocks", tags=["stocks"])
     app.include_router(backtests.router, prefix="/api/backtests", tags=["backtests"])
     app.include_router(
         diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"]

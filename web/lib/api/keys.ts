@@ -44,4 +44,9 @@ export const qk = {
       limit?: number;
     }) => ["recommendations", "list", params ?? {}] as const,
   },
+
+  stocks: {
+    detail: (ticker: string, historyDays?: number) =>
+      ["stocks", "detail", ticker.toUpperCase(), historyDays ?? null] as const,
+  },
 } as const;

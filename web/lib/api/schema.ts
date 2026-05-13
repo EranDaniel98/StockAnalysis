@@ -146,6 +146,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stocks/{ticker}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stock Detail
+         * @description Per-ticker deep-dive: latest stored recommendation + OHLC history.
+         *
+         *     ``history_days`` controls how many calendar days of price data come
+         *     back. The frontend overlays entry/stop/target lines on this slice.
+         */
+        get: operations["get_stock_detail_api_stocks__ticker__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backtests": {
         parameters: {
             query?: never;
@@ -1192,6 +1215,28 @@ export interface components {
             /** Folds */
             folds?: components["schemas"]["FoldMetric"][];
         };
+        /**
+         * OHLCBar
+         * @description One trading day for the chart. Volume is optional — most chart
+         *     libraries don't need it for the entry/stop/target overlay view.
+         */
+        OHLCBar: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Open */
+            open: number;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
+            /** Close */
+            close: number;
+            /** Volume */
+            volume?: number | null;
+        };
         /** PaperRecommendationItem */
         PaperRecommendationItem: {
             /** Id */
@@ -1555,6 +1600,24 @@ export interface components {
             /** Sectors */
             sectors?: components["schemas"]["SectorMetric"][];
         };
+        /** StockDetail */
+        StockDetail: {
+            /** Ticker */
+            ticker: string;
+            /** @description Engine's most recent recommendation row for this ticker, or null if it has never appeared in a stored scan_run. */
+            latest_recommendation?: components["schemas"]["ScanResultItem"] | null;
+            /** Scan Run Id */
+            scan_run_id?: string | null;
+            /** Scan Strategy */
+            scan_strategy?: string | null;
+            /** Scan Timestamp */
+            scan_timestamp?: string | null;
+            /**
+             * History
+             * @description Recent OHLC bars for charting. Window is controlled by the endpoint's `history_days` query param (default 120).
+             */
+            history?: components["schemas"]["OHLCBar"][];
+        };
         /**
          * SummarizeNotificationResponse
          * @description What ``POST /api/research/notifications/{id}/summarize`` returns:
@@ -1800,6 +1863,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_stock_detail_api_stocks__ticker__get: {
+        parameters: {
+            query?: {
+                history_days?: number;
+            };
+            header?: never;
+            path: {
+                ticker: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockDetail"];
                 };
             };
             /** @description Validation Error */

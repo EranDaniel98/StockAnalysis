@@ -268,6 +268,61 @@
         }
       }
     },
+    "/api/stocks/{ticker}": {
+      "get": {
+        "tags": [
+          "stocks"
+        ],
+        "summary": "Get Stock Detail",
+        "description": "Per-ticker deep-dive: latest stored recommendation + OHLC history.\n\n``history_days`` controls how many calendar days of price data come\nback. The frontend overlays entry/stop/target lines on this slice.",
+        "operationId": "get_stock_detail_api_stocks__ticker__get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "history_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 730,
+              "minimum": 5,
+              "default": 120,
+              "title": "History Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/backtests": {
       "post": {
         "tags": [
@@ -2638,6 +2693,52 @@
         "title": "ModelVersionRow",
         "description": "One row from ``model_versions`` \u2014 for the API list view + /ml page."
       },
+      "OHLCBar": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "open": {
+            "type": "number",
+            "title": "Open"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          },
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "open",
+          "high",
+          "low",
+          "close"
+        ],
+        "title": "OHLCBar",
+        "description": "One trading day for the chart. Volume is optional \u2014 most chart\nlibraries don't need it for the entry/stop/target overlay view."
+      },
       "PaperRecommendationItem": {
         "properties": {
           "id": {
@@ -3579,6 +3680,72 @@
           "as_of"
         ],
         "title": "SectorsResponse"
+      },
+      "StockDetail": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "latest_recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanResultItem"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Engine's most recent recommendation row for this ticker, or null if it has never appeared in a stored scan_run."
+          },
+          "scan_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Run Id"
+          },
+          "scan_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Strategy"
+          },
+          "scan_timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Timestamp"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/OHLCBar"
+            },
+            "type": "array",
+            "title": "History",
+            "description": "Recent OHLC bars for charting. Window is controlled by the endpoint's `history_days` query param (default 120)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker"
+        ],
+        "title": "StockDetail"
       },
       "SummarizeNotificationResponse": {
         "properties": {

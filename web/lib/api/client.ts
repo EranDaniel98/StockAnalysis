@@ -70,6 +70,9 @@ export type DiagnosticSummary = Schemas["DiagnosticSummary"];
 
 export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 
+export type StockDetail = Schemas["StockDetail"];
+export type OHLCBar = Schemas["OHLCBar"];
+
 export type MarketRegime = Schemas["MarketRegime"];
 export type SectorsResponse = Schemas["SectorsResponse"];
 export type SectorMetric = Schemas["SectorMetric"];
@@ -247,6 +250,17 @@ export const api = {
       if (params?.window_days != null) q.set("window_days", String(params.window_days));
       const qs = q.toString();
       return request<MLModelsResponse>(`/api/ml/models${qs ? `?${qs}` : ""}`);
+    },
+  },
+
+  stocks: {
+    get: (ticker: string, params?: { history_days?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.history_days != null) q.set("history_days", String(params.history_days));
+      const qs = q.toString();
+      return request<StockDetail>(
+        `/api/stocks/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`,
+      );
     },
   },
 
