@@ -86,7 +86,7 @@ async def _run(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--universe", default="themes",
-                        choices=["watchlist", "portfolio", "themes"])
+                        choices=["watchlist", "portfolio", "themes", "value_cohort"])
     parser.add_argument("--tickers", default=None,
                         help="Comma-separated tickers (overrides --universe)")
     parser.add_argument("--forms", default=",".join(DEFAULT_FORMS),
