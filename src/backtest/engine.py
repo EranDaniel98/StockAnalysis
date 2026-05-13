@@ -24,6 +24,9 @@ from src.scoring.analyzers import pead as pead_module
 from src.scoring.analyzers import relative_strength
 from src.scoring.analyzers import insider_flow
 from src.scoring.analyzers import catalyst
+from src.scoring.analyzers import short_interest as short_interest_module
+from src.scoring.analyzers import sector_flows as sector_flows_module
+from src.scoring.analyzers.sector_flows import SECTOR_TO_ETF
 from src.scoring.analyzers.trend_detector import analyze_stock_trend
 from src.scoring.engine import calculate_composite_score
 from src.scoring.sector_stats import compute_sector_stats
@@ -182,6 +185,9 @@ def _score_ticker(
     benchmark_slice: Optional[pd.DataFrame] = None,
     insider_txs_slice: Optional[list] = None,
     catalyst_snapshot: Optional[object] = None,
+    short_interest_history: Optional[list] = None,
+    sector_etf_slice: Optional[pd.DataFrame] = None,
+    sector_etf_symbol: Optional[str] = None,
 ) -> Optional[dict]:
     """Run all analyzers on a sliced df and return composite score result + ATR.
 
@@ -228,6 +234,21 @@ def _score_ticker(
             cat_result = catalyst.analyze(
                 catalyst_snapshot, as_of=as_of_date.date(),
             )
+        # Short interest — fires when the caller pre-sliced rows on or
+        # before as_of for this ticker.
+        si_result = None
+        if short_interest_history and as_of_date is not None:
+            si_result = short_interest_module.analyze(
+                short_interest_history, as_of=as_of_date.date(),
+            )
+        # Sector ETF flows — caller resolves ticker.sector -> ETF symbol
+        # and passes the ETF's price/volume slice. None when sector is
+        # unknown or ETF history is too short.
+        sf_result = None
+        if sector_etf_slice is not None and as_of_date is not None and not sector_etf_slice.empty:
+            sf_result = sector_flows_module.analyze(
+                sector_etf_slice, as_of=as_of_date, etf_symbol=sector_etf_symbol,
+            )
         score_result = calculate_composite_score(
             tech, fnd, pat, stat, trnd, strategy,
             alpha158_result=a158,
@@ -235,6 +256,8 @@ def _score_ticker(
             rel_strength_result=rs_result,
             insider_flow_result=if_result,
             catalyst_result=cat_result,
+            short_interest_result=si_result,
+            sector_flows_result=sf_result,
         )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
@@ -286,6 +309,8 @@ def run_backtest(
     insider_transactions: Optional[dict[str, list]] = None,
     narrative_snapshots: Optional[dict[str, list]] = None,
     fundamentals_pit_loader=None,  # FundamentalsPITLoader | None
+    short_interest_history: Optional[dict[str, list]] = None,
+    sector_etfs: Optional[dict[str, pd.DataFrame]] = None,
 ) -> dict:
     """
     Walk-forward backtest. Returns dict with:
@@ -296,6 +321,10 @@ def run_backtest(
     earnings_history = earnings_history or {}
     insider_transactions = insider_transactions or {}
     narrative_snapshots = narrative_snapshots or {}
+    short_interest_history = short_interest_history or {}
+    sector_etfs = sector_etfs or {}
+    if sector_etfs:
+        sector_etfs = {k: _normalize_index(v) for k, v in sector_etfs.items() if v is not None and not v.empty}
     skipped_earnings = 0
     skipped_regime = 0
     regime_history: list[dict] = []  # per-Monday {date, label, vix, spy_above_sma}
@@ -484,9 +513,30 @@ def run_backtest(
                         ]
                         if valid:
                             nar_snap = max(valid, key=lambda n: n.cluster_end_date)
+                    # Short interest: pre-slice to rows on or before as_of.
+                    all_si = short_interest_history.get(ticker, []) or []
+                    si_slice = [
+                        row for row in all_si
+                        if row.settlement_date <= as_of.date()
+                    ] if all_si else None
+                    # Sector ETF: resolve from ticker's sector (yfinance dict
+                    # or EDGAR overlay), look up symbol, slice ETF history
+                    # to bars strictly before as_of (same lookahead rule as
+                    # the price slice itself).
+                    sector_etf_slice = None
+                    sector_etf_symbol = None
+                    sec = (fund.get("sector") or "").strip()
+                    if sec and sec in SECTOR_TO_ETF:
+                        sector_etf_symbol = SECTOR_TO_ETF[sec]
+                        etf_df = sector_etfs.get(sector_etf_symbol)
+                        if etf_df is not None and not etf_df.empty:
+                            sector_etf_slice = etf_df.loc[etf_df.index < as_of]
+                            if sector_etf_slice.empty:
+                                sector_etf_slice = None
                     futures[ex.submit(
                         _score_ticker, ticker, df_slice, fund, config, strategy,
                         eh, as_of, sector_stats, spy_slice, ins_slice, nar_snap,
+                        si_slice, sector_etf_slice, sector_etf_symbol,
                     )] = ticker
                 for fut in as_completed(futures):
                     ticker = futures[fut]

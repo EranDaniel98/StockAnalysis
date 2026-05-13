@@ -104,6 +104,8 @@ def stub_score(monkeypatch: pytest.MonkeyPatch) -> None:
         ticker, df_slice, fund, config, strategy,
         eh=None, as_of=None, sector_stats=None, benchmark_slice=None,
         insider_txs_slice=None, catalyst_snapshot=None,
+        short_interest_history=None, sector_etf_slice=None,
+        sector_etf_symbol=None,
     ):
         if df_slice is None or len(df_slice) < 50:
             return None
