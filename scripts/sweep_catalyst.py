@@ -164,7 +164,11 @@ def _print_table(rows: list[dict[str, Any]], strategy_name: str, universe_label:
 def main() -> int:
     parser = argparse.ArgumentParser(description="A/B sweep on catalyst analyzer.")
     parser.add_argument("--strategy", default="swing_trading")
-    parser.add_argument("--universe", choices=["themes", "watchlist"], default="themes")
+    parser.add_argument(
+        "--universe",
+        choices=["themes", "watchlist", "value_cohort"],
+        default="themes",
+    )
     parser.add_argument("--years", type=float, default=3.0)
     parser.add_argument("--min-score", type=float, default=50.0)
     parser.add_argument("--atr-stop", type=float, default=2.0)
@@ -184,6 +188,9 @@ def main() -> int:
     if args.universe == "themes":
         tickers = config.get_theme_tickers()
         universe_label = f"themes ({len(tickers)})"
+    elif args.universe == "value_cohort":
+        tickers = config.get_value_cohort_tickers()
+        universe_label = f"value_cohort ({len(tickers)})"
     else:
         tickers = config.get_watchlist()
         universe_label = f"watchlist ({len(tickers)})"

@@ -87,6 +87,8 @@ def _resolve_universe(cfg: Config, universe: str, tickers_arg: str | None) -> li
         return cfg.get_watchlist()
     if universe == "themes":
         return cfg.get_theme_tickers()
+    if universe == "value_cohort":
+        return cfg.get_value_cohort_tickers()
     if universe == "portfolio":
         from src.portfolio import Portfolio
 
@@ -366,7 +368,7 @@ async def _run(args: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--universe", default="themes",
-                    choices=["watchlist", "themes", "portfolio"])
+                    choices=["watchlist", "themes", "value_cohort", "portfolio"])
     ap.add_argument("--tickers", default=None,
                     help="Comma-separated override for --universe.")
     args = ap.parse_args()

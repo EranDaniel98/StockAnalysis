@@ -121,6 +121,13 @@ class Config:
         """Get the custom watchlist tickers."""
         return self.sectors.get("watchlist", [])
 
+    def get_value_cohort_tickers(self):
+        """Mid/small-cap value-tilted universe used by the insider /
+        catalyst A/B sweeps. Defined in ``config/sectors.yaml`` under
+        the ``value_cohort:`` key. Empty list if the key is missing
+        (back-compat for older configs)."""
+        return list(self.sectors.get("value_cohort", []))
+
     def get_theme_tickers(self):
         """Get all known tickers from all themes (deduplicated)."""
         tickers = set()

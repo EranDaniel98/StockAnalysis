@@ -43,7 +43,11 @@ def _resolve_universe(name: str) -> list[str]:
         return config.get_theme_tickers()
     if name == "watchlist":
         return config.get_watchlist()
-    raise ValueError(f"Unknown universe {name!r}; choose themes|watchlist")
+    if name == "value_cohort":
+        return config.get_value_cohort_tickers()
+    raise ValueError(
+        f"Unknown universe {name!r}; choose themes|watchlist|value_cohort"
+    )
 
 
 def main() -> int:
@@ -53,7 +57,7 @@ def main() -> int:
     src.add_argument(
         "--universe",
         type=str,
-        choices=("themes", "watchlist"),
+        choices=("themes", "watchlist", "value_cohort"),
         help="Universe to backfill (resolved from config/sectors.yaml)",
     )
     parser.add_argument(

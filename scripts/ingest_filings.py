@@ -40,6 +40,8 @@ def _resolve_universe(cfg: Config, universe: str, tickers_arg: str | None) -> li
         return cfg.get_watchlist()
     if universe == "themes":
         return cfg.get_theme_tickers()
+    if universe == "value_cohort":
+        return cfg.get_value_cohort_tickers()
     if universe == "portfolio":
         from src.portfolio import Portfolio
 

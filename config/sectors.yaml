@@ -226,6 +226,50 @@ themes:
       - "FANUY"
       - "TER"
 
+# --- Value / Insider-Cluster Cohort ---
+# Mid/small-cap names where open-market insider buying is historically
+# more common than in the large-cap growth/tech themes universe:
+# regional banks under rate-cycle pressure, REITs under CRE stress,
+# beaten-down 2020-2021 growth IPOs, and deep-value cyclicals.
+# Used by scripts/sweep_catalyst.py and scripts/sweep_insider_flow.py
+# to A/B-test the insider/catalyst pipeline in the cohort where the
+# Cohen-Malloy-Pomorski signal is academically strongest.
+value_cohort:
+  # Regional banks — SVB aftermath + rate cycle = repeated insider conviction buys
+  - "ZION"
+  - "KEY"
+  - "FITB"
+  - "RF"
+  - "CFG"
+  - "HBAN"
+  - "WAL"
+  - "CMA"
+  # REITs — CRE pain + rate sensitivity
+  - "MPW"
+  - "IVR"
+  - "AGNC"
+  - "NLY"
+  - "SLG"
+  - "KRC"
+  - "VNO"
+  # Beaten-down growth / turnaround stories
+  - "BYND"
+  - "PTON"
+  - "W"
+  - "SFIX"
+  - "SNAP"
+  - "LYFT"
+  - "HOOD"
+  - "AFRM"
+  - "RKT"
+  - "CVNA"
+  # Cyclicals + value
+  - "AR"
+  - "USFD"
+  - "CC"
+  - "VTRS"
+  - "TEVA"
+
 # --- Custom Watchlist ---
 # Add any tickers you want to always include in scans
 watchlist:
