@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
+import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type FilingNotificationItem } from "@/lib/api/client";
+import { fmtDate } from "@/lib/format";
 import {
   subscribeNotifications,
   toListItem,
@@ -24,12 +26,12 @@ import {
 function formBadge(form: string) {
   // 8-K is the high-signal form (material events). 10-K/10-Q are routine.
   if (form === "8-K")
-    return <Badge className="bg-amber-500/20 text-amber-300">{form}</Badge>;
+    return <Badge variant="default" className="font-mono">{form}</Badge>;
   if (form === "10-K")
-    return <Badge className="bg-sky-500/20 text-sky-300">{form}</Badge>;
+    return <Badge variant="neutral" className="font-mono">{form}</Badge>;
   if (form === "10-Q")
-    return <Badge className="bg-emerald-500/20 text-emerald-300">{form}</Badge>;
-  return <Badge className="bg-muted text-muted-foreground">{form}</Badge>;
+    return <Badge variant="neutral" className="font-mono">{form}</Badge>;
+  return <Badge variant="secondary" className="font-mono">{form}</Badge>;
 }
 
 export default function ResearchFeedPage() {
@@ -69,6 +71,39 @@ export default function ResearchFeedPage() {
     return () => es.close();
   }, [queryClient]);
 
+  const formStats = useMemo(() => {
+    const list = notifications.data ?? [];
+    const total = list.length;
+    const counts = new Map<string, number>();
+    for (const n of list) {
+      counts.set(n.form, (counts.get(n.form) ?? 0) + 1);
+    }
+    let topForm: string | null = null;
+    let topCount = 0;
+    for (const [form, count] of counts) {
+      if (count > topCount) {
+        topForm = form;
+        topCount = count;
+      }
+    }
+    const pct = total > 0 ? (topCount / total) * 100 : 0;
+    return { total, topForm, topCount, pct };
+  }, [notifications.data]);
+
+  // 8-K's high-signal severity shows via the value color (text-primary);
+  // 10-K/10-Q stay foreground-toned.
+  const topFormValueClass =
+    formStats.topForm === "8-K" ? "text-primary" : "text-foreground";
+
+  const pollMin = status.data
+    ? Math.round(status.data.poll_seconds / 60)
+    : null;
+
+  const newCountSegment =
+    liveCount > 0
+      ? `${liveCount} new since page load`
+      : "no new filings this session";
+
   return (
     <>
       <PageHeader
@@ -76,32 +111,102 @@ export default function ResearchFeedPage() {
         description="Background monitor polls EDGAR for new 8-K / 10-K / 10-Q filings on your holdings. New filings get ingested into the RAG corpus automatically."
       />
 
-      <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <ScoreboardTile
+          label="Monitor"
+          value={
+            status.isLoading
+              ? "—"
+              : status.data?.running
+                ? "ON"
+                : "OFF"
+          }
+          sub={
+            status.isLoading
+              ? undefined
+              : status.data?.running
+                ? `polling every ${pollMin}m`
+                : "stopped"
+          }
+          subTone={
+            status.isLoading
+              ? "muted"
+              : status.data?.running
+                ? "muted"
+                : "bearish"
+          }
+          isLoading={status.isLoading}
+        />
+        <ScoreboardTile
+          label="Total filings"
+          value={notifications.isLoading ? "—" : String(formStats.total)}
+          sub={
+            notifications.isLoading
+              ? undefined
+              : formStats.total >= 50
+                ? "capped at 50"
+                : `last ${formStats.total} filings`
+          }
+          subTone="muted"
+          isLoading={notifications.isLoading}
+        />
+        <ScoreboardTile
+          label="New this session"
+          value={
+            <span className={liveCount > 0 ? "text-primary" : undefined}>
+              {liveCount}
+            </span>
+          }
+          sub="via SSE"
+          subTone="muted"
+        />
+        <ScoreboardTile
+          label="By form"
+          value={
+            notifications.isLoading || !formStats.topForm ? (
+              "—"
+            ) : (
+              <span className={`font-mono ${topFormValueClass}`}>
+                {formStats.topForm}
+              </span>
+            )
+          }
+          sub={
+            notifications.isLoading || !formStats.topForm
+              ? undefined
+              : `${formStats.topCount} · ${formStats.pct.toFixed(0)}%`
+          }
+          subTone="muted"
+          isLoading={notifications.isLoading}
+        />
+      </div>
+
+      <div className="mt-4 space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-3">
               <span>Monitor status</span>
               {status.data?.running ? (
-                <Badge className="bg-emerald-500/20 text-emerald-300">
-                  running
-                </Badge>
+                <Badge variant="bullish">running</Badge>
               ) : (
-                <Badge className="bg-muted text-muted-foreground">
-                  stopped
-                </Badge>
+                <Badge variant="secondary">stopped</Badge>
               )}
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="font-mono text-xs">
               {status.data ? (
                 <>
-                  Polling every {Math.round(status.data.poll_seconds / 60)}{" "}
-                  min · forms: {status.data.forms.join(", ")} ·{" "}
-                  {liveCount > 0
-                    ? `${liveCount} new since page load`
-                    : "no new filings this session"}
+                  polling every {pollMin}m · forms:{" "}
+                  {status.data.forms.join(", ")} ·{" "}
+                  <span
+                    className={
+                      liveCount > 0 ? "text-primary" : "text-muted-foreground"
+                    }
+                  >
+                    {newCountSegment}
+                  </span>
                 </>
               ) : (
-                "Loading status…"
+                "loading status…"
               )}
             </CardDescription>
           </CardHeader>
@@ -111,8 +216,9 @@ export default function ResearchFeedPage() {
           <CardHeader>
             <CardTitle>Recent notifications</CardTitle>
             <CardDescription>
-              Newest first. Click <em>Summarize</em> to spawn an agent run
-              that grounds itself in this filing's chunks.
+              Newest first. Click{" "}
+              <code className="font-mono text-foreground">Summarize</code> to
+              spawn an agent run that grounds itself in this filing's chunks.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -128,10 +234,10 @@ export default function ResearchFeedPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-muted-foreground text-sm">
-                No notifications yet. The monitor only fires for filings
-                that appear <em>after</em> first observation per ticker —
-                so the very first poll just sets the watermark.
+              <p className="text-muted-foreground text-sm py-8 text-center font-mono">
+                No notifications yet. The monitor fires only for filings that
+                appear after first observation per ticker — the first poll sets
+                the watermark.
               </p>
             )}
           </CardContent>
@@ -154,24 +260,27 @@ function NotificationRow({ notification }: { notification: FilingNotificationIte
   });
 
   return (
-    <li className="border-border/40 rounded border p-3">
+    <li className="border border-border rounded p-3 hover:bg-muted/40 transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-semibold">{notification.ticker}</span>
+            <span className="font-mono text-sm font-semibold tracking-wider text-foreground">
+              {notification.ticker}
+            </span>
             {formBadge(notification.form)}
-            <span className="text-muted-foreground text-xs">
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">
               filed {notification.filing_date}
             </span>
           </div>
-          <p className="text-muted-foreground mt-1 text-xs">
-            Detected {new Date(notification.detected_at).toLocaleString()} ·
-            accession {notification.accession_no}
+          <p className="font-mono text-muted-foreground mt-1 text-xs tabular-nums">
+            Detected {fmtDate(notification.detected_at)} · accession{" "}
+            {notification.accession_no}
           </p>
         </div>
         <Button
           size="sm"
           variant="outline"
+          className="font-mono text-xs"
           disabled={summarize.isPending}
           onClick={() => summarize.mutate()}
         >
@@ -184,13 +293,13 @@ function NotificationRow({ notification }: { notification: FilingNotificationIte
       </div>
       {summary ? (
         <Card className="mt-3">
-          <CardContent className="prose prose-invert max-w-none pt-3 text-sm whitespace-pre-wrap">
+          <CardContent className="pt-3 text-sm text-foreground whitespace-pre-wrap">
             {summary}
           </CardContent>
         </Card>
       ) : null}
       {summarize.error ? (
-        <p className="text-red-300 mt-2 text-sm">
+        <p className="text-bearish mt-2 text-sm font-mono">
           {(summarize.error as Error).message}
         </p>
       ) : null}
