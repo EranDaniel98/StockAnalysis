@@ -19,6 +19,15 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // Quant status chips: tighter radius, low-saturation tinted bg,
+        // mono so price/ticker badges feel like terminal output. Use
+        // these for P&L deltas, signal direction, regime, etc.
+        bullish:
+          "rounded-sm bg-bullish/15 text-bullish font-mono [font-variant-numeric:tabular-nums] [a]:hover:bg-bullish/25",
+        bearish:
+          "rounded-sm bg-bearish/15 text-bearish font-mono [font-variant-numeric:tabular-nums] [a]:hover:bg-bearish/25",
+        neutral:
+          "rounded-sm bg-neutral/15 text-neutral font-mono [font-variant-numeric:tabular-nums] [a]:hover:bg-neutral/25",
       },
     },
     defaultVariants: {

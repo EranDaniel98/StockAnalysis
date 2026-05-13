@@ -30,9 +30,12 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // `dark` is the default so the first paint matches the Bloomberg
+      // aesthetic; next-themes (see Providers) overrides it on hydration
+      // if the user / system has explicitly opted into light.
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
     >
-      <body className="bg-background text-foreground min-h-full">
+      <body className="bg-background text-foreground font-sans min-h-full">
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
