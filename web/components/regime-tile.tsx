@@ -20,9 +20,9 @@ const LABEL_META: Record<
   string,
   { text: string; classes: string; Icon: typeof Sun }
 > = {
-  bull: { text: "Bull", classes: "text-emerald-400", Icon: Sun },
-  bear: { text: "Bear", classes: "text-red-400", Icon: CloudRain },
-  chop: { text: "Chop", classes: "text-amber-400", Icon: ActivitySquare },
+  bull: { text: "Bull", classes: "text-bullish", Icon: Sun },
+  bear: { text: "Bear", classes: "text-bearish", Icon: CloudRain },
+  chop: { text: "Chop", classes: "text-primary", Icon: ActivitySquare },
   unknown: { text: "Unknown", classes: "text-muted-foreground", Icon: HelpCircle },
 };
 
