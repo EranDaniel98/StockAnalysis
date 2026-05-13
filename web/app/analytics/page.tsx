@@ -154,12 +154,14 @@ function AnalyticsBody({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <ScoreboardTile
           label="Closed trades"
+          tooltip="Every paper trade that's exited (target hit, stop hit, or manually closed). Sub: W/L/BE breakdown — winners, losers, breakeven."
           value={String(headline.n_trades)}
           sub={`${headline.n_winners}W / ${headline.n_losers}L / ${headline.n_breakeven}BE`}
           subTone="muted"
         />
         <ScoreboardTile
           label="Win rate"
+          tooltip="Fraction of closed trades with positive P&L. Above 50% is good, but on its own it's misleading — a 90% win rate with tiny wins and one huge loss is a losing strategy. Read alongside Profit Factor + Expectancy."
           value={
             <span className={cn(winRateValueClass(headline.win_rate))}>
               {winRatePct.toFixed(1)}%
@@ -170,6 +172,7 @@ function AnalyticsBody({
         />
         <ScoreboardTile
           label="Total P&L"
+          tooltip="Sum of realized P&L across every closed trade. Sub-value is the mean pnl_pct per trade — i.e. average return on each individual position, not the portfolio."
           value={
             <span className={cn(pnlColorClass(headline.total_pnl))}>
               {fmtUSD(headline.total_pnl)}
@@ -180,6 +183,7 @@ function AnalyticsBody({
         />
         <ScoreboardTile
           label="Profit factor"
+          tooltip="Sum of winning P&L divided by absolute sum of losing P&L. >1.0 = profitable. >2.0 = strong system. <1.0 = losing money. Sub-value: avg win % / avg loss %."
           value={
             <span className={cn(profitFactorValueClass(headline.profit_factor))}>
               {headline.profit_factor != null

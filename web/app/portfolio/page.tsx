@@ -231,6 +231,7 @@ export default function PortfolioPage() {
         />
         <ScoreboardTile
           label="Cash / Buying Power"
+          tooltip="Cash = settled dollars available for new positions. Buying power can exceed cash on a margin account (typically 2x cash for day-trading paper accounts). Use cash, not buying power, for sizing if you want to stay unleveraged."
           value={fmtUSD(data?.account.cash)}
           sub={
             data ? `${fmtUSD(data.account.buying_power)} buying power` : undefined

@@ -244,6 +244,7 @@ export default function RecommendationsPage() {
         />
         <ScoreboardTile
           label="Win rate"
+          tooltip="Closed-trade winners ÷ total closed. Counts only OUTCOMES that actually exited (target_hit / stop_hit / manual / other). open and pending rows don't contribute."
           value={
             isLoading
               ? "—"

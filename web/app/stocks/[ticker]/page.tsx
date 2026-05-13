@@ -230,6 +230,7 @@ function StockDetail({
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
           label="Composite Score"
+          tooltip="Strategy-weighted blend of all sub-scores, 0-100. ≥70 = STRONG BUY, 50-70 = HOLD, ≤30 = STRONG SELL. Each strategy weighs the sub-scores differently — see /help → Strategies."
           value={
             rec ? (
               <span
@@ -252,12 +253,14 @@ function StockDetail({
         />
         <ScoreboardTile
           label="Entry"
+          tooltip="Suggested entry price for the trade plan — the engine's reference price at scan time (typically the latest close). Use the chart on the left to time the actual fill."
           value={fmtUSD(entry)}
           sub={lastClose !== null ? `last close ${fmtUSD(lastClose)}` : undefined}
           subTone="muted"
         />
         <ScoreboardTile
           label="Stop / Target"
+          tooltip="Stop loss (top, bearish) and take profit (bottom, bullish). Stop is computed from ATR or a configured percentage; target is set so the R/R ratio (sub-value) hits the strategy's target multiple."
           value={
             <span className="flex flex-col leading-none gap-1">
               <span className="text-bearish text-lg font-semibold tabular-nums">
@@ -273,6 +276,7 @@ function StockDetail({
         />
         <ScoreboardTile
           label="Signals"
+          tooltip="Count of bullish (▲) vs bearish (▼) individual signals fired by all analyzers. Each is a reasoning bullet on the right (e.g. '+ SMA20: price above SMA20'). High bullish:bearish ratio = high-conviction setup."
           value={
             rec ? (
               <span className="font-mono">
