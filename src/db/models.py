@@ -8,7 +8,7 @@ server defaults.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB
@@ -557,3 +558,48 @@ class FactorSnapshot(Base):
     factor_set: Mapped[str] = mapped_column(String(32), primary_key=True)
     values: Mapped[dict] = mapped_column(JSONB, nullable=False)
     z_scores: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class ShortInterest(Base):
+    """Daily short-sale volume from FINRA's Reg SHO CNMS files.
+
+    One row per (ticker, settlement_date). FINRA publishes a single
+    pipe-delimited file per trading day at
+    ``https://cdn.finra.org/equity/regsho/daily/CNMSshvol{YYYYMMDD}.txt``
+    listing per-symbol short volume + total volume across the
+    consolidated market.
+
+    Note: this is *daily short-sale volume*, NOT biweekly
+    short-interest reportable positions. The loader rolls 30 daily
+    rows into a synthetic short-interest series the analyzer reads —
+    the rate-of-change semantics the analyzer uses translate
+    cleanly. Per ``loader.load_short_interest_rows`` we set:
+
+      ``short_interest_shares = sum_over_30d(short_volume)``
+      ``avg_daily_volume = mean_over_30d(total_volume)``
+
+    The 30-day cumulative captures sustained short pressure rather
+    than one-day spikes, and the avg_daily_volume normalizer lets the
+    analyzer's days-to-cover derivation work on the same scale as
+    biweekly FINRA short-interest reports.
+    """
+
+    __tablename__ = "short_interest"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    settlement_date: Mapped[date] = mapped_column(Date, nullable=False)
+    short_volume: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    total_volume: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    short_exempt_volume: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "settlement_date", name="uq_short_interest_ticker_date"
+        ),
+    )
