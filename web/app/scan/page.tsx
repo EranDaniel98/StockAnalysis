@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Play, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -426,7 +427,11 @@ function ResultsTable({ results }: { results: ScanResultItem[] }) {
         {results.map((r) => (
           <TableRow key={r.ticker} mono>
             <TableCell>
-              <span className="font-mono text-foreground">{r.ticker}</span>
+              <Link href={`/stocks/${r.ticker}`}>
+                <span className="font-mono text-foreground hover:text-primary transition-colors">
+                  {r.ticker}
+                </span>
+              </Link>
             </TableCell>
             <TableCell>
               <Badge variant={actionVariant(r.action)}>{r.action}</Badge>

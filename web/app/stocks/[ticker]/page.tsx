@@ -1,0 +1,598 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { use } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { ErrorState } from "@/components/error-state";
+import { PageHeader } from "@/components/page-header";
+import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api, ApiError, type OHLCBar, type ScanResultItem } from "@/lib/api/client";
+import { qk } from "@/lib/api/keys";
+import {
+  CHART_AXIS,
+  CHART_GRID,
+  CHART_TOKEN,
+  CHART_TOOLTIP_BG,
+  CHART_TOOLTIP_BORDER,
+} from "@/lib/chart-tokens";
+import { fmtDate, fmtNumber, fmtUSD } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+const HISTORY_DAYS = 120;
+
+type RiskMgmt = Record<string, unknown>;
+
+type BadgeVariant = "bullish" | "bearish" | "neutral" | "default" | "outline";
+
+function actionBadgeVariant(action: string): BadgeVariant {
+  if (action === "STRONG BUY" || action === "BUY") return "bullish";
+  if (action === "STRONG SELL" || action === "SELL") return "bearish";
+  if (action === "HOLD") return "neutral";
+  return "outline";
+}
+
+function scoreTextClass(score: number): string {
+  if (score >= 60) return "text-bullish";
+  if (score <= 40) return "text-bearish";
+  return "text-foreground";
+}
+
+function scoreBarClass(score: number): string {
+  if (score >= 60) return "bg-bullish";
+  if (score <= 40) return "bg-bearish";
+  return "bg-primary";
+}
+
+function num(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return null;
+}
+
+function prettifyKey(k: string): string {
+  return k
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatRiskValue(key: string, v: unknown): string {
+  const n = num(v);
+  const k = key.toLowerCase();
+  if (n !== null) {
+    if (k.includes("price") || k.includes("value") || k.includes("dollars")) {
+      return fmtUSD(n);
+    }
+    if (
+      k.includes("shares") ||
+      k.includes("mult") ||
+      k.includes("ratio") ||
+      k.includes("pct")
+    ) {
+      return fmtNumber(n, 2);
+    }
+    return fmtNumber(n, 2);
+  }
+  if (typeof v === "string") return v;
+  if (typeof v === "boolean") return v ? "true" : "false";
+  return String(v);
+}
+
+export default function StockDetailPage({
+  params,
+}: {
+  params: Promise<{ ticker: string }>;
+}) {
+  const { ticker: tickerParam } = use(params);
+  const ticker = decodeURIComponent(tickerParam).toUpperCase();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
+    queryFn: () => api.stocks.get(ticker, { history_days: HISTORY_DAYS }),
+  });
+
+  if (error instanceof ApiError && error.status === 404) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
+        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
+          Ticker not found
+        </p>
+        <p className="font-mono text-sm text-foreground">{ticker}</p>
+        <Link
+          href="/scan"
+          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
+        >
+          [ Back to scan ]
+        </Link>
+      </div>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <>
+        <PageHeader title={ticker} description="Loading…" />
+        {error ? <ErrorState error={error} /> : null}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full" />
+          ))}
+        </div>
+        <div className="grid lg:grid-cols-3 gap-4 mt-4">
+          <Skeleton className="h-96 w-full lg:col-span-2" />
+          <Skeleton className="h-96 w-full" />
+        </div>
+      </>
+    );
+  }
+
+  return <StockDetail ticker={ticker} data={data} error={error} />;
+}
+
+function StockDetail({
+  ticker,
+  data,
+  error,
+}: {
+  ticker: string;
+  data: {
+    ticker: string;
+    latest_recommendation?: ScanResultItem | null;
+    scan_run_id?: string | null;
+    scan_strategy?: string | null;
+    scan_timestamp?: string | null;
+    history?: OHLCBar[];
+  };
+  error: unknown;
+}) {
+  const rec = data.latest_recommendation ?? null;
+  const history = data.history ?? [];
+  const risk: RiskMgmt = (rec?.risk_management ?? {}) as RiskMgmt;
+
+  const entry = num(risk.entry_price);
+  const stop = num(risk.stop_loss);
+  const target = num(risk.take_profit);
+  const lastClose = history.length > 0 ? history[history.length - 1].close : null;
+
+  const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;
+  const headerDescription = rec
+    ? [
+        rec.sector,
+        rec.industry,
+        rec.market_cap != null
+          ? `market cap ${fmtUSD(rec.market_cap, true)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : history.length > 0
+      ? `Last close ${fmtUSD(lastClose)}`
+      : "No data yet";
+
+  const rr =
+    entry !== null && stop !== null && target !== null && entry !== stop
+      ? (target - entry) / (entry - stop)
+      : null;
+
+  return (
+    <>
+      <PageHeader
+        title={headerTitle}
+        description={headerDescription}
+        actions={
+          rec ? (
+            <div className="flex items-center gap-2">
+              <Badge variant={actionBadgeVariant(rec.action)}>{rec.action}</Badge>
+              <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+                Last scored {fmtDate(data.scan_timestamp)}
+                {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
+              </span>
+            </div>
+          ) : null
+        }
+      />
+
+      {error ? <ErrorState error={error} /> : null}
+
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <ScoreboardTile
+          label="Composite Score"
+          value={
+            rec ? (
+              <span
+                className={cn(
+                  rec.composite_score >= 60
+                    ? "text-bullish"
+                    : rec.composite_score <= 40
+                      ? "text-bearish"
+                      : "text-foreground",
+                )}
+              >
+                {fmtNumber(rec.composite_score, 1)}
+              </span>
+            ) : (
+              "—"
+            )
+          }
+          sub={rec ? `${rec.confidence} confidence` : undefined}
+          subTone="muted"
+        />
+        <ScoreboardTile
+          label="Entry"
+          value={fmtUSD(entry)}
+          sub={lastClose !== null ? `last close ${fmtUSD(lastClose)}` : undefined}
+          subTone="muted"
+        />
+        <ScoreboardTile
+          label="Stop / Target"
+          value={
+            <span className="flex flex-col leading-none gap-1">
+              <span className="text-bearish text-lg font-semibold tabular-nums">
+                {fmtUSD(stop)}
+              </span>
+              <span className="text-bullish text-lg font-semibold tabular-nums">
+                {fmtUSD(target)}
+              </span>
+            </span>
+          }
+          sub={rr !== null ? `${rr.toFixed(2)}:1 R/R` : undefined}
+          subTone="muted"
+        />
+        <ScoreboardTile
+          label="Signals"
+          value={
+            rec ? (
+              <span className="font-mono">
+                <span className="text-bullish">{rec.bullish_signals}</span>
+                <span className="text-muted-foreground"> ▲ / </span>
+                <span className="text-bearish">{rec.bearish_signals}</span>
+                <span className="text-muted-foreground"> ▼</span>
+              </span>
+            ) : (
+              "—"
+            )
+          }
+          sub={
+            rec && rec.breakdown && rec.breakdown.length > 0
+              ? `${rec.breakdown.length} categories scored`
+              : undefined
+          }
+          subTone="muted"
+        />
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-4 mt-4">
+        <div className="lg:col-span-2 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                Price + plan
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {history.length === 0 ? (
+                <p className="text-muted-foreground text-sm py-12 text-center font-mono">
+                  No price history yet — Parquet store doesn&apos;t have {ticker}.
+                </p>
+              ) : (
+                <div className="h-80">
+                  <PriceChart
+                    history={history}
+                    entry={entry}
+                    stop={stop}
+                    target={target}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {rec && rec.sub_scores && Object.keys(rec.sub_scores).length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                  Sub-score breakdown
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SubScoreBars sub={rec.sub_scores} />
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+
+        <div className="lg:col-span-1 space-y-4">
+          {rec ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                    Reasoning
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {rec.reasoning && rec.reasoning.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {rec.reasoning.map((r, i) => (
+                        <li
+                          key={i}
+                          className="text-sm text-foreground font-mono leading-relaxed flex gap-2"
+                        >
+                          <span className="text-muted-foreground select-none">
+                            {"→"}
+                          </span>
+                          <span>{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground text-sm font-mono">
+                      No engine commentary.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                    Risk management
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RiskTable risk={risk} />
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card>
+              <CardContent>
+                <p className="text-muted-foreground text-sm font-mono py-8 text-center">
+                  No engine recommendation yet — run /scan to score this ticker.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PriceChart({
+  history,
+  entry,
+  stop,
+  target,
+}: {
+  history: OHLCBar[];
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+}) {
+  const dateFmt = (d: string | number) => {
+    const dt = new Date(d);
+    return Number.isNaN(dt.getTime())
+      ? String(d)
+      : dt.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+  };
+
+  const tooltipFormatter = (value: unknown) => {
+    if (typeof value !== "number") return [String(value), "close"] as const;
+    const tone =
+      entry !== null
+        ? value > entry
+          ? "above entry"
+          : value < entry
+            ? "below entry"
+            : "at entry"
+        : "";
+    return [`${fmtUSD(value)}${tone ? ` · ${tone}` : ""}`, "close"] as const;
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart
+        data={history}
+        margin={{ top: 8, right: 64, bottom: 0, left: 8 }}
+      >
+        <defs>
+          <linearGradient id="stock-price-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CHART_TOKEN.primary} stopOpacity={0.12} />
+            <stop offset="100%" stopColor={CHART_TOKEN.primary} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+
+        <CartesianGrid
+          stroke={CHART_GRID}
+          strokeOpacity={0.4}
+          strokeDasharray="2 4"
+          vertical={false}
+        />
+        <XAxis
+          dataKey="date"
+          tickFormatter={dateFmt}
+          stroke={CHART_AXIS}
+          tick={{
+            fill: CHART_AXIS,
+            fontFamily: "var(--font-geist-mono)",
+            fontSize: 10,
+          }}
+          tickLine={false}
+          axisLine={{ stroke: CHART_GRID, strokeOpacity: 0.6 }}
+          minTickGap={32}
+        />
+        <YAxis
+          orientation="right"
+          stroke={CHART_AXIS}
+          tick={{
+            fill: CHART_AXIS,
+            fontFamily: "var(--font-geist-mono)",
+            fontSize: 10,
+          }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => fmtUSD(v as number, true)}
+          width={56}
+          domain={["auto", "auto"]}
+        />
+        <Tooltip
+          contentStyle={{
+            background: CHART_TOOLTIP_BG,
+            border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+            borderRadius: 2,
+            fontSize: 11,
+            fontFamily: "var(--font-geist-mono)",
+          }}
+          labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
+          formatter={tooltipFormatter}
+        />
+
+        {entry !== null ? (
+          <ReferenceLine
+            y={entry}
+            stroke={CHART_TOKEN.primary}
+            strokeOpacity={0.9}
+            strokeDasharray="3 3"
+            label={{
+              value: "ENTRY",
+              position: "right",
+              fill: CHART_TOKEN.primary,
+              fontSize: 10,
+              fontFamily: "var(--font-geist-mono)",
+              letterSpacing: 1,
+            }}
+          />
+        ) : null}
+        {stop !== null ? (
+          <ReferenceLine
+            y={stop}
+            stroke="var(--bearish)"
+            strokeOpacity={0.9}
+            strokeDasharray="3 3"
+            label={{
+              value: "STOP",
+              position: "right",
+              fill: "var(--bearish)",
+              fontSize: 10,
+              fontFamily: "var(--font-geist-mono)",
+              letterSpacing: 1,
+            }}
+          />
+        ) : null}
+        {target !== null ? (
+          <ReferenceLine
+            y={target}
+            stroke="var(--bullish)"
+            strokeOpacity={0.9}
+            strokeDasharray="3 3"
+            label={{
+              value: "TARGET",
+              position: "right",
+              fill: "var(--bullish)",
+              fontSize: 10,
+              fontFamily: "var(--font-geist-mono)",
+              letterSpacing: 1,
+            }}
+          />
+        ) : null}
+
+        <Area
+          type="monotone"
+          dataKey="close"
+          stroke={CHART_TOKEN.primary}
+          strokeWidth={1.5}
+          fill="url(#stock-price-fill)"
+          fillOpacity={1}
+          isAnimationActive={false}
+          dot={false}
+          activeDot={{ r: 3, fill: CHART_TOKEN.primary, stroke: "none" }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function SubScoreBars({ sub }: { sub: Record<string, number | undefined> }) {
+  const entries = Object.entries(sub)
+    .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+    .map(([k, v]) => [k, v as number] as const)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm font-mono">No sub-scores.</p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {entries.map(([k, score]) => {
+        const pct = Math.max(0, Math.min(100, score));
+        return (
+          <div key={k} className="flex items-center gap-3">
+            <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground w-28 truncate">
+              {k}
+            </span>
+            <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden flex-1">
+              <div
+                style={{ width: `${pct}%` }}
+                className={cn("h-full", scoreBarClass(score))}
+              />
+            </div>
+            <span
+              className={cn(
+                "font-mono tabular-nums text-xs w-12 text-right",
+                scoreTextClass(score),
+              )}
+            >
+              {score.toFixed(1)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RiskTable({ risk }: { risk: RiskMgmt }) {
+  const rows = Object.entries(risk).filter(
+    ([, v]) => v !== null && v !== undefined,
+  );
+  if (rows.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm font-mono">
+        No risk fields.
+      </p>
+    );
+  }
+  return (
+    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+      {rows.map(([k, v]) => (
+        <div
+          key={k}
+          className="col-span-2 grid grid-cols-2 items-center border-b border-border last:border-b-0 pb-1.5"
+        >
+          <dt className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+            {prettifyKey(k)}
+          </dt>
+          <dd className="font-mono tabular-nums text-xs text-foreground text-right">
+            {formatRiskValue(k, v)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useMemo } from "react";
 
 import { ErrorState } from "@/components/error-state";
@@ -196,9 +197,11 @@ export default function RecommendationsPage() {
                       {fmtDate(r.scan_timestamp)}
                     </TableCell>
                     <TableCell className="py-2 px-3">
-                      <span className="font-mono text-sm font-semibold">
-                        {r.ticker}
-                      </span>
+                      <Link href={`/stocks/${r.ticker}`}>
+                        <span className="font-mono text-sm font-semibold hover:text-primary transition-colors">
+                          {r.ticker}
+                        </span>
+                      </Link>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs py-2 px-3">
                       {r.strategy}
