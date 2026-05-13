@@ -32,13 +32,57 @@ EMBEDDING_MODEL = os.environ.get(
 )
 EMBEDDING_DIM = 384
 
+# Device selection. Order of precedence:
+#   1. ``STOCKNEW_EMBEDDING_DEVICE`` env var if set ("cuda", "cpu", "mps", ...).
+#   2. CUDA if a CUDA-enabled torch build + reachable GPU is present.
+#   3. Apple Silicon MPS if available.
+#   4. CPU.
+# A small wrapper (not just a string) so callers and tests can probe what
+# was actually chosen without re-running the detection.
+EMBEDDING_DEVICE_OVERRIDE = os.environ.get("STOCKNEW_EMBEDDING_DEVICE")
+
 _model_lock = threading.Lock()
 _model = None  # type: ignore[assignment]
+_selected_device: str | None = None
+
+
+def _resolve_device() -> str:
+    """Return the best available torch device string ("cuda", "mps", or
+    "cpu"). Honors the ``STOCKNEW_EMBEDDING_DEVICE`` override.
+
+    Defensive: an environment that has the cu128 wheel installed but no
+    CUDA-capable GPU will still report ``torch.cuda.is_available()``
+    correctly as False (it probes the driver, not just the build), so
+    we don't need to second-guess it here.
+    """
+    if EMBEDDING_DEVICE_OVERRIDE:
+        return EMBEDDING_DEVICE_OVERRIDE
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        # `torch.backends.mps` is the entry point on Apple Silicon. The
+        # attribute can be missing on older builds — guard accordingly.
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
+    return "cpu"
+
+
+def get_embedding_device() -> str:
+    """Public accessor for the device string the embedder actually
+    loaded onto. Returns ``None``-equivalent ``"cpu"`` until the model
+    is first lazy-loaded — call ``_get_model()`` (or any embed function)
+    first if you need the post-load value."""
+    return _selected_device or _resolve_device()
 
 
 def _get_model():
     """Lazy-load the model once per process. Thread-safe."""
-    global _model
+    global _model, _selected_device
     if _model is not None:
         return _model
     with _model_lock:
@@ -48,8 +92,10 @@ def _get_model():
         # at import time, which we don't want to pay in non-RAG callers.
         from sentence_transformers import SentenceTransformer
 
-        logger.info("loading embedding model %s", EMBEDDING_MODEL)
-        _model = SentenceTransformer(EMBEDDING_MODEL)
+        device = _resolve_device()
+        logger.info("loading embedding model %s on device=%s", EMBEDDING_MODEL, device)
+        _model = SentenceTransformer(EMBEDDING_MODEL, device=device)
+        _selected_device = device
         return _model
 
 
