@@ -23,10 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api/client";
+import { api, type PaperRecommendationItem } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtDate, fmtNumber, fmtUSD } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+type Outcome = NonNullable<PaperRecommendationItem["outcome"]>;
 
 function scoreToneClass(score: number | null | undefined): string {
   if (score === null || score === undefined || Number.isNaN(score))
@@ -41,6 +43,104 @@ function actionToneClass(action: string): string {
   if (action === "STRONG SELL" || action === "SELL") return "text-bearish";
   if (action === "HOLD") return "text-neutral";
   return "text-muted-foreground";
+}
+
+// Closed-outcome set drives win-rate denominator and the bar.
+const CLOSED_OUTCOMES: ReadonlySet<Outcome> = new Set([
+  "target_hit",
+  "stop_hit",
+  "manual",
+  "other",
+]);
+
+// Visual order for the distribution bar (left → right narrative).
+const BAR_ORDER: ReadonlyArray<{
+  key: Outcome | "pending" | "skipped";
+  label: string;
+  swatch: string;
+}> = [
+  { key: "target_hit", label: "target hit", swatch: "bg-bullish" },
+  { key: "manual", label: "manual", swatch: "bg-primary" },
+  { key: "open", label: "open", swatch: "bg-primary/50" },
+  { key: "stop_hit", label: "stop hit", swatch: "bg-bearish" },
+  { key: "pending", label: "pending", swatch: "bg-muted-foreground/30" },
+  { key: "skipped", label: "skipped", swatch: "bg-muted-foreground/15" },
+  { key: "other", label: "other", swatch: "bg-neutral" },
+];
+
+function OutcomeCell({ row }: { row: PaperRecommendationItem }) {
+  const o = row.outcome;
+  if (!o) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const wrapper =
+    "inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider";
+  switch (o) {
+    case "target_hit":
+      return (
+        <span className={cn(wrapper, "text-bullish")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-bullish" aria-hidden />
+          target hit
+        </span>
+      );
+    case "stop_hit":
+      return (
+        <span className={cn(wrapper, "text-bearish")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-bearish" aria-hidden />
+          stop hit
+        </span>
+      );
+    case "manual":
+      return (
+        <span className={cn(wrapper, "text-primary")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+          manual close
+        </span>
+      );
+    case "open":
+      return (
+        <span className={cn(wrapper, "text-primary")}>
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
+            aria-hidden
+          />
+          open
+        </span>
+      );
+    case "pending":
+      return (
+        <span className={cn(wrapper, "text-muted-foreground")}>
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-muted-foreground"
+            aria-hidden
+          />
+          pending
+        </span>
+      );
+    case "skipped":
+      return (
+        <span
+          className={cn(wrapper, "text-muted-foreground")}
+          title={row.skip_reason ?? undefined}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
+            aria-hidden
+          />
+          skipped
+        </span>
+      );
+    case "other":
+      return (
+        <span className={cn(wrapper, "text-neutral")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-neutral" aria-hidden />
+          {/* Backend returns the raw exit_reason here; fall back to "closed". */}
+          {"closed"}
+        </span>
+      );
+    default:
+      return <span className="text-muted-foreground">—</span>;
+  }
 }
 
 export default function RecommendationsPage() {
@@ -58,13 +158,27 @@ export default function RecommendationsPage() {
         submittedPct: 0,
         skippedPct: 0,
         latest: null as { ts: string; ticker: string } | null,
+        closedTotal: 0,
+        closedWinners: 0,
+        winRate: 0,
+        outcomeCounts: {} as Record<string, number>,
       };
     }
     let submitted = 0;
     let skipped = 0;
+    let closedTotal = 0;
+    let closedWinners = 0;
+    const outcomeCounts: Record<string, number> = {};
     for (const r of data) {
       if (r.submitted) submitted += 1;
       if (r.skip_reason) skipped += 1;
+      if (r.outcome) {
+        outcomeCounts[r.outcome] = (outcomeCounts[r.outcome] ?? 0) + 1;
+        if (CLOSED_OUTCOMES.has(r.outcome)) {
+          closedTotal += 1;
+          if ((r.realized_pnl_pct ?? 0) > 0) closedWinners += 1;
+        }
+      }
     }
     const total = data.length;
     const latestRow = data.reduce((acc, r) =>
@@ -79,8 +193,28 @@ export default function RecommendationsPage() {
       submittedPct: total > 0 ? (submitted / total) * 100 : 0,
       skippedPct: total > 0 ? (skipped / total) * 100 : 0,
       latest: { ts: latestRow.scan_timestamp, ticker: latestRow.ticker },
+      closedTotal,
+      closedWinners,
+      winRate: closedTotal > 0 ? (closedWinners / closedTotal) * 100 : 0,
+      outcomeCounts,
     };
   }, [data]);
+
+  const winRateSubTone: "bullish" | "bearish" | "neutral" =
+    stats.closedTotal === 0
+      ? "neutral"
+      : stats.winRate >= 50
+        ? "bullish"
+        : stats.winRate < 40
+          ? "bearish"
+          : "neutral";
+
+  // Build bar segments from non-zero counts in the canonical visual order.
+  const barSegments = BAR_ORDER.map((seg) => ({
+    ...seg,
+    count: stats.outcomeCounts[seg.key] ?? 0,
+  })).filter((seg) => seg.count > 0);
+  const barTotal = barSegments.reduce((s, x) => s + x.count, 0);
 
   return (
     <>
@@ -91,7 +225,7 @@ export default function RecommendationsPage() {
 
       {error ? <ErrorState error={error} /> : null}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <ScoreboardTile
           label="Total"
           value={isLoading ? "—" : String(stats.total)}
@@ -106,6 +240,35 @@ export default function RecommendationsPage() {
               : `${stats.submittedPct.toFixed(0)}% of total`
           }
           subTone={stats.submittedPct > 50 ? "bullish" : "neutral"}
+          isLoading={isLoading}
+        />
+        <ScoreboardTile
+          label="Win rate"
+          value={
+            isLoading
+              ? "—"
+              : stats.closedTotal === 0
+                ? "—"
+                : (
+                  <span className={cn(
+                    winRateSubTone === "bullish"
+                      ? "text-bullish"
+                      : winRateSubTone === "bearish"
+                        ? "text-bearish"
+                        : "text-foreground",
+                  )}>
+                    {`${stats.winRate.toFixed(1)}%`}
+                  </span>
+                )
+          }
+          sub={
+            isLoading
+              ? undefined
+              : stats.closedTotal === 0
+                ? "no closed trades yet"
+                : `${stats.closedWinners}/${stats.closedTotal} closed wins`
+          }
+          subTone="muted"
           isLoading={isLoading}
         />
         <ScoreboardTile
@@ -135,6 +298,37 @@ export default function RecommendationsPage() {
           isLoading={isLoading}
         />
       </div>
+
+      {isLoading || !data || data.length === 0 || barTotal === 0 ? (
+        <div className="my-4 h-1.5 rounded border border-border bg-muted/30" />
+      ) : (
+        <div className="my-4 space-y-1">
+          <div className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground">
+            Outcome distribution
+          </div>
+          <div className="flex h-1.5 w-full overflow-hidden rounded border border-border bg-card">
+            {barSegments.map((seg) => (
+              <div
+                key={seg.key}
+                className={seg.swatch}
+                style={{ width: `${(seg.count / barTotal) * 100}%` }}
+                aria-label={`${seg.label}: ${seg.count}`}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+            {barSegments.map((seg) => (
+              <span key={seg.key} className="inline-flex items-center gap-1.5">
+                <span
+                  className={cn("h-1.5 w-1.5 rounded-full", seg.swatch)}
+                  aria-hidden
+                />
+                {seg.label} {seg.count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Card className="mt-4">
         <CardHeader>
@@ -183,7 +377,10 @@ export default function RecommendationsPage() {
                     Target
                   </TableHead>
                   <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    Status
+                    Outcome
+                  </TableHead>
+                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
+                    Realized %
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -232,22 +429,19 @@ export default function RecommendationsPage() {
                       {fmtUSD(r.take_profit)}
                     </TableCell>
                     <TableCell className="py-2 px-3 text-xs">
-                      {r.submitted ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="h-1.5 w-1.5 rounded-full bg-bullish" />
-                          submitted
-                        </span>
-                      ) : r.skip_reason ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 text-muted-foreground"
-                          title={r.skip_reason}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-bearish" />
-                          skipped
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
+                      <OutcomeCell row={r} />
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "font-mono tabular-nums text-right py-2 px-3",
+                        r.realized_pnl_pct == null
+                          ? "text-muted-foreground"
+                          : pnlColorClass(r.realized_pnl_pct),
                       )}
+                    >
+                      {r.realized_pnl_pct == null
+                        ? "—"
+                        : fmtPct(r.realized_pnl_pct, 2, true)}
                     </TableCell>
                   </TableRow>
                 ))}
