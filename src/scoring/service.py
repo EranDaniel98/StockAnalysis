@@ -214,6 +214,7 @@ def analyze_and_score(
     on_event: AnalyzeEventCallback | None = None,
     benchmark_df: pd.DataFrame | None = None,
     as_of: date | None = None,
+    sector_etfs: dict[str, pd.DataFrame] | None = None,
 ) -> list[dict[str, Any]]:
     """Run all analyzers, composite-score every ticker, generate recommendations.
 
@@ -305,6 +306,31 @@ def analyze_and_score(
             logger.warning("catalyst pre-pass failed: %s", e)
             catalyst_results = {}
 
+    # Sector-flows pre-pass: caller can pass sector_etfs explicitly (live
+    # scan path fetches the 11 SPDR sector ETFs once per run and threads
+    # them in via the kwarg). When absent, sector_flows simply doesn't
+    # fire — same opt-in posture as the other ancillary analyzers.
+    sector_flows_results: dict[str, dict[str, Any]] = {}
+    if sector_etfs:
+        from src.scoring.analyzers import sector_flows as _sf
+        from src.scoring.analyzers.sector_flows import SECTOR_TO_ETF as _SECTOR_TO_ETF
+        as_of_ts = pd.Timestamp(as_of) if as_of else pd.Timestamp.now().normalize()
+        for ticker, fund in fundamentals_map.items():
+            sec = (fund.get("sector") or "").strip()
+            if not sec or sec not in _SECTOR_TO_ETF:
+                continue
+            etf_symbol = _SECTOR_TO_ETF[sec]
+            etf_df = sector_etfs.get(etf_symbol)
+            if etf_df is None or etf_df.empty:
+                continue
+            try:
+                res = _sf.analyze(etf_df, as_of=as_of_ts, etf_symbol=etf_symbol)
+            except Exception as e:
+                logger.debug("sector_flows analyze failed for %s: %s", ticker, e)
+                continue
+            if res is not None:
+                sector_flows_results[ticker.upper()] = res
+
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
 
@@ -326,6 +352,7 @@ def analyze_and_score(
                 ),
                 "insider_flow": insider_results.get(ticker.upper()),
                 "catalyst": catalyst_results.get(ticker.upper()),
+                "sector_flows": sector_flows_results.get(ticker.upper()),
             }
             emit(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
