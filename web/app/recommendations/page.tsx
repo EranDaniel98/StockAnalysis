@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
@@ -52,6 +52,43 @@ const CLOSED_OUTCOMES: ReadonlySet<Outcome> = new Set([
   "manual",
   "other",
 ]);
+
+type ActionGrade = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
+type GradeFilter = "ALL" | ActionGrade;
+type OutcomeFilter = "ALL" | Outcome;
+
+const ALL_GRADES: ReadonlyArray<ActionGrade> = [
+  "STRONG BUY",
+  "BUY",
+  "HOLD",
+  "SELL",
+  "STRONG SELL",
+];
+
+const ALL_OUTCOMES: ReadonlyArray<Outcome> = [
+  "target_hit",
+  "stop_hit",
+  "manual",
+  "open",
+  "pending",
+  "skipped",
+  "other",
+];
+
+function gradeChipTone(grade: GradeFilter): string {
+  if (grade === "STRONG BUY" || grade === "BUY") return "text-bullish";
+  if (grade === "SELL" || grade === "STRONG SELL") return "text-bearish";
+  if (grade === "HOLD") return "text-neutral";
+  return "text-muted-foreground";
+}
+
+function outcomeChipTone(o: OutcomeFilter): string {
+  if (o === "target_hit") return "text-bullish";
+  if (o === "stop_hit") return "text-bearish";
+  if (o === "manual" || o === "open") return "text-primary";
+  if (o === "other") return "text-neutral";
+  return "text-muted-foreground";
+}
 
 // Visual order for the distribution bar (left → right narrative).
 const BAR_ORDER: ReadonlyArray<{
@@ -148,6 +185,52 @@ export default function RecommendationsPage() {
     queryKey: qk.recommendations.list({ limit: 100 }),
     queryFn: () => api.recommendations.list({ limit: 100 }),
   });
+
+  const [gradeFilter, setGradeFilter] = useState<GradeFilter>("ALL");
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("ALL");
+
+  const gradeCounts = useMemo(() => {
+    const c: Record<ActionGrade, number> = {
+      "STRONG BUY": 0,
+      "BUY": 0,
+      "HOLD": 0,
+      "SELL": 0,
+      "STRONG SELL": 0,
+    };
+    if (!data) return c;
+    for (const r of data) {
+      const a = r.action as ActionGrade;
+      if (a in c) c[a] += 1;
+    }
+    return c;
+  }, [data]);
+
+  const outcomeCounts = useMemo(() => {
+    const c: Record<Outcome, number> = {
+      target_hit: 0,
+      stop_hit: 0,
+      manual: 0,
+      open: 0,
+      pending: 0,
+      skipped: 0,
+      other: 0,
+    };
+    if (!data) return c;
+    for (const r of data) {
+      const o = r.outcome as Outcome | null | undefined;
+      if (o && o in c) c[o] += 1;
+    }
+    return c;
+  }, [data]);
+
+  const filteredData = useMemo(() => {
+    if (!data) return [] as PaperRecommendationItem[];
+    return data.filter((r) => {
+      if (gradeFilter !== "ALL" && r.action !== gradeFilter) return false;
+      if (outcomeFilter !== "ALL" && r.outcome !== outcomeFilter) return false;
+      return true;
+    });
+  }, [data, gradeFilter, outcomeFilter]);
 
   const stats = useMemo(() => {
     if (!data || data.length === 0) {
@@ -335,10 +418,62 @@ export default function RecommendationsPage() {
         <CardHeader>
           <CardTitle>History</CardTitle>
           <CardDescription>
-            {data ? `${data.length} entries` : "Loading…"}
+            {data
+              ? gradeFilter === "ALL" && outcomeFilter === "ALL"
+                ? `${data.length} entries`
+                : `${filteredData.length} of ${data.length} entries`
+              : "Loading…"}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
+          {data && data.length > 0 ? (
+            <div className="border-b border-border px-3 py-2 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="font-mono text-[9px] tracking-wider uppercase text-muted-foreground/60 w-12">
+                  grade
+                </span>
+                <FilterChip
+                  label="ALL"
+                  count={data.length}
+                  active={gradeFilter === "ALL"}
+                  tone="text-muted-foreground"
+                  onClick={() => setGradeFilter("ALL")}
+                />
+                {ALL_GRADES.map((g) => (
+                  <FilterChip
+                    key={g}
+                    label={g}
+                    count={gradeCounts[g]}
+                    active={gradeFilter === g}
+                    tone={gradeChipTone(g)}
+                    onClick={() => setGradeFilter(g)}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="font-mono text-[9px] tracking-wider uppercase text-muted-foreground/60 w-12">
+                  outcome
+                </span>
+                <FilterChip
+                  label="ALL"
+                  count={data.length}
+                  active={outcomeFilter === "ALL"}
+                  tone="text-muted-foreground"
+                  onClick={() => setOutcomeFilter("ALL")}
+                />
+                {ALL_OUTCOMES.map((o) => (
+                  <FilterChip
+                    key={o}
+                    label={o}
+                    count={outcomeCounts[o]}
+                    active={outcomeFilter === o}
+                    tone={outcomeChipTone(o)}
+                    onClick={() => setOutcomeFilter(o)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
           {isLoading ? (
             <div className="space-y-2 p-3">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -348,6 +483,10 @@ export default function RecommendationsPage() {
           ) : !data || data.length === 0 ? (
             <p className="text-muted-foreground text-sm py-12 text-center font-mono">
               No paper-trade recommendations yet.
+            </p>
+          ) : filteredData.length === 0 ? (
+            <p className="text-muted-foreground text-sm py-12 text-center font-mono">
+              No rows match the current filters.
             </p>
           ) : (
             <Table>
@@ -386,7 +525,7 @@ export default function RecommendationsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.map((r) => (
+                {filteredData.map((r) => (
                   <TableRow
                     key={r.id}
                     className="hover:bg-muted/40 border-b border-border last:border-b-0"
@@ -454,5 +593,34 @@ export default function RecommendationsPage() {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+function FilterChip({
+  label,
+  count,
+  active,
+  tone,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  tone: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border rounded transition-colors",
+        active
+          ? `bg-muted/40 border-border ${tone}`
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30",
+      )}
+    >
+      {label} <span className="opacity-60">({count})</span>
+    </button>
   );
 }

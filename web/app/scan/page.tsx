@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Play, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -85,6 +85,24 @@ function scoreToneClass(score: number): string {
   if (score >= 75) return "text-bullish";
   if (score < 45) return "text-bearish";
   if (score >= 55) return "text-foreground";
+  return "text-muted-foreground";
+}
+
+type ActionGrade = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
+type GradeFilter = "ALL" | ActionGrade;
+
+const ALL_GRADES: ReadonlyArray<ActionGrade> = [
+  "STRONG BUY",
+  "BUY",
+  "HOLD",
+  "SELL",
+  "STRONG SELL",
+];
+
+function gradeChipTone(grade: GradeFilter): string {
+  if (grade === "STRONG BUY" || grade === "BUY") return "text-bullish";
+  if (grade === "SELL" || grade === "STRONG SELL") return "text-bearish";
+  if (grade === "HOLD") return "text-neutral";
   return "text-muted-foreground";
 }
 
@@ -323,6 +341,30 @@ function ResultsSection({
     return { strongBuys, buyOrHold };
   }, [results]);
 
+  // Per-grade counts power the chip labels so the user sees "(N)" before
+  // clicking. Zero-count chips stay clickable — filtering to empty is a
+  // legitimate way to confirm "no STRONG SELL in this run."
+  const gradeCounts = useMemo(() => {
+    const counts: Record<ActionGrade, number> = {
+      "STRONG BUY": 0,
+      "BUY": 0,
+      "HOLD": 0,
+      "SELL": 0,
+      "STRONG SELL": 0,
+    };
+    for (const r of results) {
+      const a = r.action as ActionGrade;
+      if (a in counts) counts[a] += 1;
+    }
+    return counts;
+  }, [results]);
+
+  const [gradeFilter, setGradeFilter] = useState<GradeFilter>("ALL");
+  const filteredResults =
+    gradeFilter === "ALL"
+      ? results
+      : results.filter((r) => r.action === gradeFilter);
+
   return (
     <>
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 mb-4">
@@ -379,8 +421,29 @@ function ResultsSection({
             Candidates
           </div>
           <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-            {results.length} rows
+            {gradeFilter === "ALL"
+              ? `${results.length} rows`
+              : `${filteredResults.length} of ${results.length}`}
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1 border-b border-border px-3 py-1.5">
+          <GradeChip
+            label="ALL"
+            count={results.length}
+            active={gradeFilter === "ALL"}
+            tone="text-muted-foreground"
+            onClick={() => setGradeFilter("ALL")}
+          />
+          {ALL_GRADES.map((g) => (
+            <GradeChip
+              key={g}
+              label={g}
+              count={gradeCounts[g]}
+              active={gradeFilter === g}
+              tone={gradeChipTone(g)}
+              onClick={() => setGradeFilter(g)}
+            />
+          ))}
         </div>
         <div className="px-1">
           {query.error ? (
@@ -394,7 +457,7 @@ function ResultsSection({
               ))}
             </div>
           ) : (
-            <ResultsTable results={results} />
+            <ResultsTable results={filteredResults} />
           )}
         </div>
       </div>
@@ -402,11 +465,40 @@ function ResultsSection({
   );
 }
 
+function GradeChip({
+  label,
+  count,
+  active,
+  tone,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  tone: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border rounded transition-colors",
+        active
+          ? `bg-muted/40 border-border ${tone}`
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30",
+      )}
+    >
+      {label} <span className="opacity-60">({count})</span>
+    </button>
+  );
+}
+
 function ResultsTable({ results }: { results: ScanResultItem[] }) {
   if (results.length === 0) {
     return (
       <p className="text-muted-foreground py-8 text-center font-mono text-xs tracking-wider uppercase">
-        No candidates above the strategy threshold.
+        No matching candidates.
       </p>
     );
   }
