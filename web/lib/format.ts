@@ -49,8 +49,12 @@ export function fmtDate(value: string | Date | null | undefined): string {
 }
 
 export function pnlColorClass(n: number | null | undefined): string {
+  // Routes positive P&L → bullish token, negative → bearish token. The
+  // tokens are defined in web/app/globals.css and themed in STYLE.md;
+  // updating them recolors every page that imports this helper without
+  // page-level edits.
   if (n === null || n === undefined || Number.isNaN(n)) return "";
-  if (n > 0) return "text-emerald-500";
-  if (n < 0) return "text-red-500";
+  if (n > 0) return "text-bullish";
+  if (n < 0) return "text-bearish";
   return "text-muted-foreground";
 }
