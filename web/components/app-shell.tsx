@@ -10,6 +10,7 @@ import {
   Brain,
   Briefcase,
   Grid3x3,
+  HelpCircle,
   LineChart,
   Microscope,
   MessageSquare,
@@ -110,6 +111,12 @@ const NAV: NavLink[] = [
     label: "Filing feed",
     icon: Rss,
     description: "Live EDGAR 8-K / 10-K / 10-Q notifications for your holdings",
+  },
+  {
+    href: "/help",
+    label: "Help",
+    icon: HelpCircle,
+    description: "Quick start, glossary, FAQ",
   },
 ];
 
