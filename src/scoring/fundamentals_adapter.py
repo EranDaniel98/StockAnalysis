@@ -111,18 +111,22 @@ def snapshot_to_analyzer_dict(
         if snapshot.total_debt is not None:
             out["total_debt"] = snapshot.total_debt
 
-        # --- valuation: only computable with price + EPS ---
+        # --- valuation: price / TTM EPS ---
+        # eps_ttm must come from the overlay (typically auto-injected by the
+        # PIT loader's lookup_dict). The previous `eps_diluted * 4` fallback
+        # was wrong for any non-steady-state company — a stock growing 40%
+        # YoY had its latest-quarter EPS already containing most of the
+        # year's gains, so ×4 over-counted dramatically. When TTM isn't
+        # available (e.g. fewer than 4 quarters of EDGAR coverage), we skip
+        # pe_trailing entirely and the analyzer's valuation category
+        # falls through to PB / PEG / EV/EBITDA when those are present.
+        eps_ttm = (overlay or {}).get("eps_ttm")
         if (
             price is not None
-            and snapshot.eps_diluted is not None
-            and snapshot.eps_diluted > 0
+            and eps_ttm is not None
+            and eps_ttm > 0
         ):
-            # Quarterly EPS produces a PE 4x the TTM PE. Multiply by 4 for a
-            # rough TTM approximation when caller hasn't supplied eps_ttm.
-            eps_ttm = (overlay or {}).get("eps_ttm")
-            if eps_ttm is None or eps_ttm <= 0:
-                eps_ttm = float(snapshot.eps_diluted) * 4
-            out["pe_trailing"] = float(price) / eps_ttm
+            out["pe_trailing"] = float(price) / float(eps_ttm)
 
         # --- categorical (present when EDGAR has them) ---
         if snapshot.sector:

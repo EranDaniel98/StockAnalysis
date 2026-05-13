@@ -95,6 +95,40 @@ class FundamentalsPITLoader:
         # Highest source rank, then latest valid_from as tiebreak.
         return max(valid, key=lambda r: (_SOURCE_RANK.get(r.source, 0), r.valid_from))
 
+    def compute_eps_ttm(
+        self, ticker: str, as_of: datetime
+    ) -> float | None:
+        """Trailing-12-month EPS — sum of diluted EPS across the 4 most recent
+        edgar_10q rows valid on-or-before as_of.
+
+        Returns None when fewer than 4 quarters are available or any of them
+        is missing diluted EPS. The adapter falls back to "no pe_trailing"
+        rather than fabricate a TTM from a partial year.
+
+        10-K rows are excluded — they report annual EPS, which would
+        double-count with the quarterly sum. Pure 10-K coverage (rare for
+        recent filings) means callers see no TTM.
+        """
+        rows = self._by_ticker.get(ticker.upper())
+        if not rows:
+            return None
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        quarterly: list[FundamentalSnapshot] = []
+        for r in rows:
+            if r.source != "edgar_10q":
+                continue
+            vf = r.valid_from if r.valid_from.tzinfo else r.valid_from.replace(tzinfo=timezone.utc)
+            if vf > as_of:
+                continue
+            if r.eps_diluted is None:
+                continue
+            quarterly.append(r)
+        if len(quarterly) < 4:
+            return None
+        last_four = sorted(quarterly, key=lambda r: r.valid_from)[-4:]
+        return sum(r.eps_diluted for r in last_four)  # type: ignore[misc]
+
     def lookup_dict(
         self,
         ticker: str,
@@ -104,9 +138,20 @@ class FundamentalsPITLoader:
         overlay: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Same as ``lookup`` but returns the analyzer-shaped dict. Returns
-        the overlay alone (or empty) when no PIT row covers as_of."""
+        the overlay alone (or empty) when no PIT row covers as_of.
+
+        Auto-injects ``eps_ttm`` into the overlay when 4 quarters of EDGAR
+        EPS are available — so the adapter computes PE from real TTM rather
+        than the latest-quarter × 4 heuristic. Caller-supplied eps_ttm in
+        the overlay wins (lets tests pin a specific value).
+        """
         snap = self.lookup(ticker, as_of)
-        return snapshot_to_analyzer_dict(snap, price=price, overlay=overlay)
+        merged_overlay: dict[str, Any] = dict(overlay) if overlay else {}
+        if "eps_ttm" not in merged_overlay:
+            ttm = self.compute_eps_ttm(ticker, as_of)
+            if ttm is not None:
+                merged_overlay["eps_ttm"] = ttm
+        return snapshot_to_analyzer_dict(snap, price=price, overlay=merged_overlay)
 
     def coverage(self) -> dict[str, int]:
         """Per-ticker row count. Useful for sanity-checking the universe at

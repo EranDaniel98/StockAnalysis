@@ -75,14 +75,16 @@ def test_adapter_renames_yoy_to_growth_keys():
     assert out["earnings_growth"] == 0.55
 
 
-def test_adapter_computes_pe_from_price_and_eps():
+def test_adapter_skips_pe_when_no_eps_ttm():
+    """Without a real TTM EPS from the loader the adapter must NOT compute
+    pe_trailing from latest-quarter × 4 — that heuristic systematically
+    miscounts for any non-steady-state company."""
     snap = _snap(
         "X", datetime(2024, 1, 1, tzinfo=timezone.utc),
-        eps_diluted=2.0,  # quarterly
+        eps_diluted=2.0,  # quarterly only — no TTM yet
     )
-    # Quarterly EPS, no overlay → TTM approximation = 2 * 4 = 8
     out = snapshot_to_analyzer_dict(snap, price=80.0)
-    assert out["pe_trailing"] == 10.0  # 80 / 8
+    assert "pe_trailing" not in out
 
 
 def test_adapter_uses_eps_ttm_overlay_when_supplied():
@@ -192,3 +194,98 @@ def test_loader_tz_naive_as_of_compares_safely():
     # naive datetime — must not blow up
     pick = loader.lookup("AAPL", datetime(2024, 2, 1))
     assert pick is not None
+
+
+# --------------------------- loader TTM EPS ---------------------------
+
+
+def _quarterly(ticker: str, dt: datetime, eps: float | None) -> FundamentalSnapshot:
+    return _snap(ticker, dt, source="edgar_10q", eps_diluted=eps)
+
+
+def test_compute_eps_ttm_sums_last_four_quarters():
+    """Strict TTM = sum of 4 most-recent quarterly EPS values strictly ≤ as_of."""
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), 1.20),
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+        _quarterly("AAPL", datetime(2024, 2, 1, tzinfo=timezone.utc), 1.50),
+        _quarterly("AAPL", datetime(2024, 5, 1, tzinfo=timezone.utc), 1.70),  # excluded
+    ]
+    loader = FundamentalsPITLoader(rows)
+    # as_of after Q4 filing but before Q5: TTM = 1.20 + 1.30 + 1.50 + 1.00 = 5.00
+    # (4 most recent ≤ as_of: 2023-05, 2023-08, 2023-11, 2024-02)
+    ttm = loader.compute_eps_ttm("AAPL", datetime(2024, 4, 1, tzinfo=timezone.utc))
+    assert ttm is not None
+    assert abs(ttm - 5.00) < 1e-9
+
+
+def test_compute_eps_ttm_returns_none_when_fewer_than_four_quarters():
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), 1.20),
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+    ]
+    loader = FundamentalsPITLoader(rows)
+    assert loader.compute_eps_ttm("AAPL", datetime(2024, 1, 1, tzinfo=timezone.utc)) is None
+
+
+def test_compute_eps_ttm_excludes_10k_rows():
+    """10-Ks report annual EPS — including them would double-count the year."""
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), 1.20),
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+        _snap("AAPL", datetime(2024, 1, 31, tzinfo=timezone.utc),
+              source="edgar_10k", eps_diluted=5.00),  # annual — must be excluded
+    ]
+    loader = FundamentalsPITLoader(rows)
+    # Only 3 quarterlies → returns None even though a 10-K is present.
+    assert loader.compute_eps_ttm("AAPL", datetime(2024, 2, 15, tzinfo=timezone.utc)) is None
+
+
+def test_compute_eps_ttm_skips_quarters_with_none_eps():
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), None),  # missing
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+        _quarterly("AAPL", datetime(2024, 2, 1, tzinfo=timezone.utc), 1.50),
+    ]
+    loader = FundamentalsPITLoader(rows)
+    # 3 usable quarters, not 4 → None.
+    assert loader.compute_eps_ttm("AAPL", datetime(2024, 4, 1, tzinfo=timezone.utc)) is None
+
+
+def test_lookup_dict_auto_injects_eps_ttm():
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), 1.20),
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+        _quarterly("AAPL", datetime(2024, 2, 1, tzinfo=timezone.utc), 1.50),
+    ]
+    loader = FundamentalsPITLoader(rows)
+    out = loader.lookup_dict(
+        "AAPL", datetime(2024, 4, 1, tzinfo=timezone.utc), price=50.0,
+    )
+    # TTM = 5.0; PE = 50 / 5 = 10
+    assert out["pe_trailing"] == 10.0
+    assert "eps_ttm" not in out  # internal hint must not leak
+
+
+def test_lookup_dict_caller_eps_ttm_overlay_wins():
+    """When the caller supplies eps_ttm explicitly, that value beats the
+    loader's auto-computed one. Lets tests pin specific TTM values."""
+    rows = [
+        _quarterly("AAPL", datetime(2023, 5, 1, tzinfo=timezone.utc), 1.00),
+        _quarterly("AAPL", datetime(2023, 8, 1, tzinfo=timezone.utc), 1.20),
+        _quarterly("AAPL", datetime(2023, 11, 1, tzinfo=timezone.utc), 1.30),
+        _quarterly("AAPL", datetime(2024, 2, 1, tzinfo=timezone.utc), 1.50),
+    ]
+    loader = FundamentalsPITLoader(rows)
+    out = loader.lookup_dict(
+        "AAPL", datetime(2024, 4, 1, tzinfo=timezone.utc),
+        price=50.0,
+        overlay={"eps_ttm": 2.5},
+    )
+    # Caller-supplied TTM wins: PE = 50 / 2.5 = 20
+    assert out["pe_trailing"] == 20.0
