@@ -23,6 +23,8 @@ def calculate_composite_score(
     catalyst_result=None,
     short_interest_result=None,
     sector_flows_result=None,
+    analyst_revisions_result=None,
+    options_skew_result=None,
 ):
     """
     Combine all analysis sub-scores into a weighted composite.
@@ -68,6 +70,10 @@ def calculate_composite_score(
         sub_scores["short_interest"] = short_interest_result.get("score", 50)
     if sector_flows_result is not None:
         sub_scores["sector_flows"] = sector_flows_result.get("score", 50)
+    if analyst_revisions_result is not None:
+        sub_scores["analyst_revisions"] = analyst_revisions_result.get("score", 50)
+    if options_skew_result is not None:
+        sub_scores["options_skew"] = options_skew_result.get("score", 50)
 
     # Collect all signals
     result_list = [technical_result, fundamental_result, pattern_result,
@@ -86,6 +92,10 @@ def calculate_composite_score(
         result_list.append(short_interest_result)
     if sector_flows_result is not None:
         result_list.append(sector_flows_result)
+    if analyst_revisions_result is not None:
+        result_list.append(analyst_revisions_result)
+    if options_skew_result is not None:
+        result_list.append(options_skew_result)
     all_signals = []
     for result in result_list:
         all_signals.extend(result.get("signals", []))
@@ -139,6 +149,10 @@ def calculate_composite_score(
         breakdown_keys.append("short_interest")
     if sector_flows_result is not None:
         breakdown_keys.append("sector_flows")
+    if analyst_revisions_result is not None:
+        breakdown_keys.append("analyst_revisions")
+    if options_skew_result is not None:
+        breakdown_keys.append("options_skew")
     breakdown = []
     for category in breakdown_keys:
         w = weights.get(category, 0)
@@ -191,6 +205,8 @@ def batch_score(analysis_results, strategy_config):
                 catalyst_result=results.get("catalyst"),
                 short_interest_result=results.get("short_interest"),
                 sector_flows_result=results.get("sector_flows"),
+                analyst_revisions_result=results.get("analyst_revisions"),
+                options_skew_result=results.get("options_skew"),
             )
             scored.append((ticker, score_result))
         except Exception as e:

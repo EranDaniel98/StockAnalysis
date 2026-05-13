@@ -215,6 +215,8 @@ def analyze_and_score(
     benchmark_df: pd.DataFrame | None = None,
     as_of: date | None = None,
     sector_etfs: dict[str, pd.DataFrame] | None = None,
+    analyst_revisions_data: dict[str, list] | None = None,
+    options_chains: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run all analyzers, composite-score every ticker, generate recommendations.
 
@@ -306,6 +308,48 @@ def analyze_and_score(
             logger.warning("catalyst pre-pass failed: %s", e)
             catalyst_results = {}
 
+    # analyst_revisions pre-pass: LIVE-ONLY analyzer. Caller supplies
+    # dict[ticker, list[RevisionRow]] (typically from yfinance
+    # recommendations + upgrades_downgrades). When absent, analyzer
+    # doesn't fire — same opt-in posture as the other ancillaries.
+    # Backtest engine intentionally does NOT call this analyzer because
+    # historical analyst revisions aren't available without paid feeds.
+    analyst_revisions_results: dict[str, dict[str, Any]] = {}
+    if analyst_revisions_data:
+        from src.scoring.analyzers import analyst_revisions as _ar
+        ar_as_of = as_of or date.today()
+        for ticker, rows in analyst_revisions_data.items():
+            if not rows:
+                continue
+            try:
+                res = _ar.analyze(rows, as_of=ar_as_of)
+            except Exception as e:
+                logger.debug("analyst_revisions failed for %s: %s", ticker, e)
+                continue
+            if res is not None:
+                analyst_revisions_results[ticker.upper()] = res
+
+    # options_skew pre-pass: LIVE-ONLY analyzer. Caller supplies
+    # dict[ticker, OptionsChain] (from yfinance Ticker.option_chain).
+    # Per-ticker current_price is read from the latest close of the
+    # corresponding price_data row. Skipped silently when chain or
+    # price is unavailable.
+    options_skew_results: dict[str, dict[str, Any]] = {}
+    if options_chains:
+        from src.scoring.analyzers import options_skew as _os
+        for ticker, chain in options_chains.items():
+            df = price_data_map.get(ticker)
+            if df is None or df.empty or chain is None:
+                continue
+            try:
+                current_price = float(df["Close"].iloc[-1])
+                res = _os.analyze(chain, current_price=current_price)
+            except Exception as e:
+                logger.debug("options_skew failed for %s: %s", ticker, e)
+                continue
+            if res is not None:
+                options_skew_results[ticker.upper()] = res
+
     # Sector-flows pre-pass: caller can pass sector_etfs explicitly (live
     # scan path fetches the 11 SPDR sector ETFs once per run and threads
     # them in via the kwarg). When absent, sector_flows simply doesn't
@@ -353,6 +397,8 @@ def analyze_and_score(
                 "insider_flow": insider_results.get(ticker.upper()),
                 "catalyst": catalyst_results.get(ticker.upper()),
                 "sector_flows": sector_flows_results.get(ticker.upper()),
+                "analyst_revisions": analyst_revisions_results.get(ticker.upper()),
+                "options_skew": options_skew_results.get(ticker.upper()),
             }
             emit(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
