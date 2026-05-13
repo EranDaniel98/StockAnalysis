@@ -58,4 +58,10 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     ],
     "total_assets": ["Assets"],
+    "operating_income": [
+        "OperatingIncomeLoss",
+        "IncomeLossFromContinuingOperationsBeforeInterestExpenseInterestIncomeIncomeTaxesExtraordinaryItemsNoncontrollingInterestsNet",
+    ],
+    "current_assets": ["AssetsCurrent"],
+    "current_liabilities": ["LiabilitiesCurrent"],
 }

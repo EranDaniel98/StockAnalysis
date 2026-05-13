@@ -176,32 +176,19 @@ def parse_company_facts(
         cash = fields.get("total_cash", (None, ""))[0]
         ocf = fields.get("free_cash_flow", (None, ""))[0]
         eps_diluted = fields.get("eps_diluted", (None, ""))[0]
+        operating_income = fields.get("operating_income", (None, ""))[0]
+        current_assets = fields.get("current_assets", (None, ""))[0]
+        current_liabilities = fields.get("current_liabilities", (None, ""))[0]
 
-        # Derived: gross_margin %, ROE, ROA, debt_to_equity
-        gross_margin_pct: float | None = None
-        if gross is not None and revenue not in (None, 0):
-            try:
-                gross_margin_pct = float(gross) / float(revenue)
-            except (TypeError, ZeroDivisionError):
-                gross_margin_pct = None
-        roe: float | None = None
-        if net_income is not None and equity not in (None, 0):
-            try:
-                roe = float(net_income) / float(equity)
-            except (TypeError, ZeroDivisionError):
-                roe = None
-        roa: float | None = None
-        if net_income is not None and assets not in (None, 0):
-            try:
-                roa = float(net_income) / float(assets)
-            except (TypeError, ZeroDivisionError):
-                roa = None
-        debt_to_equity: float | None = None
-        if long_term_debt is not None and equity not in (None, 0):
-            try:
-                debt_to_equity = float(long_term_debt) / float(equity)
-            except (TypeError, ZeroDivisionError):
-                debt_to_equity = None
+        # Derived ratios — each guards on a non-zero divisor to avoid blowing up on
+        # filings where the numerator is reported but the divisor is missing/zero.
+        gross_margin_pct = _safe_ratio(gross, revenue)
+        profit_margin_pct = _safe_ratio(net_income, revenue)
+        operating_margin_pct = _safe_ratio(operating_income, revenue)
+        roe = _safe_ratio(net_income, equity)
+        roa = _safe_ratio(net_income, assets)
+        debt_to_equity = _safe_ratio(long_term_debt, equity)
+        current_ratio = _safe_ratio(current_assets, current_liabilities)
 
         snapshots.append(
             FundamentalSnapshot(
@@ -212,20 +199,85 @@ def parse_company_facts(
                 revenue=float(revenue) if revenue is not None else None,
                 eps_diluted=float(eps_diluted) if eps_diluted is not None else None,
                 gross_margin=gross_margin_pct,
+                operating_margin=operating_margin_pct,
+                profit_margin=profit_margin_pct,
                 roe=roe,
                 roa=roa,
                 debt_to_equity=debt_to_equity,
+                current_ratio=current_ratio,
                 free_cash_flow=float(ocf) if ocf is not None else None,
                 total_cash=float(cash) if cash is not None else None,
                 total_debt=float(long_term_debt) if long_term_debt is not None else None,
             )
         )
 
-    # Second pass: chain valid_to for each snapshot (= next snapshot's valid_from)
+    # Sort once by filing date so chain + YoY passes can rely on temporal order.
+    snapshots.sort(key=lambda s: s.valid_from)
+
+    # Second pass: chain valid_to + compute YoY growth fields.
+    #
+    # YoY: for each snapshot we look ~365d back (window 300-430d to absorb
+    # quarter-shift drift around filings that move a few weeks between years).
+    # When we find a matching prior-year snapshot with non-zero revenue/net
+    # income, we compute the percentage delta. Quarterly filings (10-Q) match
+    # to prior 10-Q; annuals (10-K) match to prior 10-K. Same-source matching
+    # avoids comparing TTM to a quarter.
     chained: list[FundamentalSnapshot] = []
     for i, snap in enumerate(snapshots):
+        updates: dict[str, object] = {}
         if i + 1 < len(snapshots):
-            chained.append(snap.model_copy(update={"valid_to": snapshots[i + 1].valid_from}))
-        else:
-            chained.append(snap)  # most recent: valid_to stays None
+            updates["valid_to"] = snapshots[i + 1].valid_from
+        rev_yoy, eps_yoy = _compute_yoy(snap, snapshots[:i])
+        if rev_yoy is not None:
+            updates["revenue_growth_yoy"] = rev_yoy
+        if eps_yoy is not None:
+            updates["earnings_growth_yoy"] = eps_yoy
+        chained.append(snap.model_copy(update=updates) if updates else snap)
     return chained
+
+
+def _safe_ratio(num: object, denom: object) -> float | None:
+    if num is None or denom in (None, 0):
+        return None
+    try:
+        return float(num) / float(denom)
+    except (TypeError, ZeroDivisionError):
+        return None
+
+
+def _compute_yoy(
+    current: FundamentalSnapshot, prior: list[FundamentalSnapshot]
+) -> tuple[float | None, float | None]:
+    """Match `current` to a same-source filing roughly 365d earlier and return
+    (revenue_growth_yoy, earnings_growth_yoy). Returns (None, None) when no
+    suitable prior-year row exists."""
+    if not prior:
+        return None, None
+    target_delta_days = 365
+    window_lo, window_hi = 300, 430
+    same_source = [
+        p for p in prior
+        if p.source == current.source
+        and window_lo <= (current.valid_from - p.valid_from).days <= window_hi
+    ]
+    if not same_source:
+        return None, None
+    # Pick the row closest to exactly 365 days back.
+    prior_row = min(
+        same_source,
+        key=lambda p: abs((current.valid_from - p.valid_from).days - target_delta_days),
+    )
+    rev_yoy = _pct_change(current.revenue, prior_row.revenue)
+    eps_yoy = _pct_change(current.eps_diluted, prior_row.eps_diluted)
+    return rev_yoy, eps_yoy
+
+
+def _pct_change(current: float | None, prior: float | None) -> float | None:
+    """Percentage change as a decimal (0.10 = +10%). Returns None when prior
+    is zero or sign-flips (cannot interpret as growth)."""
+    if current is None or prior is None or prior == 0:
+        return None
+    if (current >= 0) != (prior >= 0):
+        # Sign flip — yoy growth is ambiguous (from loss to profit or vice versa)
+        return None
+    return (current - prior) / abs(prior)
