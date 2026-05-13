@@ -169,3 +169,14 @@ class Config:
             "enabled": False,
             "min_cohort": 5,
         })
+
+    def get_analyst_scoring(self):
+        """Get the analyst-score toggle config.
+
+        Returns ``{enabled: bool}``. Default enabled — preserves legacy
+        behavior so old YAMLs without the block keep producing the same
+        composite scores.
+        """
+        return self.get("risk_management", "analyst_score", default={
+            "enabled": True,
+        })

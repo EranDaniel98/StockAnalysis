@@ -270,11 +270,64 @@ class TestSectorRelativeValuation:
         assert "PEG" in sources  # absolute fallback
 
 
-class TestAnalystScore:
-    def test_no_recommendation_yields_none(self, cfg: Config) -> None:
-        assert _scores_only({}, cfg).get("analyst") is None
+class TestAnalystScoreToggle:
+    """The analyst category can be disabled wholesale via
+    ``risk_management.analyst_score.enabled``. When off, the bucket
+    returns None regardless of input, and the composite renormalizes
+    around the remaining categories."""
 
-    def test_known_recommendation_keys_map_to_score(self, cfg: Config) -> None:
+    def _cfg_with_analyst(self, enabled: bool) -> Config:
+        cfg = Config()
+        # Mutate the loaded settings rather than touching the YAML on disk.
+        cfg.settings.setdefault("risk_management", {})["analyst_score"] = {
+            "enabled": enabled,
+        }
+        return cfg
+
+    def test_disabled_returns_none_even_with_strong_recommendation(self) -> None:
+        cfg = self._cfg_with_analyst(False)
+        scores = _scores_only({"recommendation": "strongBuy"}, cfg)
+        assert scores.get("analyst") is None
+
+    def test_enabled_default_preserves_legacy_score(self) -> None:
+        cfg = self._cfg_with_analyst(True)
+        scores = _scores_only({"recommendation": "strongBuy"}, cfg)
+        assert scores.get("analyst") is not None
+        assert scores["analyst"] >= 80
+
+    def test_disabled_redistributes_weight_to_remaining_categories(self) -> None:
+        """With only valuation + analyst inputs and analyst disabled,
+        composite should ≈ valuation score (analyst weight redistributed
+        to valuation rather than dragging composite toward neutral)."""
+        cfg = self._cfg_with_analyst(False)
+        fund = {"pe_trailing": 10.0, "recommendation": "strongSell"}
+        result = fundamental.analyze(fund, cfg)
+        v = result["scores"]["valuation"]
+        # With analyst included this would pull composite hard toward
+        # the strongSell score (~10). Disabled, composite ≈ valuation.
+        assert abs(result["score"] - v) < 0.1
+
+
+class TestAnalystScore:
+    """Tests for the analyst sub-score path itself. The default is
+    disabled (per 2026-05-12 A/B), so each test here enables the
+    bucket on a per-test config rather than the shared ``cfg``
+    fixture."""
+
+    @pytest.fixture
+    def analyst_cfg(self) -> Config:
+        cfg = Config()
+        cfg.settings.setdefault("risk_management", {})["analyst_score"] = {
+            "enabled": True,
+        }
+        return cfg
+
+    def test_no_recommendation_yields_none(self, analyst_cfg: Config) -> None:
+        assert _scores_only({}, analyst_cfg).get("analyst") is None
+
+    def test_known_recommendation_keys_map_to_score(
+        self, analyst_cfg: Config
+    ) -> None:
         # Direct from the score_map dict in _score_analyst.
         for key, expected_floor in [
             ("strongBuy", 80),
@@ -283,7 +336,7 @@ class TestAnalystScore:
             ("sell", 20),
             ("strongSell", 5),
         ]:
-            result = _scores_only({"recommendation": key}, cfg)
+            result = _scores_only({"recommendation": key}, analyst_cfg)
             assert result["analyst"] is not None
             if key in ("strongBuy", "buy"):
                 assert result["analyst"] >= expected_floor

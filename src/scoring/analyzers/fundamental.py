@@ -428,7 +428,18 @@ def _score_dividend(fund, config, signals):
 
 
 def _score_analyst(fund, config, signals):
-    """Score based on analyst recommendations."""
+    """Score based on analyst recommendations.
+
+    The whole bucket can be disabled via
+    ``risk_management.analyst_score.enabled = false`` in settings.yaml.
+    When disabled this returns None, the fundamental composite skips
+    the category, and the remaining weights renormalize.
+    """
+    if hasattr(config, "get_analyst_scoring"):
+        analyst_cfg = config.get_analyst_scoring()
+        if not analyst_cfg.get("enabled", True):
+            return None
+
     rec = fund.get("recommendation")
     num_analysts = fund.get("num_analyst_opinions", 0)
 

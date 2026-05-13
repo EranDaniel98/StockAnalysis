@@ -136,6 +136,17 @@ risk_management:
   sector_relative_scoring:
     enabled: true
     min_cohort: 5
+  # Analyst recommendationKey is reactive (upgrades follow price moves)
+  # and structurally inflated (sell-side ~50% buy ratings, ~5% sell), so
+  # the analyst sub-score mostly shifts the whole composite up without
+  # discriminating. A/B sweep on 2026-05-12 (data/sweep_analyst_score.json)
+  # found the toggle effectively neutral on swing_trading (-0.02 OOS
+  # Sharpe, +1.7pp OOS return, identical risk metrics) — but the saved
+  # weight slot lets fundamentals-heavy strategies (value_investing,
+  # long_term_growth, dividend_income) avoid the lagged-signal drag.
+  # Disabled by default; flip back to true if you want legacy behavior.
+  analyst_score:
+    enabled: false
 
 # --- Alerts ---
 alerts:
