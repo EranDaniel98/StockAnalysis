@@ -276,3 +276,80 @@ def compute_insider_flow_results_sync(
             enrich_narrative=enrich_narrative,
         )
     )
+
+
+async def compute_catalyst_results_async(
+    tickers: Iterable[str],
+    *,
+    as_of: date,
+    max_age_days: int = 60,
+    min_sim: float = 0.30,
+) -> dict[str, dict]:
+    """Bulk pipeline for the catalyst analyzer in the scan path:
+      1. Load the most-recent ``insider_narrative_snapshots`` row per
+         ticker (cluster_end_date <= as_of), within ``max_age_days``.
+      2. Run ``catalyst.analyze`` on each one.
+      3. Return ``{ticker: result_dict}`` for tickers that fired.
+
+    Missing-snapshot tickers are simply absent from the result (same
+    convention as ``compute_insider_flow_results_async``).
+    """
+    from sqlalchemy import desc, select
+
+    from src.db.models import InsiderNarrativeSnapshot as INS
+    from src.db.session import get_sessionmaker
+    from src.scoring.analyzers import catalyst as cat
+    from src.scoring.analyzers.catalyst import CatalystParams
+
+    tickers_list = [t.upper() for t in tickers]
+    if not tickers_list:
+        return {}
+
+    cutoff = as_of - timedelta(days=max_age_days)
+    params = cat.CatalystParams(max_age_days=max_age_days, min_sim=min_sim)
+
+    SL = get_sessionmaker()
+    out: dict[str, dict] = {}
+    async with SL() as session:
+        # Most-recent snapshot per (ticker) within the age window. Done
+        # via per-ticker LIMIT 1 queries — the universe is at most a
+        # few dozen tickers per scan, so 36 round-trips is cheaper than
+        # a window function for the data sizes we actually see.
+        for ticker in tickers_list:
+            stmt = (
+                select(INS)
+                .where(INS.ticker == ticker)
+                .where(INS.cluster_end_date <= as_of)
+                .where(INS.cluster_end_date >= cutoff)
+                .order_by(desc(INS.cluster_end_date))
+                .limit(1)
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                continue
+            result = cat.analyze(row, as_of=as_of, params=params)
+            if result is not None:
+                out[ticker] = result
+    return out
+
+
+def compute_catalyst_results_sync(
+    tickers: Iterable[str],
+    *,
+    as_of: date,
+    max_age_days: int = 60,
+    min_sim: float = 0.30,
+) -> dict[str, dict]:
+    """Sync wrapper for ``compute_catalyst_results_async`` — the scan
+    service is synchronous and wraps a single ``asyncio.run`` per
+    pre-pass."""
+    import asyncio
+
+    return asyncio.run(
+        compute_catalyst_results_async(
+            tickers,
+            as_of=as_of,
+            max_age_days=max_age_days,
+            min_sim=min_sim,
+        )
+    )

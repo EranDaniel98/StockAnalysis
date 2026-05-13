@@ -181,6 +181,27 @@ class Config:
             "enabled": True,
         })
 
+    def get_catalyst(self):
+        """Insider catalyst-narrative scoring config.
+
+        Returns ``{enabled, max_age_days, min_sim}``. Defaults disabled —
+        the day-5 ML A/B (2026-05-13) showed only +0.0053 Pearson IC
+        lift on 74/7644 rows. The analyzer's main value is
+        explainability (one-line catalyst label in the rationale), not
+        raw alpha. Enable when a future A/B sweep on a broader universe
+        + denser 8-K corpus shows decisive lift.
+
+        - ``enabled``: include catalyst.analyze in the scan path
+        - ``max_age_days``: how stale a snapshot can be (default 60)
+        - ``min_sim``: cosine floor below which an anchor doesn't fire
+          (default 0.30 — calibrated by the day-1 eyeball test)
+        """
+        return self.get("risk_management", "catalyst", default={
+            "enabled": False,
+            "max_age_days": 60,
+            "min_sim": 0.30,
+        })
+
     def get_insider_flow(self):
         """Insider Form 4 cluster-buy scoring config.
 

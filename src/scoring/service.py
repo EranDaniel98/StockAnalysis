@@ -282,6 +282,29 @@ def analyze_and_score(
             logger.warning("insider_flow pre-pass failed: %s", e)
             insider_results = {}
 
+    # Catalyst pre-pass: bulk-load the most recent narrative snapshot
+    # per ticker and run the catalyst analyzer. Same opt-in posture as
+    # insider_flow — default off (the day-5 ML A/B only yielded
+    # +0.0053 Pearson IC). When enabled, the analyzer's signal is the
+    # human-readable catalyst label that the recommender can carry into
+    # its rationale.
+    catalyst_cfg = (
+        config.get_catalyst() if hasattr(config, "get_catalyst") else {}
+    )
+    catalyst_results: dict[str, dict[str, Any]] = {}
+    if catalyst_cfg.get("enabled", False):
+        from src.scoring.insider_narrative import compute_catalyst_results_sync
+        try:
+            catalyst_results = compute_catalyst_results_sync(
+                list(price_data_map.keys()),
+                as_of=as_of or date.today(),
+                max_age_days=int(catalyst_cfg.get("max_age_days", 60)),
+                min_sim=float(catalyst_cfg.get("min_sim", 0.30)),
+            )
+        except Exception as e:
+            logger.warning("catalyst pre-pass failed: %s", e)
+            catalyst_results = {}
+
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
 
@@ -302,6 +325,7 @@ def analyze_and_score(
                     if bench_df is not None else None
                 ),
                 "insider_flow": insider_results.get(ticker.upper()),
+                "catalyst": catalyst_results.get(ticker.upper()),
             }
             emit(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
