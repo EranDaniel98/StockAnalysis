@@ -76,6 +76,12 @@ const NAV: NavLink[] = [
     description: "SPDR sector rotation map",
   },
   {
+    href: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    description: "Closed paper-trade analytics dashboard",
+  },
+  {
     href: "/calibration",
     label: "Calibration",
     icon: Target,
