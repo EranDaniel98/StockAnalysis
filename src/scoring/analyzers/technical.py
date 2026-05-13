@@ -38,25 +38,52 @@ def analyze(df, config):
     sma_scores = _calc_moving_averages(close, config, indicators, signals)
     scores.extend(sma_scores)
 
-    # --- RSI ---
-    rsi_score = _calc_rsi(close, config, indicators, signals)
-    scores.append(rsi_score)
+    # RSI + Stochastic. By default they're treated as independent
+    # indicators (legacy behavior); when ``risk_management.momentum_
+    # oscillator.merge_rsi_stoch`` is true they collapse into a single
+    # composite entry with a single signal that only fires when both
+    # agree — kills the double-counting in the signal-consensus path.
+    merge_osc = bool(config.get(
+        "risk_management", "momentum_oscillator", "merge_rsi_stoch",
+        default=False,
+    ))
+    if merge_osc:
+        rsi_stoch_score = _calc_rsi_stoch_merged(
+            close, high, low, config, indicators, signals,
+        )
+        scores.append(rsi_stoch_score)
 
-    # --- MACD ---
-    macd_score = _calc_macd(close, config, indicators, signals)
-    scores.append(macd_score)
+        # --- MACD ---
+        macd_score = _calc_macd(close, config, indicators, signals)
+        scores.append(macd_score)
 
-    # --- Bollinger Bands ---
-    bb_score = _calc_bollinger(close, config, indicators, signals)
-    scores.append(bb_score)
+        # --- Bollinger Bands ---
+        bb_score = _calc_bollinger(close, config, indicators, signals)
+        scores.append(bb_score)
 
-    # --- Volume Analysis ---
-    vol_score = _calc_volume(volume, config, indicators, signals)
-    scores.append(vol_score)
+        # --- Volume Analysis ---
+        vol_score = _calc_volume(volume, config, indicators, signals)
+        scores.append(vol_score)
+    else:
+        # --- RSI ---
+        rsi_score = _calc_rsi(close, config, indicators, signals)
+        scores.append(rsi_score)
 
-    # --- Stochastic ---
-    stoch_score = _calc_stochastic(high, low, close, config, indicators, signals)
-    scores.append(stoch_score)
+        # --- MACD ---
+        macd_score = _calc_macd(close, config, indicators, signals)
+        scores.append(macd_score)
+
+        # --- Bollinger Bands ---
+        bb_score = _calc_bollinger(close, config, indicators, signals)
+        scores.append(bb_score)
+
+        # --- Volume Analysis ---
+        vol_score = _calc_volume(volume, config, indicators, signals)
+        scores.append(vol_score)
+
+        # --- Stochastic ---
+        stoch_score = _calc_stochastic(high, low, close, config, indicators, signals)
+        scores.append(stoch_score)
 
     # --- Clenow regression-slope momentum (slope * R^2) ---
     clenow_score = _calc_regression_slope_momentum(close, config, indicators, signals)
@@ -315,6 +342,58 @@ def _calc_stochastic(high, low, close, config, indicators, signals):
         return 30
     else:
         return 50 + (50 - k_value) * 0.2
+
+
+def _calc_rsi_stoch_merged(close, high, low, config, indicators, signals):
+    """Merged momentum oscillator: average of RSI + Stochastic scores
+    with a single ``MomOsc`` signal that fires only when both agree.
+
+    Calls the existing single-indicator functions with a private
+    signal buffer (so their per-indicator signals never reach the
+    global ``signals`` list), then synthesizes one merged signal.
+
+    Returns None if both indicators return None (insufficient bars).
+    Returns the single non-None score when only one fires — keeps
+    information when one indicator has enough history and the other
+    doesn't, instead of returning None for the whole bucket.
+    """
+    private_signals: list[dict] = []
+    rsi_score = _calc_rsi(close, config, indicators, private_signals)
+    stoch_score = _calc_stochastic(high, low, close, config, indicators, private_signals)
+
+    if rsi_score is None and stoch_score is None:
+        return None
+    if rsi_score is None:
+        return stoch_score
+    if stoch_score is None:
+        return rsi_score
+
+    rsi_signal = next((s for s in private_signals if s["source"] == "RSI"), None)
+    stoch_signal = next((s for s in private_signals if s["source"] == "Stochastic"), None)
+    rsi_type = rsi_signal["type"] if rsi_signal else None
+    stoch_type = stoch_signal["type"] if stoch_signal else None
+
+    if rsi_type == "bullish" and stoch_type == "bullish":
+        signals.append({
+            "type": "bullish",
+            "source": "MomOsc",
+            "detail": (
+                f"RSI {indicators.get('rsi')} + Stoch K {indicators.get('stoch_k')} both oversold"
+            ),
+        })
+    elif rsi_type == "bearish" and stoch_type == "bearish":
+        signals.append({
+            "type": "bearish",
+            "source": "MomOsc",
+            "detail": (
+                f"RSI {indicators.get('rsi')} + Stoch K {indicators.get('stoch_k')} both overbought"
+            ),
+        })
+    # When the two disagree, no signal is emitted — the averaged score
+    # already represents the conflict; emitting a signal in that case
+    # would just reintroduce the double-counting we're trying to kill.
+
+    return (rsi_score + stoch_score) / 2.0
 
 
 def _calc_atr(high, low, close, config, indicators):

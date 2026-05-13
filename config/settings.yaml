@@ -147,6 +147,14 @@ risk_management:
   # Disabled by default; flip back to true if you want legacy behavior.
   analyst_score:
     enabled: false
+  # RSI and Stochastic both measure 14-period overbought/oversold with
+  # similar bullish/bearish signal cadence. When merged, technical.analyze
+  # averages their scores into one composite entry and emits ONE signal
+  # only when both agree — cutting the double-count in both the
+  # technical sub-score AND the engine's signal-consensus adjustment.
+  # A/B-test via scripts/sweep_oscillator_merge.py.
+  momentum_oscillator:
+    merge_rsi_stoch: false
 
 # --- Alerts ---
 alerts:

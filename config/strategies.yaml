@@ -97,6 +97,42 @@ strategies:
       hold_lower: 40
       sell: 30
 
+  mean_reversion:
+    description: "Mean reversion - buy oversold extremes, sell back to mean"
+    time_horizon: "3-10 days"
+    # Weights tilted hard toward statistical (z-score / mean-rev math)
+    # and technical (RSI/Stoch/Bollinger oscillators are the alpha).
+    # Pattern and trend down-weighted — mean-reversion is anti-trend by
+    # construction. Fundamental near-zero because hold periods are too
+    # short for fundamentals to mean-revert anything.
+    weights:
+      technical: 0.35
+      fundamental: 0.05
+      pattern: 0.10
+      statistical: 0.40
+      trend: 0.10
+    emphasis:
+      - "rsi_oversold"
+      - "stochastic_oversold"
+      - "bollinger_lower"
+      - "z_score_extreme"
+      - "mean_reversion"
+    # Mean-reversion setups are rarer than trend-following ones; lower
+    # min_score to take them when they appear. Use sweep_min_score to
+    # confirm before going live.
+    min_score: 50
+    min_market_cap: 1_000_000_000
+    prefer_profitable: false
+    use_consensus_scaling: true
+    # Tighter recommendation thresholds — mean-rev signals fire on
+    # extremes, so the scoring distribution has thinner upper tails.
+    thresholds:
+      strong_buy: 60
+      buy: 52
+      hold_upper: 48
+      hold_lower: 42
+      sell: 30
+
   dividend_income:
     description: "Dividend investing - stable companies with growing dividends"
     time_horizon: "12+ months"
