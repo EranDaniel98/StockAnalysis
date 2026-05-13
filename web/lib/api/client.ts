@@ -54,6 +54,8 @@ type Schemas = components["schemas"];
 export type AccountSummary = Schemas["AccountSummary"];
 export type Position = Schemas["Position"];
 export type PortfolioStatus = Schemas["PortfolioStatus"];
+export type PortfolioHistory = Schemas["PortfolioHistory"];
+export type EquityPoint = Schemas["EquityPoint"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -111,6 +113,18 @@ export const api = {
     status: () => request<PortfolioStatus>("/api/portfolio"),
     positions: () => request<Position[]>("/api/portfolio/positions"),
     account: () => request<AccountSummary>("/api/portfolio/account"),
+    history: (params?: {
+      period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
+      timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+    }) => {
+      const q = new URLSearchParams();
+      if (params?.period) q.set("period", params.period);
+      if (params?.timeframe) q.set("timeframe", params.timeframe);
+      const qs = q.toString();
+      return request<PortfolioHistory>(
+        `/api/portfolio/history${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 
   scans: {

@@ -120,6 +120,75 @@
         }
       }
     },
+    "/api/portfolio/history": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get History",
+        "description": "Equity curve from Alpaca's portfolio history.\n\n``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).\n``timeframe`` is the bar size; intraday timeframes are silently\ndowngraded to 1D for windows > 1W (Alpaca rejects them otherwise).",
+        "operationId": "get_history_api_portfolio_history_get",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1D",
+                "1W",
+                "1M",
+                "3M",
+                "6M",
+                "1A"
+              ],
+              "type": "string",
+              "default": "1M",
+              "title": "Period"
+            }
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1Min",
+                "5Min",
+                "15Min",
+                "1H",
+                "1D"
+              ],
+              "type": "string",
+              "default": "1D",
+              "title": "Timeframe"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioHistory"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scans": {
       "post": {
         "tags": [
@@ -621,7 +690,7 @@
           "recommendations"
         ],
         "summary": "List Recommendations",
-        "description": "Most recent paper-trading recommendations, newest first.",
+        "description": "Most recent paper-trading recommendations, newest first.\n\nLeft-joins paper_trades so each row carries the eventual outcome\n(target_hit / stop_hit / manual / other / open / pending / skipped)\nplus realized_pnl_pct when closed. A rec can spawn multiple trades\n(rare \u2014 partial fills, manual adds); we surface the most-recent\nclosed trade.",
         "operationId": "list_recommendations_api_recommendations_get",
         "parameters": [
           {
@@ -2302,6 +2371,40 @@
         ],
         "title": "DiagnosticSummary"
       },
+      "EquityPoint": {
+        "properties": {
+          "timestamp": {
+            "type": "integer",
+            "title": "Timestamp"
+          },
+          "equity": {
+            "type": "number",
+            "title": "Equity"
+          },
+          "profit_loss": {
+            "type": "number",
+            "title": "Profit Loss"
+          },
+          "profit_loss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Loss Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "equity",
+          "profit_loss"
+        ],
+        "title": "EquityPoint"
+      },
       "ExitReasonStat": {
         "properties": {
           "reason": {
@@ -2981,6 +3084,37 @@
               }
             ],
             "title": "Skip Reason"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "skipped",
+                  "pending",
+                  "open",
+                  "target_hit",
+                  "stop_hit",
+                  "manual",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "realized_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realized Pnl Pct"
           }
         },
         "type": "object",
@@ -3092,6 +3226,42 @@
           "pnl_pct"
         ],
         "title": "PaperTradeItem"
+      },
+      "PortfolioHistory": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "timeframe": {
+            "type": "string",
+            "title": "Timeframe"
+          },
+          "base_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Value"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/EquityPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "timeframe"
+        ],
+        "title": "PortfolioHistory"
       },
       "PortfolioStatus": {
         "properties": {
@@ -3780,6 +3950,13 @@
               }
             ],
             "title": "Return 21D Pct"
+          },
+          "history_30d_pct": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "History 30D Pct"
           }
         },
         "type": "object",

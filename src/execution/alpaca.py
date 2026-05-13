@@ -16,6 +16,7 @@ from alpaca.trading.requests import (
     TakeProfitRequest,
     StopLossRequest,
     GetOrdersRequest,
+    GetPortfolioHistoryRequest,
 )
 from alpaca.trading.enums import OrderSide, OrderClass, TimeInForce, QueryOrderStatus
 
@@ -53,6 +54,43 @@ class AlpacaClient:
             "portfolio_value": float(a.portfolio_value),
             "long_market_value": float(a.long_market_value or 0),
             "pattern_day_trader": bool(a.pattern_day_trader),
+        }
+
+    def get_portfolio_history(self, period: str = "1M", timeframe: str = "1D"):
+        """Equity curve from Alpaca's portfolio history.
+
+        ``period`` accepts Alpaca's shorthand: 1D / 1W / 1M / 3M / 6M / 1A
+        (1A = 1 year). ``timeframe`` must be coarser than ``period``;
+        Alpaca rejects intraday timeframes on multi-month windows, so we
+        cap at 1H for periods <= 1M and force 1D otherwise.
+
+        Returns the parallel arrays alpaca-py already exposes plus a
+        coerced datetime list so callers don't have to multiply
+        timestamps by 1000 themselves.
+        """
+        if period.upper() not in {"1D", "1W"} and timeframe == "1H":
+            timeframe = "1D"
+        req = GetPortfolioHistoryRequest(
+            period=period.upper(),
+            timeframe=timeframe,
+        )
+        h = self._client.get_portfolio_history(req)
+        # alpaca-py returns epoch SECONDS (not ms) for portfolio history.
+        timestamps = [int(t) for t in (h.timestamp or [])]
+        equities = [float(v) for v in (h.equity or [])]
+        pnl = [float(v) for v in (h.profit_loss or [])]
+        pnl_pct = [
+            (float(v) * 100) if v is not None else None
+            for v in (h.profit_loss_pct or [])
+        ]
+        return {
+            "timestamps": timestamps,
+            "equity": equities,
+            "profit_loss": pnl,
+            "profit_loss_pct": pnl_pct,
+            "base_value": float(h.base_value) if h.base_value is not None else None,
+            "timeframe": h.timeframe,
+            "period": period.upper(),
         }
 
     # -- Positions -------------------------------------------------------

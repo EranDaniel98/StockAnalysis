@@ -23,3 +23,12 @@ class PaperRecommendationItem(BaseModel):
     earnings_in_days: int | None = None
     submitted: bool = False
     skip_reason: str | None = None
+    outcome: Literal[
+        "skipped", "pending", "open", "target_hit", "stop_hit", "manual", "other"
+    ] | None = None
+    """What actually happened after the recommendation: skipped (never
+    submitted), pending (submitted but no closed trade yet), or one of
+    the exit_reason flavors once a paper_trade row closes against it.
+    'other' catches exit_reason values not in the canonical set."""
+    realized_pnl_pct: float | None = None
+    """Closed-trade pnl_pct when ``outcome`` is one of the exited states."""

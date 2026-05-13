@@ -65,6 +65,14 @@ def compute_sectors_sync(config) -> SectorsResponse:
         close = df["Close"]
         last = float(close.iloc[-1])
         sma50 = float(close.rolling(50, min_periods=50).mean().iloc[-1]) if len(close) >= 50 else None
+        # 30-day sparkline series — percent-from-start so all sectors render
+        # on the same vertical scale regardless of absolute ETF price.
+        history_30d_pct: list[float] = []
+        tail = close.dropna().tail(30)
+        if len(tail) >= 5:
+            base = float(tail.iloc[0])
+            if base > 0:
+                history_30d_pct = [float(v / base - 1) * 100 for v in tail]
         rows.append(
             SectorMetric(
                 ticker=ticker,
@@ -75,6 +83,7 @@ def compute_sectors_sync(config) -> SectorsResponse:
                 return_1d_pct=_trailing_return(close, 1),
                 return_5d_pct=_trailing_return(close, 5),
                 return_21d_pct=_trailing_return(close, 21),
+                history_30d_pct=history_30d_pct,
             )
         )
 

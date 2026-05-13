@@ -101,6 +101,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portfolio/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get History
+         * @description Equity curve from Alpaca's portfolio history.
+         *
+         *     ``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).
+         *     ``timeframe`` is the bar size; intraday timeframes are silently
+         *     downgraded to 1D for windows > 1W (Alpaca rejects them otherwise).
+         */
+        get: operations["get_history_api_portfolio_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scans": {
         parameters: {
             query?: never;
@@ -249,6 +273,12 @@ export interface paths {
         /**
          * List Recommendations
          * @description Most recent paper-trading recommendations, newest first.
+         *
+         *     Left-joins paper_trades so each row carries the eventual outcome
+         *     (target_hit / stop_hit / manual / other / open / pending / skipped)
+         *     plus realized_pnl_pct when closed. A rec can spawn multiple trades
+         *     (rare — partial fills, manual adds); we surface the most-recent
+         *     closed trade.
          */
         get: operations["list_recommendations_api_recommendations_get"];
         put?: never;
@@ -1057,6 +1087,17 @@ export interface components {
              */
             verdict: string;
         };
+        /** EquityPoint */
+        EquityPoint: {
+            /** Timestamp */
+            timestamp: number;
+            /** Equity */
+            equity: number;
+            /** Profit Loss */
+            profit_loss: number;
+            /** Profit Loss Pct */
+            profit_loss_pct?: number | null;
+        };
         /** ExitReasonStat */
         ExitReasonStat: {
             /** Reason */
@@ -1343,6 +1384,10 @@ export interface components {
             submitted: boolean;
             /** Skip Reason */
             skip_reason?: string | null;
+            /** Outcome */
+            outcome?: ("skipped" | "pending" | "open" | "target_hit" | "stop_hit" | "manual" | "other") | null;
+            /** Realized Pnl Pct */
+            realized_pnl_pct?: number | null;
         };
         /** PaperTradeItem */
         PaperTradeItem: {
@@ -1378,6 +1423,17 @@ export interface components {
             composite_score?: number | null;
             /** Notes */
             notes?: string | null;
+        };
+        /** PortfolioHistory */
+        PortfolioHistory: {
+            /** Period */
+            period: string;
+            /** Timeframe */
+            timeframe: string;
+            /** Base Value */
+            base_value?: number | null;
+            /** Points */
+            points?: components["schemas"]["EquityPoint"][];
         };
         /** PortfolioStatus */
         PortfolioStatus: {
@@ -1654,6 +1710,8 @@ export interface components {
             return_5d_pct?: number | null;
             /** Return 21D Pct */
             return_21d_pct?: number | null;
+            /** History 30D Pct */
+            history_30d_pct?: number[];
         };
         /** SectorsResponse */
         SectorsResponse: {
@@ -1926,6 +1984,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountSummary"];
+                };
+            };
+        };
+    };
+    get_history_api_portfolio_history_get: {
+        parameters: {
+            query?: {
+                period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
+                timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

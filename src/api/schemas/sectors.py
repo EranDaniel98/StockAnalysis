@@ -16,6 +16,10 @@ class SectorMetric(BaseModel):
     return_1d_pct: float | None = None
     return_5d_pct: float | None = None
     return_21d_pct: float | None = None
+    history_30d_pct: list[float] = Field(default_factory=list)
+    """30 most recent trading days as percent-from-start (so the sparkline
+    is comparable across sectors regardless of absolute price). Empty
+    when fewer than 30 bars are available."""
 
 
 class SectorsResponse(BaseModel):

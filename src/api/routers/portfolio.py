@@ -8,14 +8,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.execution.alpaca import AlpacaClient, AlpacaClientError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class EquityPoint(BaseModel):
+    timestamp: int
+    """Epoch seconds. Frontend converts to a Date for display."""
+    equity: float
+    profit_loss: float
+    profit_loss_pct: float | None = None
+
+
+class PortfolioHistory(BaseModel):
+    period: str
+    timeframe: str
+    base_value: float | None = None
+    points: list[EquityPoint] = Field(default_factory=list)
 
 
 class AccountSummary(BaseModel):
@@ -77,3 +93,42 @@ async def get_account() -> AccountSummary:
     client = _build_client()
     account = await asyncio.to_thread(client.get_account)
     return AccountSummary(**account)
+
+
+_PERIOD_VALUES = ("1D", "1W", "1M", "3M", "6M", "1A")
+_TIMEFRAME_VALUES = ("1Min", "5Min", "15Min", "1H", "1D")
+
+
+@router.get("/history", response_model=PortfolioHistory)
+async def get_history(
+    period: Literal["1D", "1W", "1M", "3M", "6M", "1A"] = Query(default="1M"),
+    timeframe: Literal["1Min", "5Min", "15Min", "1H", "1D"] = Query(default="1D"),
+) -> PortfolioHistory:
+    """Equity curve from Alpaca's portfolio history.
+
+    ``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).
+    ``timeframe`` is the bar size; intraday timeframes are silently
+    downgraded to 1D for windows > 1W (Alpaca rejects them otherwise).
+    """
+    client = _build_client()
+    raw = await asyncio.to_thread(client.get_portfolio_history, period, timeframe)
+    points = [
+        EquityPoint(
+            timestamp=ts,
+            equity=eq,
+            profit_loss=pl,
+            profit_loss_pct=plp,
+        )
+        for ts, eq, pl, plp in zip(
+            raw["timestamps"],
+            raw["equity"],
+            raw["profit_loss"],
+            raw["profit_loss_pct"],
+        )
+    ]
+    return PortfolioHistory(
+        period=raw["period"],
+        timeframe=raw["timeframe"],
+        base_value=raw["base_value"],
+        points=points,
+    )

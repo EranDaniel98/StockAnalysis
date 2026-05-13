@@ -12,6 +12,8 @@ export const qk = {
     status: () => ["portfolio", "status"] as const,
     positions: () => ["portfolio", "positions"] as const,
     account: () => ["portfolio", "account"] as const,
+    history: (params?: { period?: string; timeframe?: string }) =>
+      ["portfolio", "history", params ?? {}] as const,
   },
 
   scans: {
