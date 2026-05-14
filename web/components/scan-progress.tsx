@@ -119,7 +119,18 @@ function useLogLines(state: ScanStreamState): LogLine[] {
   return lines;
 }
 
-export function ScanProgress({ state }: { state: ScanStreamState }) {
+export function ScanProgress({
+  state,
+  compact = false,
+}: {
+  state: ScanStreamState;
+  /**
+   * Card-friendly variant: keeps the status header + pipeline brackets
+   * but drops the log tail and failed-tickers row so the strip fits
+   * inside the body of a dashboard card.
+   */
+  compact?: boolean;
+}) {
   const reached = useMemo(
     () => new Set(state.stages.map((s) => s.stage)),
     [state.stages],
@@ -206,7 +217,7 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
         ) : null}
       </div>
 
-      {lines.length > 0 ? (
+      {!compact && lines.length > 0 ? (
         <div className="border-t border-border px-3 py-2 font-mono text-[10px] text-muted-foreground/70 space-y-0.5 max-h-32 overflow-y-auto">
           {lines.map((l, idx) => (
             <div key={`${l.at}-${idx}`} className="tabular-nums">
@@ -221,7 +232,7 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
         </div>
       ) : null}
 
-      {state.failedTickers.length > 0 ? (
+      {!compact && state.failedTickers.length > 0 ? (
         <div className="border-t border-border px-3 py-2 font-mono text-[10px]">
           <span className="text-bearish tracking-wider uppercase">
             SKIPPED {state.failedTickers.length}
@@ -230,6 +241,12 @@ export function ScanProgress({ state }: { state: ScanStreamState }) {
             {state.failedTickers.slice(0, 12).join(" ")}
             {state.failedTickers.length > 12 ? " …" : ""}
           </span>
+        </div>
+      ) : null}
+
+      {compact && state.failedTickers.length > 0 ? (
+        <div className="border-t border-border px-3 py-1.5 font-mono text-[10px] text-bearish tracking-wider uppercase">
+          Skipped {state.failedTickers.length}
         </div>
       ) : null}
     </div>

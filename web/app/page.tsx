@@ -1,13 +1,14 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, TrendingUp, Zap } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, Sparkles, TrendingUp, X, Zap } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
+import { ScanProgress } from "@/components/scan-progress";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
   type StrategyCard,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
+import { useScanStream } from "@/lib/api/use-scan-stream";
 import {
   fmtDate,
   fmtNumber,
@@ -139,42 +141,54 @@ function StrategyCardView({
   isBest?: boolean;
 }) {
   const qc = useQueryClient();
-  const [hint, setHint] = useState<string | null>(null);
+  const { state: streamState, start: startStream, abort, reset } = useScanStream();
   const topPicks = card.top_picks ?? [];
   const staleness = scanStaleness(card.last_scan_at);
+  const universe = (card.sweep_universe ?? "themes") as
+    | "themes"
+    | "russell_1000"
+    | "value_cohort"
+    | "watchlist";
 
-  const refreshMutation = useMutation({
-    mutationFn: async () => {
-      // Re-run the strategy on whichever universe last produced a sweep
-      // result; falling back to themes (fastest) when no sweep exists.
-      const universe = (card.sweep_universe ?? "themes") as
-        | "themes"
-        | "russell_1000"
-        | "value_cohort"
-        | "watchlist";
-      return api.scans.trigger({
-        strategy: card.strategy,
-        universe,
-        theme: null,
-        sector: null,
-        budget: null,
-        top: 15,
-        fresh: false,
-        live_signals: true,
-      });
-    },
-    onMutate: () => setHint(`Refreshing ${card.strategy}…`),
-    onSuccess: () => {
-      toast.success(`${card.strategy}: scan complete`);
+  // On scan completion, pull the refreshed dashboard payload + recent scan
+  // list so the card swaps its progress strip for the new picks without a
+  // manual reload. Toast lives here (not at click) so the user gets the
+  // notification even if they navigate away mid-scan.
+  useEffect(() => {
+    if (streamState.complete) {
+      toast.success(
+        `${card.strategy}: ${streamState.complete.n_results} candidates`,
+      );
       qc.invalidateQueries({ queryKey: qk.dashboard.get() });
       qc.invalidateQueries({ queryKey: qk.scans.all });
-      setHint(null);
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Scan failed");
-      setHint(null);
-    },
-  });
+      // Let the progress strip linger ~1.5s so the user sees the green
+      // COMPLETE state, then clear back to picks.
+      const t = setTimeout(() => reset(), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [streamState.complete, card.strategy, qc, reset]);
+
+  useEffect(() => {
+    if (streamState.error) {
+      toast.error(`${card.strategy}: ${streamState.error}`);
+    }
+  }, [streamState.error, card.strategy]);
+
+  const onRefresh = () => {
+    startStream({
+      strategy: card.strategy,
+      universe,
+      theme: null,
+      sector: null,
+      budget: null,
+      top: 15,
+      fresh: false,
+      live_signals: true,
+    });
+  };
+
+  const isScanning = streamState.active;
+  const showProgress = isScanning || streamState.complete || streamState.error;
 
   return (
     <Card className={cn(isBest && "ring-1 ring-bullish/40")}>
@@ -204,22 +218,31 @@ function StrategyCardView({
               {card.description || card.horizon || "—"}
             </CardDescription>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            className="h-7 px-2 shrink-0"
-            title={`Re-run on ${card.sweep_universe ?? "themes"}`}
-          >
-            <RefreshCw
-              className={cn(
-                "h-3 w-3",
-                refreshMutation.isPending && "animate-spin",
-              )}
-            />
-          </Button>
+          {isScanning ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={abort}
+              className="h-7 px-2 shrink-0"
+              title="Cancel scan"
+              aria-label={`Cancel ${card.strategy} scan`}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onRefresh}
+              className="h-7 px-2 shrink-0"
+              title={`Re-run on ${universe}`}
+              aria-label={`Re-run ${card.strategy} scan`}
+            >
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -270,10 +293,12 @@ function StrategyCardView({
           </div>
         </div>
 
-        {/* Top picks for this strategy */}
-        {topPicks.length === 0 ? (
+        {/* Live progress takes over the body slot while a scan is in flight. */}
+        {showProgress ? (
+          <ScanProgress state={streamState} compact />
+        ) : topPicks.length === 0 ? (
           <div className="text-muted-foreground text-center text-[11px] py-4 border border-dashed border-border rounded">
-            {hint ?? (card.last_scan_at ? "No BUYs in last scan" : "No scan yet")}
+            {card.last_scan_at ? "No BUYs in last scan" : "No scan yet"}
           </div>
         ) : (
           <Table>
