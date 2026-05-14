@@ -48,6 +48,40 @@ export function fmtDate(value: string | Date | null | undefined): string {
   });
 }
 
+/**
+ * Bloomberg-style relative timestamp: "just now", "12m ago", "3h ago",
+ * "2d ago". Falls back to fmtDate for anything older than 14 days so a
+ * date doesn't become "428d ago".
+ */
+export function fmtRelativeTime(
+  value: string | Date | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const diffMs = now.getTime() - d.getTime();
+  const absSec = Math.round(Math.abs(diffMs) / 1000);
+  const future = diffMs < 0;
+  const suffix = future ? "from now" : "ago";
+  if (absSec < 45) return future ? "in a moment" : "just now";
+  const absMin = Math.round(absSec / 60);
+  if (absMin < 60) return `${absMin}m ${suffix}`;
+  const absHr = Math.round(absMin / 60);
+  if (absHr < 24) return `${absHr}h ${suffix}`;
+  const absDay = Math.round(absHr / 24);
+  if (absDay <= 14) return `${absDay}d ${suffix}`;
+  return fmtDate(d);
+}
+
+/** Hours between `value` and now (positive when `value` is in the past). */
+export function hoursSince(value: string | Date | null | undefined): number | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return (Date.now() - d.getTime()) / (1000 * 60 * 60);
+}
+
 export function pnlColorClass(n: number | null | undefined): string {
   // Routes positive P&L → bullish token, negative → bearish token. The
   // tokens are defined in web/app/globals.css and themed in STYLE.md;

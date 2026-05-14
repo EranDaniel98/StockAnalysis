@@ -33,7 +33,14 @@ import {
   type StrategyCard,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtDate, fmtNumber, fmtPct, fmtUSD } from "@/lib/format";
+import {
+  fmtDate,
+  fmtNumber,
+  fmtPct,
+  fmtRelativeTime,
+  fmtUSD,
+  hoursSince,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // ─── Variant + tone helpers ──────────────────────────────────────────────────
@@ -67,6 +74,21 @@ function sharpeToneClass(s: number | null | undefined): string {
   if (s >= 1.0) return "text-bullish";
   if (s <= 0) return "text-bearish";
   return "text-foreground";
+}
+
+/**
+ * Categorize how old a scan is so the card can warn the user the picks
+ * may not reflect today's market. ≥7d is "very stale" (red), ≥24h is
+ * "stale" (amber/warning). Anything fresher renders no pill at all.
+ */
+function scanStaleness(
+  lastScanAt: string | null | undefined,
+): { level: "fresh" | "stale" | "very_stale"; label: string; hours: number } | null {
+  const h = hoursSince(lastScanAt);
+  if (h === null) return null;
+  if (h >= 24 * 7) return { level: "very_stale", label: "stale 7d+", hours: h };
+  if (h >= 24) return { level: "stale", label: "stale 24h+", hours: h };
+  return { level: "fresh", label: "", hours: h };
 }
 
 // ─── Pick row (shared between hero card + per-strategy cards) ────────────────
@@ -109,10 +131,17 @@ function PickRow({ pick, showStrategy }: { pick: DashboardPick; showStrategy?: b
 
 // ─── Per-strategy card ───────────────────────────────────────────────────────
 
-function StrategyCardView({ card }: { card: StrategyCard }) {
+function StrategyCardView({
+  card,
+  isBest,
+}: {
+  card: StrategyCard;
+  isBest?: boolean;
+}) {
   const qc = useQueryClient();
   const [hint, setHint] = useState<string | null>(null);
   const topPicks = card.top_picks ?? [];
+  const staleness = scanStaleness(card.last_scan_at);
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
@@ -148,13 +177,29 @@ function StrategyCardView({ card }: { card: StrategyCard }) {
   });
 
   return (
-    <Card>
+    <Card className={cn(isBest && "ring-1 ring-bullish/40")}>
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <CardTitle className="font-mono text-sm tracking-tight truncate">
-              {card.strategy}
-            </CardTitle>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <CardTitle className="font-mono text-sm tracking-tight truncate">
+                {card.strategy}
+              </CardTitle>
+              {isBest ? (
+                <Badge variant="bullish" className="text-[9px] uppercase tracking-wider">
+                  Top OOS
+                </Badge>
+              ) : null}
+              {staleness && staleness.level !== "fresh" ? (
+                <Badge
+                  variant={staleness.level === "very_stale" ? "bearish" : "neutral"}
+                  className="text-[9px] uppercase tracking-wider"
+                  title={`Last scan ${fmtRelativeTime(card.last_scan_at)} (${Math.round(staleness.hours)}h)`}
+                >
+                  {staleness.label}
+                </Badge>
+              ) : null}
+            </div>
             <CardDescription className="text-[11px] mt-0.5 line-clamp-2">
               {card.description || card.horizon || "—"}
             </CardDescription>
@@ -250,7 +295,15 @@ function StrategyCardView({ card }: { card: StrategyCard }) {
         )}
 
         <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-muted-foreground pt-1">
-          <span>{card.last_scan_at ? `Scanned ${fmtDate(card.last_scan_at)}` : "Never scanned"}</span>
+          <span
+            title={
+              card.last_scan_at ? fmtDate(card.last_scan_at) : "No scan yet"
+            }
+          >
+            {card.last_scan_at
+              ? `Scanned ${fmtRelativeTime(card.last_scan_at)}`
+              : "Never scanned"}
+          </span>
           <Link
             href={`/scan?strategy=${encodeURIComponent(card.strategy)}`}
             className="hover:text-foreground transition-colors"
@@ -351,8 +404,11 @@ export default function DashboardPage() {
           label="Generated"
           value={
             data ? (
-              <span className="font-mono text-base tracking-tight">
-                {fmtDate(data.generated_at)}
+              <span
+                className="font-mono text-base tracking-tight"
+                title={fmtDate(data.generated_at)}
+              >
+                {fmtRelativeTime(data.generated_at)}
               </span>
             ) : (
               "—"
@@ -439,7 +495,11 @@ export default function DashboardPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {strategies.map((card) => (
-            <StrategyCardView key={card.strategy} card={card} />
+            <StrategyCardView
+              key={card.strategy}
+              card={card}
+              isBest={!!bestStrategy && card.strategy === bestStrategy.strategy}
+            />
           ))}
         </div>
       )}
