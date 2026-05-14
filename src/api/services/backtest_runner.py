@@ -90,6 +90,14 @@ def run_backtest_sync(config, body: BacktestRequest) -> dict[str, Any]:
     min_score = (
         body.min_score if body.min_score is not None else strategy.get("min_score", 65)
     )
+    # Time-stop resolution mirrors min_score: explicit request wins,
+    # otherwise the strategy's literature-calibrated default. Falls
+    # back to 90 (legacy BacktestConfig default) only when neither
+    # has a value.
+    hold_days = (
+        body.hold_days if body.hold_days is not None
+        else int(strategy.get("time_stop_days", 90))
+    )
 
     bt_cfg = BacktestConfig(
         start_date=start,
@@ -98,7 +106,7 @@ def run_backtest_sync(config, body: BacktestRequest) -> dict[str, Any]:
         max_open_positions=body.max_positions,
         max_position_pct=body.position_pct,
         starting_cash=body.cash,
-        max_hold_days=body.hold_days,
+        max_hold_days=hold_days,
         commission_per_trade=body.commission,
         slippage_bps=body.slippage_bps,
         regulatory_bps_on_sale=body.regulatory_bps,

@@ -5,9 +5,18 @@ stop-loss/take-profit levels, and diversification checks.
 """
 
 import logging
+from datetime import date, timedelta
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# Time-stop literature default when a strategy config doesn't declare one.
+# 90 trading days is the legacy backtest engine default (BacktestConfig.
+# max_hold_days). Keeping it as the fallback so removing a per-strategy
+# value reverts to the prior behavior, not to an unbounded hold.
+_DEFAULT_TIME_STOP_DAYS = 90
 
 
 def generate_recommendation(ticker, score_result, price_data, fundamentals, config, strategy=None):
@@ -41,7 +50,7 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
     risk = {}
     if price_data is not None and not price_data.empty:
         risk = _calculate_risk_management(
-            ticker, price_data, fundamentals, config, action
+            ticker, price_data, fundamentals, config, action, strategy
         )
 
     return {
@@ -107,8 +116,10 @@ def _build_reasoning(score_result, fundamentals):
     return reasons
 
 
-def _calculate_risk_management(ticker, price_data, fundamentals, config, action):
-    """Calculate position sizing, stop-loss, and take-profit."""
+def _calculate_risk_management(
+    ticker, price_data, fundamentals, config, action, strategy=None
+):
+    """Calculate position sizing, stop-loss, take-profit, and time-stop."""
     close = price_data["Close"]
     current_price = float(close.iloc[-1])
     risk_config = config.get("risk_management", default={})
@@ -126,6 +137,9 @@ def _calculate_risk_management(ticker, price_data, fundamentals, config, action)
         risk_config.get("take_profit", {})
     )
 
+    # --- Time stop (triple-barrier upper bound on hold duration) ---
+    result["time_stop"] = _calculate_time_stop(strategy)
+
     # --- Position Sizing ---
     result["position"] = _calculate_position_size(
         current_price, result["stop_loss"], risk_config.get("position_sizing", {}),
@@ -142,6 +156,33 @@ def _calculate_risk_management(ticker, price_data, fundamentals, config, action)
     )
 
     return result
+
+
+def _calculate_time_stop(strategy: dict | None, as_of: date | None = None) -> dict:
+    """Triple-barrier time stop: forced exit after N calendar days from entry.
+
+    Sourced from ``strategy['time_stop_days']`` so each strategy can match
+    its alpha half-life (literature: PEAD ≈60d, Numerai/Alpha158 ≈20d,
+    swing ≈10d, long-term/value/dividend ≈180d). Falls back to the legacy
+    90-day default if the strategy config doesn't declare one.
+
+    The returned dict ships the absolute `exit_date` so the UI doesn't
+    have to know the analysis time. `as_of` is a parameter for testability;
+    callers should leave it unset to use `date.today()`.
+    """
+    days = _DEFAULT_TIME_STOP_DAYS
+    if strategy and isinstance(strategy, dict):
+        v = strategy.get("time_stop_days")
+        if isinstance(v, (int, float)) and v > 0:
+            days = int(v)
+    today = as_of or date.today()
+    exit_date = today + timedelta(days=days)
+    return {
+        "method": "calendar",
+        "days": days,
+        "exit_date": exit_date.isoformat(),
+        "detail": f"Force exit by {exit_date.isoformat()} ({days} calendar days)",
+    }
 
 
 def _calculate_stop_loss(price_data, current_price, sl_config):

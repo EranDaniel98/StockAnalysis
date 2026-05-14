@@ -18,10 +18,13 @@ import pytest
 import numpy as np
 import pandas as pd
 
+from datetime import date
+
 from src.scoring.recommender import (
     _build_reasoning,
     _calculate_stop_loss,
     _calculate_take_profit,
+    _calculate_time_stop,
     _determine_action,
 )
 
@@ -228,3 +231,36 @@ class TestTakeProfit:
         # 3:1 on a $10 risk → $30 reward → $140.
         assert result["price"] == 140.0
         assert "no resistance" in result["detail"]
+
+
+class TestTimeStop:
+    def test_falls_back_to_90_when_no_strategy(self) -> None:
+        """Legacy BacktestConfig.max_hold_days was 90; preserved as
+        the safety floor so removing a per-strategy value doesn't
+        silently flip to an unbounded hold."""
+        result = _calculate_time_stop(None, as_of=date(2026, 1, 1))
+        assert result["method"] == "calendar"
+        assert result["days"] == 90
+        assert result["exit_date"] == "2026-04-01"
+
+    def test_reads_strategy_time_stop_days(self) -> None:
+        result = _calculate_time_stop(
+            {"time_stop_days": 20}, as_of=date(2026, 1, 1)
+        )
+        assert result["days"] == 20
+        assert result["exit_date"] == "2026-01-21"
+
+    def test_rejects_non_positive_and_falls_back(self) -> None:
+        """A zero / negative / non-numeric `time_stop_days` should
+        fall back to the default — not silently produce a same-day
+        forced exit (which would auto-close every position)."""
+        for bad_value in [0, -5, None, "thirty", float("nan")]:
+            r = _calculate_time_stop(
+                {"time_stop_days": bad_value}, as_of=date(2026, 1, 1)
+            )
+            assert r["days"] == 90, f"bad value {bad_value!r} should fall back"
+
+    def test_detail_string_includes_human_date(self) -> None:
+        r = _calculate_time_stop({"time_stop_days": 10}, as_of=date(2026, 5, 14))
+        assert "2026-05-24" in r["detail"]
+        assert "10 calendar days" in r["detail"]

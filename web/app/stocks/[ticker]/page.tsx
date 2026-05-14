@@ -254,6 +254,19 @@ function StockDetail({
   const entry = num(risk.entry_price) ?? num(risk.current_price);
   const stop = numFromRiskField(risk.stop_loss);
   const target = numFromRiskField(risk.take_profit);
+  // Triple-barrier time stop. Calendar-day budget the engine applies to
+  // new positions of this strategy. Shape: { method, days, exit_date,
+  // detail }. Older recommendations won't have it — guard defensively.
+  const timeStop =
+    isPlainObject(risk.time_stop) && typeof risk.time_stop.exit_date === "string"
+      ? {
+          exitDate: risk.time_stop.exit_date as string,
+          days:
+            typeof risk.time_stop.days === "number"
+              ? (risk.time_stop.days as number)
+              : null,
+        }
+      : null;
   // Surface which method the engine actually used for the take-profit.
   // The basis affects how you should read the number: "resistance" =
   // chart-derived level (a real price the stock has struggled at);
@@ -292,8 +305,22 @@ function StockDetail({
         description={headerDescription}
         actions={
           rec ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant={actionBadgeVariant(rec.action)}>{rec.action}</Badge>
+              {timeStop ? (
+                <Badge
+                  variant="neutral"
+                  className="text-[10px]"
+                  title={
+                    timeStop.days != null
+                      ? `Triple-barrier time stop: forced exit after ${timeStop.days} calendar days from entry. Calibrated to the strategy's alpha half-life.`
+                      : "Triple-barrier time stop"
+                  }
+                >
+                  Exit by {timeStop.exitDate}
+                  {timeStop.days != null ? ` · ${timeStop.days}d` : ""}
+                </Badge>
+              ) : null}
               <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
                 {data.onDemand ? (
                   <>On-demand analysis · swing_trading</>
@@ -449,6 +476,7 @@ function StockDetail({
                 target={target}
                 action={rec.action}
                 score={rec.composite_score}
+                timeStop={timeStop}
               />
               <Card>
                 <CardHeader>

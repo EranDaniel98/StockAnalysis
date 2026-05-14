@@ -193,8 +193,10 @@ def main():
                            help="End date YYYY-MM-DD (default: today)")
     bt_parser.add_argument("--min-score", type=float, default=None, dest="min_score",
                            help="Minimum composite to enter a trade")
-    bt_parser.add_argument("--hold-days", type=int, default=90, dest="hold_days",
-                           help="Max days to hold before timeout exit (default 90)")
+    bt_parser.add_argument("--hold-days", type=int, default=None, dest="hold_days",
+                           help="Max days to hold before timeout exit "
+                                "(default: strategy's time_stop_days, "
+                                "or 90 if not declared)")
     bt_parser.add_argument("--cash", type=float, default=10000.0,
                            help="Starting simulated cash (default $10000)")
     bt_parser.add_argument("--max-positions", type=int, default=20, dest="max_positions",
@@ -762,6 +764,10 @@ def cmd_backtest(config, args):
     print()
 
     # Build engine config
+    hold_days = (
+        args.hold_days if args.hold_days is not None
+        else int(strategy.get("time_stop_days", 90))
+    )
     bt_cfg = BacktestConfig(
         start_date=start,
         end_date=end,
@@ -769,7 +775,7 @@ def cmd_backtest(config, args):
         max_open_positions=args.max_positions,
         max_position_pct=args.position_pct,
         starting_cash=args.cash,
-        max_hold_days=args.hold_days,
+        max_hold_days=hold_days,
         compound=getattr(args, "compound", False),
         commission_per_trade=args.commission,
         slippage_bps=args.slippage_bps,

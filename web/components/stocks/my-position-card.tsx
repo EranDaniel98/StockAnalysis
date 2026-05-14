@@ -172,6 +172,7 @@ export function MyPositionCard({
   target,
   action,
   score,
+  timeStop,
 }: {
   ticker: string;
   /** Latest trade-able price (last close, falling back to engine entry). */
@@ -183,6 +184,10 @@ export function MyPositionCard({
   target: number | null;
   action: string | null;
   score: number | null;
+  /** Triple-barrier time stop from the engine. Calendar-day budget for
+   *  this strategy's alpha half-life — surfaced so the user can see how
+   *  long the engine is willing to wait before forcing an exit. */
+  timeStop?: { exitDate: string; days: number | null } | null;
 }) {
   const [position, setPosition] = useStoredPosition(ticker);
   const [editing, setEditing] = useState(false);
@@ -232,6 +237,7 @@ export function MyPositionCard({
             target={target}
             action={action}
             score={score}
+            timeStop={timeStop ?? null}
           />
         ) : (
           <PositionForm
@@ -365,6 +371,7 @@ function PositionView({
   target,
   action,
   score,
+  timeStop,
 }: {
   position: StoredPosition;
   mark: number | null;
@@ -373,6 +380,7 @@ function PositionView({
   target: number | null;
   action: string | null;
   score: number | null;
+  timeStop: { exitDate: string; days: number | null } | null;
 }) {
   const { shares, avg_cost } = position;
   const value = mark !== null ? mark * shares : null;
@@ -492,6 +500,21 @@ function PositionView({
                 <span className="ml-1 text-muted-foreground">
                   (your avg {avg_cost > entry ? "over" : "under"})
                 </span>
+              </span>
+            }
+          />
+        ) : null}
+        {timeStop ? (
+          <Row
+            label="Time stop"
+            value={
+              <span title="Triple-barrier exit: the engine forces an exit if neither stop nor target fires by this date. Calibrated to the strategy's alpha half-life.">
+                <span className="text-foreground">{timeStop.exitDate}</span>
+                {timeStop.days != null ? (
+                  <span className="ml-1 text-muted-foreground">
+                    ({timeStop.days}d budget)
+                  </span>
+                ) : null}
               </span>
             }
           />

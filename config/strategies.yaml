@@ -23,6 +23,11 @@ strategies:
     min_score: 70
     min_market_cap: 5_000_000_000
     prefer_profitable: true
+    # Triple-barrier time stop. Forces exit if neither stop nor target
+    # fired by this calendar-day budget. Calibrated to the strategy's
+    # alpha half-life: long-term-growth holds quarters, so ~6 months.
+    # Sweep ±50% to confirm the literature default empirically.
+    time_stop_days: 180
 
   short_term_momentum:
     description: "Momentum trading - ride trends with risk management"
@@ -43,6 +48,9 @@ strategies:
     min_score: 65
     min_market_cap: 1_000_000_000
     prefer_profitable: false
+    # Alpha158 / momentum half-life is short (Numerai 20d target,
+    # Calluzzo et al. on momentum decay).
+    time_stop_days: 20
 
   value_investing:
     description: "Value investing - undervalued companies with strong fundamentals"
@@ -62,6 +70,8 @@ strategies:
     min_score: 70
     min_market_cap: 2_000_000_000
     prefer_profitable: true
+    # Value setups are slow to reprice — multi-quarter horizon.
+    time_stop_days: 180
 
   swing_trading:
     description: "Swing trading - capture price swings using technical patterns"
@@ -96,6 +106,8 @@ strategies:
       hold_upper: 48
       hold_lower: 40
       sell: 30
+    # 2-14 day horizon → 10 trading days (midpoint, slight buffer).
+    time_stop_days: 10
 
   mean_reversion:
     description: "Mean reversion - buy oversold extremes, sell back to mean"
@@ -132,6 +144,8 @@ strategies:
       hold_upper: 48
       hold_lower: 42
       sell: 30
+    # 3-10 day horizon → 15 trading days (slight buffer over upper bound).
+    time_stop_days: 15
 
   dividend_income:
     description: "Dividend investing - stable companies with growing dividends"
@@ -150,3 +164,6 @@ strategies:
     min_score: 70
     min_market_cap: 10_000_000_000
     prefer_profitable: true
+    # Dividend strategy holds for income payments — multi-quarter
+    # minimum to avoid forced exits before ex-div dates.
+    time_stop_days: 180
