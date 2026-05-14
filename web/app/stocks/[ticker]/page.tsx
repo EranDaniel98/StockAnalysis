@@ -207,7 +207,12 @@ export default function StockDetailPage({
     );
   }
 
-  return <StockDetail ticker={ticker} data={merged} error={error} />;
+  // Suppress the original /api/stocks 404 once the analyze fallback has
+  // produced a recommendation — that error is expected for ad-hoc tickers
+  // not in any recent scan, and surfacing it next to a successful analysis
+  // is just confusing noise.
+  const surfaceError = merged.onDemand ? null : error;
+  return <StockDetail ticker={ticker} data={merged} error={surfaceError} />;
 }
 
 function StockDetail({
