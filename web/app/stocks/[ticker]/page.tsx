@@ -254,6 +254,15 @@ function StockDetail({
   const entry = num(risk.entry_price) ?? num(risk.current_price);
   const stop = numFromRiskField(risk.stop_loss);
   const target = numFromRiskField(risk.take_profit);
+  // Surface which method the engine actually used for the take-profit.
+  // The basis affects how you should read the number: "resistance" =
+  // chart-derived level (a real price the stock has struggled at);
+  // "risk_reward" = mechanical 3:1 multiple of the stop distance, not
+  // a price forecast.
+  const takeProfitMethod =
+    isPlainObject(risk.take_profit) && typeof risk.take_profit.method === "string"
+      ? (risk.take_profit.method as string)
+      : null;
   const lastClose = history.length > 0 ? history[history.length - 1].close : null;
 
   const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;
@@ -334,8 +343,12 @@ function StockDetail({
           subTone="muted"
         />
         <ScoreboardTile
-          label="Stop / Target"
-          tooltip="Stop loss (top, bearish) and take profit (bottom, bullish). Stop is computed from ATR or a configured percentage; target is set so the R/R ratio (sub-value) hits the strategy's target multiple."
+          label="Stop / Take profit"
+          tooltip={
+            takeProfitMethod === "resistance"
+              ? "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is the nearest chart resistance level above entry that gives at least 1.5:1 reward-to-risk — a real price the stock has struggled at, not a forecast that it must reach."
+              : "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is a mechanical 3:1 reward-to-risk multiple of the stop distance — NOT a forecast that the stock will reach this price. The system fell back to this when no chart resistance gave a usable level."
+          }
           value={
             <span className="flex flex-col leading-none gap-1">
               <span className="text-bearish text-lg font-semibold tabular-nums">
@@ -346,7 +359,19 @@ function StockDetail({
               </span>
             </span>
           }
-          sub={rr !== null ? `${rr.toFixed(2)}:1 R/R` : undefined}
+          sub={
+            <span>
+              {rr !== null ? `${rr.toFixed(2)}:1 R/R` : null}
+              {takeProfitMethod ? (
+                <span className="ml-1 opacity-70">
+                  {rr !== null ? "· " : ""}
+                  {takeProfitMethod === "resistance"
+                    ? "chart resistance"
+                    : "R/R multiple"}
+                </span>
+              ) : null}
+            </span>
+          }
           subTone="muted"
         />
         <ScoreboardTile

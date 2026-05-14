@@ -220,16 +220,34 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
             price_data["High"], price_data["Low"], price_data["Close"]
         )
         resistances = sr.get("resistance", [])
-        if resistances:
-            tp_price = resistances[0]
-            result["price"] = round(tp_price, 2)
-            result["pct_from_current"] = round((tp_price / current_price - 1) * 100, 2)
-            result["detail"] = f"Resistance: ${tp_price:.2f}"
+        # Pick the nearest resistance ABOVE current that gives at least
+        # `min_risk_reward_ratio` payoff. The raw nearest resistance can
+        # be 1-2% above current — useless when the stop sits 5-7% below
+        # because the R/R math goes negative.
+        min_rr = tp_config.get("min_risk_reward_ratio", 1.5)
+        chosen = None
+        if risk > 0:
+            for r in resistances:
+                if (r - current_price) / risk >= min_rr:
+                    chosen = r
+                    break
+
+        if chosen is not None:
+            result["price"] = round(chosen, 2)
+            result["pct_from_current"] = round((chosen / current_price - 1) * 100, 2)
+            result["detail"] = f"Resistance: ${chosen:.2f}"
         else:
+            # Fall back to a flat R/R multiple. Record what actually
+            # happened in `method` so the UI doesn't claim a chart-
+            # derived level when it isn't one.
             ratio = tp_config.get("risk_reward_ratio", 3.0)
             tp_price = current_price + (risk * ratio)
+            result["method"] = "risk_reward"
             result["price"] = round(tp_price, 2)
             result["pct_from_current"] = round((tp_price / current_price - 1) * 100, 2)
+            result["detail"] = (
+                f"R:R {ratio}:1 (no resistance ≥ {min_rr}:1) -> ${tp_price:.2f}"
+            )
 
     return result
 

@@ -470,7 +470,7 @@ function PositionView({
         ) : null}
         {target !== null ? (
           <Row
-            label="Target"
+            label="Take profit"
             value={
               <span>
                 <span className="text-bullish">{fmtUSD(target)}</span>

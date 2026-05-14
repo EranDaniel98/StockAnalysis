@@ -170,3 +170,61 @@ class TestTakeProfit:
         )
         assert result["price"] == 115.0
         assert result["pct_from_current"] == 15.0
+
+    def test_resistance_method_uses_chart_level_when_rr_qualifies(self) -> None:
+        """A clear resistance peak ~15% above current with a tight stop
+        should be picked as the take-profit (not the R/R fallback)."""
+        # 60 bars with a peak at $115 in the middle, then pulls back to
+        # ~$100 so resistance is well above current.
+        idx = pd.date_range("2025-01-01", periods=60, freq="B")
+        # First 30 bars climb to $115, next 30 fall back to $100.
+        up = np.linspace(95.0, 115.0, 30)
+        down = np.linspace(115.0, 100.0, 30)
+        base = np.concatenate([up, down])
+        prices = pd.DataFrame(
+            {
+                "Open": base,
+                "High": base * 1.01,
+                "Low": base * 0.99,
+                "Close": base,
+                "Volume": np.full(60, 1_000_000.0),
+            },
+            index=idx,
+        )
+        current = float(prices["Close"].iloc[-1])  # ~$100
+        sl = {"price": current * 0.97}             # 3% stop → low risk, easy R/R
+        result = _calculate_take_profit(
+            prices, current, sl,
+            tp_config={
+                "method": "resistance",
+                "risk_reward_ratio": 3.0,
+                "min_risk_reward_ratio": 1.5,
+            },
+        )
+        assert result["method"] == "resistance", result
+        # Picked level should be the ~$115 peak (above current and well
+        # over 1.5:1 R/R).
+        assert 110.0 < result["price"] < 120.0, result
+        assert result["detail"].startswith("Resistance:")
+
+    def test_resistance_method_falls_back_when_no_level_qualifies(self) -> None:
+        """Clean uptrend has no local-maxima resistance above current →
+        we fall back to the R/R multiple AND surface that in the
+        `method` + `detail` fields so the UI doesn't claim a chart
+        basis it didn't actually use."""
+        current = 110.0  # top of the trend
+        sl = {"price": 100.0}
+        result = _calculate_take_profit(
+            _trend_prices(), current, sl,
+            tp_config={
+                "method": "resistance",
+                "risk_reward_ratio": 3.0,
+                "min_risk_reward_ratio": 1.5,
+            },
+        )
+        # Method downgrades to risk_reward because the resistance
+        # branch couldn't produce a usable level.
+        assert result["method"] == "risk_reward"
+        # 3:1 on a $10 risk → $30 reward → $140.
+        assert result["price"] == 140.0
+        assert "no resistance" in result["detail"]

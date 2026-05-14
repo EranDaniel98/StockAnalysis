@@ -108,8 +108,17 @@ risk_management:
     atr_multiplier: 2.0
     percentage: 5.0
   take_profit:
-    method: "risk_reward"           # risk_reward, atr, resistance
-    risk_reward_ratio: 3.0
+    # resistance: pick the nearest chart-derived resistance level that
+    # gives at least `min_risk_reward_ratio` payoff relative to the
+    # stop. If no level qualifies (recent breakout, low-volatility
+    # range, etc.) we fall back to a flat `risk_reward_ratio` multiple
+    # so the field is never empty. The basis used for each ticker is
+    # reported in risk_management.take_profit.method on the API
+    # response — "resistance" when a chart level was picked,
+    # "risk_reward" when the fallback fired.
+    method: "resistance"            # risk_reward, atr, resistance
+    risk_reward_ratio: 3.0          # fallback when no usable resistance
+    min_risk_reward_ratio: 1.5      # reject resistances tighter than this
     atr_multiplier: 4.0
   # Gate entries on the broader-market regime. SPY vs SMA + VIX bands.
   # mode: off | skip_bear | skip_bear_and_chop
