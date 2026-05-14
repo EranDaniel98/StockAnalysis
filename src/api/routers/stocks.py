@@ -107,8 +107,10 @@ async def get_stock_detail(
                 )
     except Exception as e:
         # Don't block the response on a price-data miss; the trade plan
-        # is the load-bearing part of this view.
-        logger.debug("price history fetch failed for %s: %s", tu, e)
+        # is the load-bearing part of this view. WARN-level so silent
+        # data-loss (e.g. tz mismatches in the Parquet read) surfaces in
+        # logs — the AVGO 404 bug went unseen for a session at debug-level.
+        logger.warning("price history fetch failed for %s: %s", tu, e)
 
     if rec is None and not history:
         raise HTTPException(
@@ -130,11 +132,19 @@ def _analyze_single_ticker(
     ticker: str, config: Config, strategy_name: str
 ) -> dict | None:
     """Synchronous worker: full analyzer chain on one ticker. Returns the
-    composite/recommendation dict or None if data fetch failed."""
+    composite/recommendation dict or None if data fetch failed.
+
+    Side effect: backfills the Parquet OHLCV store with the fetched price
+    history. The store is populated lazily by scan runs, so ad-hoc
+    tickers from the search bar would otherwise have no chart data —
+    writing here means the next /api/stocks/{ticker} call gets a chart
+    overlay without a second yfinance round-trip.
+    """
     from src.data.cache import DataCache
     from src.data.fetcher import DataFetcher
     from src.data.fundamentals import FundamentalsFetcher
     from src.scoring.service import analyze_and_score
+    from src.storage.parquet_ohlcv import ParquetPriceRepository
 
     strategy = config.get_strategy(strategy_name)
     cache = DataCache(
@@ -149,14 +159,22 @@ def _analyze_single_ticker(
 
     price_map = fetcher.fetch_batch([ticker])
     fund_map = fund_fetcher.fetch_batch([ticker])
-    if not price_map.get(ticker) is not None and not price_map:
+    if not price_map or price_map.get(ticker) is None:
         return None
+
+    # Persist the fetched OHLCV to Parquet so the chart panel on the
+    # /stocks/[ticker] page can pull from the canonical store on the
+    # next read, same as it does for scan-driven tickers.
+    df = price_map.get(ticker)
+    if df is not None and not df.empty:
+        try:
+            ParquetPriceRepository().write_history(ticker.upper(), df)
+        except Exception as e:
+            logger.warning("parquet write failed for %s: %s", ticker, e)
 
     recs = analyze_and_score(price_map, fund_map, config, strategy)
     if not recs:
         return None
-    # analyze_and_score returns a list ranked by score; for a single ticker
-    # we just want the one row, regardless of action.
     for r in recs:
         if r.get("ticker", "").upper() == ticker.upper():
             return r

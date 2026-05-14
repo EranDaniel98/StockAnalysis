@@ -1,8 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { use } from "react";
+import { use, useEffect } from "react";
 import {
   Area,
   AreaChart,
@@ -117,6 +117,7 @@ export default function StockDetailPage({
   const { ticker: tickerParam } = use(params);
   const ticker = decodeURIComponent(tickerParam).toUpperCase();
 
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
     queryFn: () => api.stocks.get(ticker, { history_days: HISTORY_DAYS }),
@@ -140,6 +141,17 @@ export default function StockDetailPage({
     enabled: needsAnalyze,
     retry: false,
   });
+
+  // /api/stocks/{ticker}/analyze writes the fetched OHLCV to Parquet as a
+  // side effect. Once analyze lands, re-query /api/stocks so the chart
+  // panel picks up the freshly-written bars (it reads from Parquet only).
+  useEffect(() => {
+    if (analyzeRec && (!data?.history || data.history.length === 0)) {
+      queryClient.invalidateQueries({
+        queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
+      });
+    }
+  }, [analyzeRec, data?.history, ticker, queryClient]);
 
   if (isLoading || (needsAnalyze && analyzeLoading)) {
     return (

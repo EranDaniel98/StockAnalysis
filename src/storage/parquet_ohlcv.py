@@ -155,7 +155,10 @@ class ParquetPriceRepository:
         if not frames:
             return pd.DataFrame(columns=OHLCV_COLUMNS)
         df = pd.concat(frames).sort_index()
-        # Index may carry tz; clip on the same tz-form to avoid issues
+        # Normalize tz on both sides — Parquet stores tz-naive (see
+        # _normalize_df) but callers commonly pass tz-aware UTC bounds
+        # (datetime.now(timezone.utc) from the API). Mismatched tz raises
+        # TypeError on the .loc slice, so coerce both sides to the index's tz.
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
         if df.index.tz is not None:
@@ -163,6 +166,11 @@ class ParquetPriceRepository:
                 start_ts = start_ts.tz_localize("UTC")
             if end_ts.tz is None:
                 end_ts = end_ts.tz_localize("UTC")
+        else:
+            if start_ts.tz is not None:
+                start_ts = start_ts.tz_convert("UTC").tz_localize(None)
+            if end_ts.tz is not None:
+                end_ts = end_ts.tz_convert("UTC").tz_localize(None)
         return df.loc[start_ts:end_ts]
 
 
