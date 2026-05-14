@@ -94,6 +94,10 @@ async def _build_pit_loader(tickers: list[str]) -> FundamentalsPITLoader:
     async with SL() as session:
         repo = PostgresFundamentalsRepository(session)
         loader = await FundamentalsPITLoader.from_repository(repo, tickers)
+    # dispose so the next asyncio.run() (insider txs) doesn't inherit a
+    # connection pool bound to this now-closed loop — the asyncpg ping
+    # crashes on Windows when the old proactor is gone.
+    await dispose_engine()
     return loader
 
 
