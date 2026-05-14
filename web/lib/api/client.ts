@@ -8,9 +8,27 @@
 
 import type { components, paths } from "./schema";
 
-/** Default base URL — overridable via NEXT_PUBLIC_API_URL. */
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+/**
+ * API base URL.
+ *
+ * Resolution order:
+ *   1. `NEXT_PUBLIC_API_URL` env (build-time bake-in for prod / overrides).
+ *   2. In the browser, derive from `window.location.hostname:8000` so the
+ *      page works the same whether opened at `localhost:3000`,
+ *      `127.0.0.1:3000`, or `192.168.x.y:3000` from a phone on the LAN.
+ *   3. SSR fallback: `127.0.0.1:8000`. Our queries don't run on the server
+ *      (no HydrationBoundary), so this only matters if something inadvertently
+ *      fetches during render.
+ */
+function resolveApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return "http://127.0.0.1:8000";
+}
+
+export const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   status: number;

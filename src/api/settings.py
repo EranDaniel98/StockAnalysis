@@ -13,7 +13,11 @@ class ApiSettings(BaseSettings):
         extra="ignore",
     )
 
-    host: str = Field(default="127.0.0.1")
+    # 0.0.0.0 by default so the dashboard is reachable from a phone /
+    # tablet on the same LAN. Personal dev box; this is gated by the
+    # local network. Override via STOCKNEW_API_HOST=127.0.0.1 to lock
+    # it back to loopback.
+    host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
     reload: bool = Field(default=False)
 
@@ -31,6 +35,15 @@ class ApiSettings(BaseSettings):
             "http://127.0.0.1:3004",
         ]
     )
-    """Next.js dev server origins. Phase 2's frontend hits the API from these."""
+    """Exact-match origins. Add LAN IPs via cors_origin_regex instead so
+    a DHCP-shifted phone doesn't need a settings change."""
+
+    cors_origin_regex: str = Field(
+        default=r"^http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+):(300\d|808\d)$"
+    )
+    """Regex covering the three RFC1918 LAN ranges on the Next.js (300x) /
+    optional reverse-proxy (808x) ports. Stops `192.168.68.51:3000` from
+    triggering the same `CORS Missing Allow Origin` browser error when
+    the dashboard is opened from a phone."""
 
     log_level: str = Field(default="info")
