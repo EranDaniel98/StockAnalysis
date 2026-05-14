@@ -17,6 +17,7 @@ import {
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { MyPositionCard } from "@/components/stocks/my-position-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -415,6 +416,15 @@ function StockDetail({
         <div className="lg:col-span-1 space-y-4">
           {rec ? (
             <>
+              <MyPositionCard
+                ticker={ticker}
+                mark={lastClose ?? entry}
+                entry={entry}
+                stop={stop}
+                target={target}
+                action={rec.action}
+                score={rec.composite_score}
+              />
               <Card>
                 <CardHeader>
                   <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
