@@ -95,6 +95,10 @@ export type ModelVersionRow = Schemas["ModelVersionRow"];
 export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
 export type FoldMetric = Schemas["FoldMetric"];
 
+export type DashboardResponse = Schemas["DashboardResponse"];
+export type DashboardPick = Schemas["DashboardPick"];
+export type StrategyCard = Schemas["StrategyCard"];
+
 export type ResearchAskRequest = Schemas["ResearchAskRequest"];
 export type ResearchRunSummary = Schemas["ResearchRunSummary"];
 export type ResearchRunDetail = Schemas["ResearchRunDetail"];
@@ -320,6 +324,20 @@ export const api = {
     },
     get: (id: number) =>
       request<PaperRecommendationItem>(`/api/recommendations/${id}`),
+  },
+
+  dashboard: {
+    get: (params?: { top_n_per_strategy?: number; cross_strategy_top_n?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.top_n_per_strategy != null)
+        q.set("top_n_per_strategy", String(params.top_n_per_strategy));
+      if (params?.cross_strategy_top_n != null)
+        q.set("cross_strategy_top_n", String(params.cross_strategy_top_n));
+      const qs = q.toString();
+      return request<DashboardResponse>(
+        `/api/dashboard${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 };
 

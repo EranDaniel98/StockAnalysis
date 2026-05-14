@@ -1831,6 +1831,64 @@
           }
         }
       }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Get Dashboard",
+        "description": "Aggregate per-strategy and cross-strategy picks.\n\nFor each strategy declared in ``config/strategies.yaml``, finds the\nmost-recent ``scan_run`` and pulls the top BUY/STRONG BUY rows.\nCross-strategy ``top_picks`` are the union of all strategies'\nBUYs, deduplicated by ticker (the highest-scoring strategy wins on\ncollision) and capped at ``cross_strategy_top_n``.",
+        "operationId": "get_dashboard_api_dashboard_get",
+        "parameters": [
+          {
+            "name": "top_n_per_strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "default": 3,
+              "title": "Top N Per Strategy"
+            }
+          },
+          {
+            "name": "cross_strategy_top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "default": 5,
+              "title": "Cross Strategy Top N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2228,6 +2286,116 @@
           "n_trades"
         ],
         "title": "CumulativePnlPoint"
+      },
+      "DashboardPick": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sector": {
+            "type": "string",
+            "title": "Sector"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "STRONG BUY",
+              "BUY",
+              "HOLD",
+              "SELL",
+              "STRONG SELL"
+            ],
+            "title": "Action"
+          },
+          "composite_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Composite Score"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss"
+          },
+          "take_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "name",
+          "sector",
+          "action",
+          "composite_score",
+          "strategy"
+        ],
+        "title": "DashboardPick",
+        "description": "One pick row \u2014 flat enough to render in a table without a per-row\n/api/stocks roundtrip. Mirrors a subset of ``ScanResultItem``."
+      },
+      "DashboardResponse": {
+        "properties": {
+          "top_picks": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardPick"
+            },
+            "type": "array",
+            "title": "Top Picks",
+            "description": "Cross-strategy top BUY/STRONG BUY picks, ranked by composite_score. Deduplicated by ticker \u2014 when a ticker scored in multiple strategies, keeps the highest score."
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyCard"
+            },
+            "type": "array",
+            "title": "Strategies"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at"
+        ],
+        "title": "DashboardResponse"
       },
       "DiagnosticRequest": {
         "properties": {
@@ -4155,6 +4323,120 @@
           "ticker"
         ],
         "title": "StockDetail"
+      },
+      "StrategyCard": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "horizon": {
+            "type": "string",
+            "title": "Horizon"
+          },
+          "last_scan_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scan At"
+          },
+          "last_scan_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scan Run Id"
+          },
+          "last_scan_universe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scan Universe"
+          },
+          "n_buys": {
+            "type": "integer",
+            "title": "N Buys",
+            "default": 0
+          },
+          "top_picks": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardPick"
+            },
+            "type": "array",
+            "title": "Top Picks"
+          },
+          "oos_sharpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oos Sharpe"
+          },
+          "full_sharpe": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Sharpe"
+          },
+          "win_rate_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate Pct"
+          },
+          "sweep_universe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweep Universe"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy",
+          "description",
+          "horizon"
+        ],
+        "title": "StrategyCard",
+        "description": "Per-strategy summary tile."
       },
       "StrategyStat": {
         "properties": {

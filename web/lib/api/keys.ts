@@ -57,4 +57,9 @@ export const qk = {
       ["analytics", "calibration", params ?? {}] as const,
     tradesSummary: () => ["analytics", "trades-summary"] as const,
   },
+
+  dashboard: {
+    get: (params?: { top_n_per_strategy?: number; cross_strategy_top_n?: number }) =>
+      ["dashboard", params ?? {}] as const,
+  },
 } as const;

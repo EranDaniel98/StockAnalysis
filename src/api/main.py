@@ -23,6 +23,7 @@ from src.api.middleware import RequestIdMiddleware
 from src.api.routers import (
     analytics,
     backtests,
+    dashboard,
     diagnostics,
     health,
     market,
@@ -135,6 +136,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(trades.router, prefix="/api/trades", tags=["trades"])
     app.include_router(ml.router, prefix="/api/ml", tags=["ml"])
     app.include_router(research.router, prefix="/api/research", tags=["research"])
+    app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 
     return app
 

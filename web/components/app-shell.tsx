@@ -11,6 +11,7 @@ import {
   Briefcase,
   Grid3x3,
   HelpCircle,
+  Home,
   LineChart,
   Microscope,
   MessageSquare,
@@ -40,6 +41,12 @@ type NavLink = {
 };
 
 const NAV: NavLink[] = [
+  {
+    href: "/",
+    label: "Home",
+    icon: Home,
+    description: "Today's best plays across every strategy",
+  },
   {
     href: "/portfolio",
     label: "Portfolio",

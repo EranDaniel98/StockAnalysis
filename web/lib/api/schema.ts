@@ -791,6 +791,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dashboard
+         * @description Aggregate per-strategy and cross-strategy picks.
+         *
+         *     For each strategy declared in ``config/strategies.yaml``, finds the
+         *     most-recent ``scan_run`` and pulls the top BUY/STRONG BUY rows.
+         *     Cross-strategy ``top_picks`` are the union of all strategies'
+         *     BUYs, deduplicated by ticker (the highest-scoring strategy wins on
+         *     collision) and capped at ``cross_strategy_top_n``.
+         */
+        get: operations["get_dashboard_api_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -986,6 +1012,49 @@ export interface components {
             cumulative_pnl: number;
             /** N Trades */
             n_trades: number;
+        };
+        /**
+         * DashboardPick
+         * @description One pick row — flat enough to render in a table without a per-row
+         *     /api/stocks roundtrip. Mirrors a subset of ``ScanResultItem``.
+         */
+        DashboardPick: {
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string;
+            /** Sector */
+            sector: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
+            /** Composite Score */
+            composite_score: number;
+            /** Strategy */
+            strategy: string;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Stop Loss */
+            stop_loss?: number | null;
+            /** Take Profit */
+            take_profit?: number | null;
+        };
+        /** DashboardResponse */
+        DashboardResponse: {
+            /**
+             * Top Picks
+             * @description Cross-strategy top BUY/STRONG BUY picks, ranked by composite_score. Deduplicated by ticker — when a ticker scored in multiple strategies, keeps the highest score.
+             */
+            top_picks?: components["schemas"]["DashboardPick"][];
+            /** Strategies */
+            strategies?: components["schemas"]["StrategyCard"][];
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
         };
         /** DiagnosticRequest */
         DiagnosticRequest: {
@@ -1778,6 +1847,39 @@ export interface components {
              * @description Recent OHLC bars for charting. Window is controlled by the endpoint's `history_days` query param (default 120).
              */
             history?: components["schemas"]["OHLCBar"][];
+        };
+        /**
+         * StrategyCard
+         * @description Per-strategy summary tile.
+         */
+        StrategyCard: {
+            /** Strategy */
+            strategy: string;
+            /** Description */
+            description: string;
+            /** Horizon */
+            horizon: string;
+            /** Last Scan At */
+            last_scan_at?: string | null;
+            /** Last Scan Run Id */
+            last_scan_run_id?: string | null;
+            /** Last Scan Universe */
+            last_scan_universe?: string | null;
+            /**
+             * N Buys
+             * @default 0
+             */
+            n_buys: number;
+            /** Top Picks */
+            top_picks?: components["schemas"]["DashboardPick"][];
+            /** Oos Sharpe */
+            oos_sharpe?: number | null;
+            /** Full Sharpe */
+            full_sharpe?: number | null;
+            /** Win Rate Pct */
+            win_rate_pct?: number | null;
+            /** Sweep Universe */
+            sweep_universe?: string | null;
         };
         /** StrategyStat */
         StrategyStat: {
@@ -3043,6 +3145,38 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_dashboard_api_dashboard_get: {
+        parameters: {
+            query?: {
+                top_n_per_strategy?: number;
+                cross_strategy_top_n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
