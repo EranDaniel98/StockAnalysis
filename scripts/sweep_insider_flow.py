@@ -43,9 +43,11 @@ from src.db.models import InsiderTransaction as InsiderTxRow
 from src.db.session import dispose_engine, get_sessionmaker
 from src.backtest.engine import (
     BacktestConfig,
+    SweepMode,
     fetch_earnings_history,
-    run_backtest,
+    run_backtest_multi_mode,
 )
+from src.backtest.score_cache import ALL_SOURCES
 import src.scoring.analyzers.insider_flow as if_module
 
 console = Console()
@@ -263,29 +265,56 @@ def main() -> int:
         bootstrap_resamples=args.bootstrap_resamples,
     )
 
+    # Build the SweepMode list. All three modes share the cached analyzer
+    # output — "off" reproduces the prior "insider_transactions=None"
+    # baseline by dropping insider_flow from enabled_sources (no sub-score,
+    # no signal contribution to the ±5 consensus adjustment).
+    sweep_modes = [
+        SweepMode(
+            label="off",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.0),
+            enabled_sources=set(ALL_SOURCES - {"insider_flow"}),
+        ),
+        SweepMode(
+            label="signal_only",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.0),
+            enabled_sources=None,
+        ),
+        SweepMode(
+            label="weighted",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.10),
+            enabled_sources=None,
+        ),
+    ]
+
+    console.print(
+        f"[bold cyan]Running multi-mode sweep "
+        f"(off / signal_only / weighted) — scoring once, replaying per mode...[/bold cyan]"
+    )
+    t0 = time.time()
+    multi_result = run_backtest_multi_mode(
+        sweep_modes,
+        price_data, fundamentals, config, bt_cfg,
+        spy_df=spy_df, vix_df=vix_df,
+        earnings_dates=earnings_dates,
+        earnings_history=earnings_history,
+        insider_transactions=insider_txs,
+    )
+    elapsed = time.time() - t0
+    console.print(f"  multi-mode sweep done in {elapsed:.1f}s\n")
+
+    # Map label -> (weight, run_analyzer) for backwards-compatible summary shape.
+    mode_meta = {"off": (0.0, False), "signal_only": (0.0, True), "weighted": (0.10, True)}
     rows: list[dict[str, Any]] = []
     for mode, weight, run_analyzer in MODES:
-        strat = _strategy_with_insider_weight(base_strategy, weight)
-        # Withhold the insider data entirely when running the off-baseline
-        # so the analyzer can't fire signals into the consensus adjustment.
-        ins_for_run = insider_txs if run_analyzer else None
-        console.print(
-            f"[bold cyan]Running mode={mode} (weight={weight}, "
-            f"analyzer={'on' if run_analyzer else 'off'})...[/bold cyan]"
-        )
-        t0 = time.time()
-        result = run_backtest(
-            price_data, fundamentals, config, strat, bt_cfg,
-            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
-            insider_transactions=ins_for_run,
-        )
-        elapsed = time.time() - t0
+        result = multi_result[mode]
         summary = _summarize(mode, weight, run_analyzer, result)
         console.print(
-            f"  done in {elapsed:.1f}s — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
-            f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%\n"
+            f"  mode={mode:>11} — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
+            f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%"
         )
         rows.append(summary)
+    console.print()
 
     _print_table(rows, args.strategy, universe_label)
 
