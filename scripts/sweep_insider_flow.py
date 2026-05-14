@@ -177,6 +177,16 @@ def main() -> int:
     parser.add_argument("--earnings-blackout", type=int, default=3)
     parser.add_argument("--bootstrap-resamples", type=int, default=0)
     parser.add_argument("--save", default="data/sweep_insider_flow.json")
+    parser.add_argument(
+        "--save-full",
+        default=None,
+        help=(
+            "Optional path to dump full per-mode BacktestResult dicts "
+            "(includes per-trade rows, equity curve, bootstrap CIs). "
+            "Lets us paired-bootstrap or re-analyze post-hoc without "
+            "re-running the multi-hour sweep."
+        ),
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -322,6 +332,15 @@ def main() -> int:
     save_path.parent.mkdir(parents=True, exist_ok=True)
     save_path.write_text(json.dumps(rows, indent=2, default=str), encoding="utf-8")
     console.print(f"\n[dim]Saved comparison rows to {save_path}[/dim]")
+
+    if args.save_full:
+        full_path = Path(args.save_full)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(
+            json.dumps(multi_result, indent=2, default=str), encoding="utf-8"
+        )
+        console.print(f"[dim]Saved full per-mode results to {full_path}[/dim]")
+
     return 0
 
 
