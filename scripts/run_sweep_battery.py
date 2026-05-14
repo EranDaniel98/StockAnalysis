@@ -26,13 +26,29 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# (universe, strategy, years). All strategies here have fundamental weight
-# <= 0.05 → the engine's lookahead guard won't trip.
-DEFAULT_BATTERY: list[tuple[str, str, float]] = [
-    ("themes", "swing_trading", 2.0),
-    ("russell_1000", "short_term_momentum", 2.0),
-    ("russell_1000", "mean_reversion", 2.0),
-]
+# (universe, strategy, years, pit). When ``pit`` is True the sweep loads
+# EDGAR PIT fundamentals from Postgres — required for strategies with
+# fundamental weight > 0.05, otherwise the engine's lookahead guard fires.
+BATTERIES: dict[str, list[tuple[str, str, float, bool]]] = {
+    "light": [
+        ("russell_1000", "swing_trading", 2.0, False),
+        ("russell_1000", "short_term_momentum", 2.0, False),
+        ("russell_1000", "mean_reversion", 2.0, False),
+    ],
+    "heavy": [
+        ("russell_1000", "long_term_growth", 2.0, True),
+        ("russell_1000", "value_investing", 2.0, True),
+        ("russell_1000", "dividend_income", 2.0, True),
+    ],
+    "all": [
+        ("russell_1000", "swing_trading", 2.0, False),
+        ("russell_1000", "short_term_momentum", 2.0, False),
+        ("russell_1000", "mean_reversion", 2.0, False),
+        ("russell_1000", "long_term_growth", 2.0, True),
+        ("russell_1000", "value_investing", 2.0, True),
+        ("russell_1000", "dividend_income", 2.0, True),
+    ],
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +66,7 @@ def run_one(
     universe: str,
     strategy: str,
     years: float,
+    pit: bool,
     bootstrap_resamples: int,
     out_dir: Path,
 ) -> tuple[str, int, float, Path]:
@@ -66,8 +83,11 @@ def run_one(
         "--save", str(save_path),
         "--save-full", str(full_path),
     ]
+    if pit:
+        cmd.append("--pit-fundamentals")
     logger.info("=" * 72)
-    logger.info("SWEEP %s × %s × %sy starting", universe, strategy, years)
+    logger.info("SWEEP %s × %s × %sy %s starting",
+                universe, strategy, years, "(PIT)" if pit else "")
     logger.info("cmd: %s", " ".join(cmd))
     t0 = time.time()
     with log_path.open("w", encoding="utf-8") as logf:
@@ -116,6 +136,10 @@ def _print_battery_summary(results: list[dict]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--battery", default="light", choices=sorted(BATTERIES.keys()),
+        help="Which preset to run: light (no PIT) / heavy (PIT) / all (both)",
+    )
+    parser.add_argument(
         "--bootstrap-resamples", type=int, default=2000,
         help="Bootstrap iterations per mode (0 disables; default 2000)",
     )
@@ -125,16 +149,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    battery = BATTERIES[args.battery]
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("battery starting — %d sweeps, output to %s",
-                len(DEFAULT_BATTERY), out_dir)
+    logger.info("battery '%s' starting — %d sweeps, output to %s",
+                args.battery, len(battery), out_dir)
 
     results: list[dict] = []
     t_total = time.time()
-    for universe, strategy, years in DEFAULT_BATTERY:
+    for universe, strategy, years, pit in battery:
         slug, rc, elapsed, save_path = run_one(
-            universe, strategy, years, args.bootstrap_resamples, out_dir
+            universe, strategy, years, pit, args.bootstrap_resamples, out_dir
         )
         rows = _read_summary(save_path)
         results.append({

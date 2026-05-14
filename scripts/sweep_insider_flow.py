@@ -40,6 +40,7 @@ from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher
 from src.data.fundamentals import FundamentalsFetcher
 from src.db.models import InsiderTransaction as InsiderTxRow
+from src.db.repositories import PostgresFundamentalsRepository
 from src.db.session import dispose_engine, get_sessionmaker
 from src.backtest.engine import (
     BacktestConfig,
@@ -48,6 +49,7 @@ from src.backtest.engine import (
     run_backtest_multi_mode,
 )
 from src.backtest.score_cache import ALL_SOURCES
+from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
 import src.scoring.analyzers.insider_flow as if_module
 
 console = Console()
@@ -82,6 +84,17 @@ def _strategy_with_insider_weight(
     weights["insider_flow"] = weight
     strat["weights"] = weights
     return strat
+
+
+async def _build_pit_loader(tickers: list[str]) -> FundamentalsPITLoader:
+    """Pre-load EDGAR PIT fundamentals for the universe. Run once before
+    the sweep; the engine then resolves ``(ticker, as_of)`` lookups
+    in-memory."""
+    SL = get_sessionmaker()
+    async with SL() as session:
+        repo = PostgresFundamentalsRepository(session)
+        loader = await FundamentalsPITLoader.from_repository(repo, tickers)
+    return loader
 
 
 async def _load_insider_transactions(
@@ -187,6 +200,15 @@ def main() -> int:
             "re-running the multi-hour sweep."
         ),
     )
+    parser.add_argument(
+        "--pit-fundamentals",
+        action="store_true",
+        help=(
+            "Load EDGAR PIT fundamentals from Postgres and pass to the "
+            "backtest engine. Required for strategies with fundamental "
+            "weight > 0.05 — otherwise the lookahead guard fires."
+        ),
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -245,6 +267,16 @@ def main() -> int:
         t: (sorted(df_h.index.tolist()) if df_h is not None and not df_h.empty else [])
         for t, df_h in earnings_history.items()
     }
+
+    pit_loader = None
+    if args.pit_fundamentals:
+        console.print("[bold]Loading EDGAR PIT fundamentals from Postgres...[/bold]")
+        pit_loader = asyncio.run(_build_pit_loader(tickers))
+        coverage = sum(1 for t in tickers if t.upper() in pit_loader.tickers)
+        console.print(
+            f"  PIT loader covers {coverage}/{len(tickers)} tickers "
+            f"({100*coverage/max(1,len(tickers)):.0f}%)\n"
+        )
 
     console.print("[bold]Loading insider transactions from Postgres...[/bold]")
     insider_txs = asyncio.run(_load_insider_transactions(tickers))
@@ -309,6 +341,7 @@ def main() -> int:
         earnings_dates=earnings_dates,
         earnings_history=earnings_history,
         insider_transactions=insider_txs,
+        fundamentals_pit_loader=pit_loader,
     )
     elapsed = time.time() - t0
     console.print(f"  multi-mode sweep done in {elapsed:.1f}s\n")
