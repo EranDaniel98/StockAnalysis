@@ -285,6 +285,20 @@ export const api = {
         `/api/stocks/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`,
       );
     },
+    /**
+     * Run the full analyzer chain on a single ticker on-demand. Used as a
+     * fallback when the ticker isn't present in any recent scan_run — keeps
+     * the deep-dive page useful for arbitrary user input from the search bar.
+     */
+    analyze: (ticker: string, params?: { strategy?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.strategy) q.set("strategy", params.strategy);
+      const qs = q.toString();
+      return request<ScanResultItem>(
+        `/api/stocks/${encodeURIComponent(ticker)}/analyze${qs ? `?${qs}` : ""}`,
+        { method: "POST" },
+      );
+    },
   },
 
   recommendations: {

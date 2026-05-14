@@ -120,30 +120,34 @@ export default function StockDetailPage({
   const { data, isLoading, error } = useQuery({
     queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
     queryFn: () => api.stocks.get(ticker, { history_days: HISTORY_DAYS }),
+    retry: false,
   });
 
-  if (error instanceof ApiError && error.status === 404) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
-          Ticker not found
-        </p>
-        <p className="font-mono text-sm text-foreground">{ticker}</p>
-        <Link
-          href="/scan"
-          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
-        >
-          [ Back to scan ]
-        </Link>
-      </div>
-    );
-  }
+  // Fallback path: the /api/stocks endpoint only returns a recommendation
+  // if the ticker is present in a recent scan_run. For ad-hoc tickers from
+  // the sidebar search bar we run the analyzer chain on-demand.
+  const needsAnalyze =
+    (data && !data.latest_recommendation) ||
+    (error instanceof ApiError && error.status === 404);
 
-  if (isLoading || !data) {
+  const {
+    data: analyzeRec,
+    isLoading: analyzeLoading,
+    error: analyzeError,
+  } = useQuery({
+    queryKey: ["stocks", "analyze", ticker],
+    queryFn: () => api.stocks.analyze(ticker),
+    enabled: needsAnalyze,
+    retry: false,
+  });
+
+  if (isLoading || (needsAnalyze && analyzeLoading)) {
     return (
       <>
-        <PageHeader title={ticker} description="Loading…" />
-        {error ? <ErrorState error={error} /> : null}
+        <PageHeader
+          title={ticker}
+          description={analyzeLoading ? "Running on-demand analysis…" : "Loading…"}
+        />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
@@ -157,7 +161,53 @@ export default function StockDetailPage({
     );
   }
 
-  return <StockDetail ticker={ticker} data={data} error={error} />;
+  // Both detail + analyze 404'd → ticker is unfetchable (e.g. typo).
+  if (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    analyzeError instanceof ApiError &&
+    analyzeError.status === 404
+  ) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
+        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
+          No price or fundamental data available
+        </p>
+        <p className="font-mono text-sm text-foreground">{ticker}</p>
+        <Link
+          href="/scan"
+          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
+        >
+          [ Back to scan ]
+        </Link>
+      </div>
+    );
+  }
+
+  // Merge: prefer the scan-derived recommendation; fall back to the
+  // on-demand analyze result. The /api/stocks payload still owns the
+  // history / scan metadata even when the recommendation came from analyze.
+  const merged = {
+    ticker,
+    latest_recommendation: data?.latest_recommendation ?? analyzeRec ?? null,
+    scan_run_id: data?.scan_run_id ?? null,
+    scan_strategy: data?.scan_strategy ?? null,
+    scan_timestamp: data?.scan_timestamp ?? null,
+    history: data?.history ?? [],
+    onDemand: !data?.latest_recommendation && !!analyzeRec,
+  };
+
+  if (!merged.latest_recommendation) {
+    return (
+      <>
+        <PageHeader title={ticker} description="No recommendation available" />
+        {error ? <ErrorState error={error} /> : null}
+        {analyzeError ? <ErrorState error={analyzeError} /> : null}
+      </>
+    );
+  }
+
+  return <StockDetail ticker={ticker} data={merged} error={error} />;
 }
 
 function StockDetail({
@@ -173,6 +223,7 @@ function StockDetail({
     scan_strategy?: string | null;
     scan_timestamp?: string | null;
     history?: OHLCBar[];
+    onDemand?: boolean;
   };
   error: unknown;
 }) {
@@ -217,8 +268,14 @@ function StockDetail({
             <div className="flex items-center gap-2">
               <Badge variant={actionBadgeVariant(rec.action)}>{rec.action}</Badge>
               <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-                Last scored {fmtDate(data.scan_timestamp)}
-                {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
+                {data.onDemand ? (
+                  <>On-demand analysis · swing_trading</>
+                ) : (
+                  <>
+                    Last scored {fmtDate(data.scan_timestamp)}
+                    {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
+                  </>
+                )}
               </span>
             </div>
           ) : null

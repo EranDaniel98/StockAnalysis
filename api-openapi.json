@@ -392,6 +392,59 @@
         }
       }
     },
+    "/api/stocks/{ticker}/analyze": {
+      "post": {
+        "tags": [
+          "stocks"
+        ],
+        "summary": "Analyze Ticker",
+        "description": "Run the full analyzer chain on a single ticker on-demand.\n\nUsed by the web ticker-search bar so users can pull up a deep-dive on\nany ticker, not just ones present in the latest scan_run. Returns a\n``ScanResultItem`` shaped identically to the rows produced by\n``/api/scans`` \u2014 same composite score, sub-scores, signals, risk\nplan, and reasoning. ~3\u20138 s per call (price + fundamentals fetch\ndominate; both are cached).",
+        "operationId": "analyze_ticker_api_stocks__ticker__analyze_post",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "swing_trading",
+              "title": "Strategy"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResultItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/backtests": {
       "post": {
         "tags": [

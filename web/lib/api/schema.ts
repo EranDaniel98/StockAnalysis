@@ -193,6 +193,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stocks/{ticker}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Ticker
+         * @description Run the full analyzer chain on a single ticker on-demand.
+         *
+         *     Used by the web ticker-search bar so users can pull up a deep-dive on
+         *     any ticker, not just ones present in the latest scan_run. Returns a
+         *     ``ScanResultItem`` shaped identically to the rows produced by
+         *     ``/api/scans`` — same composite score, sub-scores, signals, risk
+         *     plan, and reasoning. ~3–8 s per call (price + fundamentals fetch
+         *     dominate; both are cached).
+         */
+        post: operations["analyze_ticker_api_stocks__ticker__analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backtests": {
         parameters: {
             query?: never;
@@ -2147,6 +2174,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StockDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_ticker_api_stocks__ticker__analyze_post: {
+        parameters: {
+            query?: {
+                strategy?: string;
+            };
+            header?: never;
+            path: {
+                ticker: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResultItem"];
                 };
             };
             /** @description Validation Error */
