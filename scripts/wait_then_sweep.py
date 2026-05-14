@@ -19,8 +19,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-LOG_PATH = Path("data/sweep_insider_flow_russell1000.log")
-JSON_PATH = Path("data/sweep_insider_flow_russell1000.json")
+DEFAULT_LOG_PATH = Path("data/sweep_insider_flow_russell1000.log")
+DEFAULT_JSON_PATH = Path("data/sweep_insider_flow_russell1000.json")
 
 
 def _now() -> str:
@@ -72,14 +72,25 @@ def wait_for_pid(pid: int, poll_seconds: int, logger: logging.Logger) -> None:
     logger.info("PID %d exited", pid)
 
 
-def run_sweep(strategy: str, universe: str, years: float, logger: logging.Logger) -> int:
+def run_sweep(
+    strategy: str,
+    universe: str,
+    years: float,
+    save_path: Path,
+    save_full_path: Path | None,
+    bootstrap_resamples: int,
+    logger: logging.Logger,
+) -> int:
     cmd = [
         "uv", "run", "python", "-m", "scripts.sweep_insider_flow",
         "--strategy", strategy,
         "--universe", universe,
         "--years", str(years),
-        "--save", str(JSON_PATH),
+        "--save", str(save_path),
+        "--bootstrap-resamples", str(bootstrap_resamples),
     ]
+    if save_full_path is not None:
+        cmd.extend(["--save-full", str(save_full_path)])
     logger.info("starting sweep: %s", " ".join(cmd))
     # Stream stdout to the log file in real time so the user sees progress.
     proc = subprocess.Popen(
@@ -105,12 +116,23 @@ def main() -> int:
     parser.add_argument("--strategy", default="swing_trading")
     parser.add_argument("--universe", default="russell_1000")
     parser.add_argument("--years", type=float, default=2.0)
+    parser.add_argument("--save", default=str(DEFAULT_JSON_PATH))
+    parser.add_argument("--save-full", default=None)
+    parser.add_argument("--bootstrap-resamples", type=int, default=0)
+    parser.add_argument("--log-path", default=str(DEFAULT_LOG_PATH))
     args = parser.parse_args()
 
-    logger = _setup_logger(LOG_PATH)
+    log_path = Path(args.log_path)
+    save_path = Path(args.save)
+    save_full = Path(args.save_full) if args.save_full else None
+    logger = _setup_logger(log_path)
     logger.info("launcher started — args: %s", vars(args))
     wait_for_pid(args.pid, args.poll_seconds, logger)
-    rc = run_sweep(args.strategy, args.universe, args.years, logger)
+    rc = run_sweep(
+        args.strategy, args.universe, args.years,
+        save_path, save_full, args.bootstrap_resamples,
+        logger,
+    )
     return rc
 
 
