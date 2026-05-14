@@ -35,6 +35,7 @@ import {
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import { useScanStream } from "@/lib/api/use-scan-stream";
+import { useMounted } from "@/lib/use-mounted";
 import {
   fmtDate,
   fmtNumber,
@@ -345,11 +346,14 @@ function StrategyCardView({
 
 export default function DashboardPage() {
   const qc = useQueryClient();
+  const mounted = useMounted();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: qk.dashboard.get(),
     queryFn: () => api.dashboard.get(),
     refetchInterval: 5 * 60_000, // 5 min
   });
+  // See use-mounted.ts: isFetching=false on server, true on client mount.
+  const fetching = mounted && isFetching;
 
   const topPicks = data?.top_picks ?? [];
   const strategies = data?.strategies ?? [];
@@ -373,10 +377,10 @@ export default function DashboardPage() {
               refetch();
               qc.invalidateQueries({ queryKey: qk.dashboard.get() });
             }}
-            disabled={isFetching}
+            disabled={fetching}
           >
             <RefreshCw
-              className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")}
+              className={cn("mr-2 h-4 w-4", fetching && "animate-spin")}
             />
             Refresh
           </Button>

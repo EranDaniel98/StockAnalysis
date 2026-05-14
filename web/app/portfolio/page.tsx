@@ -48,6 +48,7 @@ import {
   CHART_TOKEN,
 } from "@/lib/chart-tokens";
 import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
+import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
 
 /** Local tone helper bound to the new bullish/bearish tokens. */
@@ -125,11 +126,16 @@ function isIntraday(tf: Timeframe): boolean {
 }
 
 export default function PortfolioPage() {
+  const mounted = useMounted();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: qk.portfolio.status(),
     queryFn: () => api.portfolio.status(),
     refetchInterval: 60_000,
   });
+  // `isFetching` is false during SSR but flips to true on client mount,
+  // which mismatches the Refresh button's `disabled` attribute. Gate it
+  // until after the first client paint so the hydration match holds.
+  const fetching = mounted && isFetching;
 
   const symbols = data?.positions.map((p) => p.ticker) ?? [];
   const { prices, connected, error: liveError } = useLivePrices(symbols);
@@ -177,10 +183,10 @@ export default function PortfolioPage() {
               variant="outline"
               size="sm"
               onClick={() => refetch()}
-              disabled={isFetching}
+              disabled={fetching}
             >
               <RefreshCw
-                className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+                className={`mr-2 h-4 w-4 ${fetching ? "animate-spin" : ""}`}
               />
               Refresh
             </Button>
