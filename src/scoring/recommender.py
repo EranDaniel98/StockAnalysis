@@ -334,10 +334,36 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
 
 
 def _calculate_position_size(current_price, stop_loss, sizing_config, action):
-    """Calculate recommended position size."""
+    """Calculate recommended position size.
+
+    Tier-2 audit #19: the per-trade risk budget used to be hardcoded at
+    1% of portfolio, while the backtest engine reads ``vol_target_risk_pct``
+    from strategy config (0 = pure fixed-fractional). Different code paths
+    sizing real-money vs sizing the backtest that validates it. After:
+    both layers read ``risk_per_trade_pct`` from sizing_config (default
+    1.0 preserves prior behavior). Strategy yaml's existing
+    ``vol_target_risk_pct`` is accepted as an alias so legacy configs
+    don't need migration.
+
+    Tier-2 audit #26: the "kelly" branch was degenerate
+    (``win_prob=0.55`` hardcoded, ``avg_win=avg_loss=stop_pct`` so b=1,
+    yielding f=0.10 → half-Kelly to 5%, identical regardless of strategy).
+    It advertised ``method=kelly`` to the user. Now: any caller asking
+    for "kelly" falls back to fixed_fractional with a warning. The
+    branch is preserved for posterity (commented out) so future-us
+    remembers what NOT to ship without per-strategy win-rate calibration.
+    """
     method = sizing_config.get("method", "fixed_fractional")
     portfolio = sizing_config.get("default_portfolio_value", 100000)
     max_pct = sizing_config.get("max_portfolio_pct", 10) / 100
+    # risk_per_trade_pct = ``vol_target_risk_pct`` alias, default 1%.
+    # The double-fallback exists so strategy yaml authored before #19
+    # (``vol_target_risk_pct`` only) continues to work unchanged.
+    risk_pct = (
+        sizing_config.get("risk_per_trade_pct")
+        or sizing_config.get("vol_target_risk_pct")
+        or 1.0
+    ) / 100
     result = {"method": method, "portfolio_value": portfolio}
 
     if action in ("SELL", "STRONG SELL", "HOLD"):
@@ -346,15 +372,37 @@ def _calculate_position_size(current_price, stop_loss, sizing_config, action):
         result["pct_of_portfolio"] = 0
         return result
 
+    if method == "kelly":
+        # Tier-2 audit #26: refused. The historical implementation read
+        # ``win_prob=0.55`` and used the stop pct as both avg_win and
+        # avg_loss, so kelly_fraction was a constant 0.05 regardless of
+        # strategy. Fall back to fixed_fractional and warn loudly — if
+        # the operator wants real Kelly sizing, wire it to a per-strategy
+        # historical win rate + payoff ratio from the latest backtest.
+        logger.warning(
+            "Position sizing method='kelly' refused: the historical "
+            "implementation was degenerate (always returned ~5%%). "
+            "Falling back to fixed_fractional. To re-enable, wire "
+            "win_prob and avg_win/avg_loss to the latest backtest "
+            "calibration table per strategy."
+        )
+        method = "fixed_fractional"
+        result["method"] = "fixed_fractional"
+        result["original_method"] = "kelly"
+        result["kelly_refused_reason"] = "degenerate hardcoded inputs"
+
     sl_price = stop_loss.get("price", current_price * 0.95)
     risk_per_share = abs(current_price - sl_price)
 
     if method == "fixed_fractional":
-        # Risk a fixed % of portfolio per trade
+        # Combine fixed-position cap with vol-target risk budget. The
+        # two-cap design is intentional: max_position keeps any single
+        # trade from blowing up the portfolio if the stop is wide, and
+        # risk_budget keeps risk-per-trade proportional to account size
+        # regardless of the stop distance.
         max_position = portfolio * max_pct
         if risk_per_share > 0:
-            # Risk at most 1% of portfolio on this trade
-            risk_budget = portfolio * 0.01
+            risk_budget = portfolio * risk_pct
             shares_by_risk = int(risk_budget / risk_per_share)
             shares_by_max = int(max_position / current_price)
             shares = min(shares_by_risk, shares_by_max)
@@ -367,30 +415,7 @@ def _calculate_position_size(current_price, stop_loss, sizing_config, action):
         result["pct_of_portfolio"] = round(dollar_amount / portfolio * 100, 2)
         result["risk_per_trade"] = round(shares * risk_per_share, 2)
         result["risk_pct"] = round(shares * risk_per_share / portfolio * 100, 2)
-
-    elif method == "kelly":
-        # Kelly Criterion: f = (bp - q) / b
-        # Simplified: use win rate from signals as probability
-        # This is a rough approximation
-        win_prob = 0.55  # default assumption
-        avg_win = abs(stop_loss.get("pct_from_current", 5))  # approximate
-        avg_loss = abs(stop_loss.get("pct_from_current", 5))
-        if avg_loss > 0:
-            b = avg_win / avg_loss
-            kelly_fraction = (b * win_prob - (1 - win_prob)) / b
-            kelly_fraction = max(0, min(kelly_fraction, max_pct))
-        else:
-            kelly_fraction = max_pct * 0.5
-
-        # Half-Kelly for safety
-        kelly_fraction *= 0.5
-        dollar_amount = portfolio * kelly_fraction
-        shares = int(dollar_amount / current_price)
-
-        result["recommended_shares"] = max(1, shares)
-        result["dollar_amount"] = round(dollar_amount, 2)
-        result["pct_of_portfolio"] = round(kelly_fraction * 100, 2)
-        result["kelly_fraction"] = round(kelly_fraction, 4)
+        result["risk_budget_pct"] = round(risk_pct * 100, 4)
 
     return result
 
