@@ -262,12 +262,14 @@ def compute_insider_flow_results_sync(
     """Sync wrapper for ``compute_insider_flow_results_async``.
 
     Used by the scan service (synchronous loop) to call into the async
-    DB stack via a single ``asyncio.run`` at the top of the scan. This
-    is the same pattern other Phase 0/1 wrappers use (see ``cli/main``
-    and ``backtest/engine``)."""
-    import asyncio
+    DB stack via a single ``asyncio.run`` at the top of the scan.
+    ``run_with_dispose`` disposes the engine inside this run so the next
+    sync caller starts with a fresh asyncpg pool — otherwise the global
+    pool stays bound to this now-closed loop and the next call hangs on
+    Windows. See ``src/db/session.py:run_with_dispose``."""
+    from src.db.session import run_with_dispose
 
-    return asyncio.run(
+    return run_with_dispose(
         compute_insider_flow_results_async(
             tickers,
             as_of=as_of,
@@ -342,10 +344,12 @@ def compute_catalyst_results_sync(
 ) -> dict[str, dict]:
     """Sync wrapper for ``compute_catalyst_results_async`` — the scan
     service is synchronous and wraps a single ``asyncio.run`` per
-    pre-pass."""
-    import asyncio
+    pre-pass. ``run_with_dispose`` disposes the engine inside this run
+    so the next sync caller (typically the insider-flow pre-pass right
+    after) starts with a fresh asyncpg pool."""
+    from src.db.session import run_with_dispose
 
-    return asyncio.run(
+    return run_with_dispose(
         compute_catalyst_results_async(
             tickers,
             as_of=as_of,
