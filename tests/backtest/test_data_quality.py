@@ -33,10 +33,12 @@ def test_survivorship_bias_flag_is_present_and_uncorrected():
 def test_data_quality_has_pipeline_version():
     """Every result must stamp the pipeline version so memory entries can
     say 'this number came from commit X' instead of just 'this number
-    came from a sweep'. Pre-9345a74 results are not comparable to post."""
+    came from a sweep'. The string must include the date stamp so
+    operators can sort sweep runs by pipeline epoch."""
     block = _build_data_quality_block(n_tickers_traded=0)
     assert block["pipeline_version"] == PIPELINE_VERSION
-    assert "silent50" in PIPELINE_VERSION
+    # Anchored to a YYYY-MM-DD prefix so the stamp is sortable.
+    assert PIPELINE_VERSION.startswith("2026-")
 
 
 def test_n_tickers_traded_propagates():

@@ -46,40 +46,65 @@ logger = logging.getLogger(__name__)
 # (sweep history, dashboards, memory notes) can tell which pipeline
 # version a number came from. Previous "OOS Sharpe 1.61" findings sat on
 # pre-9345a74 pipelines and are not directly comparable to post-9345a74.
-PIPELINE_VERSION = "2026-05-15-post-silent50-and-time-stop-revert"
+PIPELINE_VERSION = "2026-05-15-survivorship-haircut"
 
 
-def _build_data_quality_block(*, n_tickers_traded: int) -> dict:
+def _build_data_quality_block(
+    *,
+    n_tickers_traded: int,
+    universe_label: str | None = None,
+    adjusted_full_summary: dict | None = None,
+    adjusted_oos_summary: dict | None = None,
+) -> dict:
     """Structured data-quality flags that every backtest result inherits.
 
-    Tier-1 audit #5 (Q#3 / Q-cross): the survivorship-bias warning used to
-    live only in a free-text `warnings` list, which dashboards and sweep
-    history quietly dropped. Surface it as a structured field so the bias
-    is impossible to ignore visually.
+    Tier-1 audit #5: surfacing the survivorship-bias warning as a typed
+    field (not buried in `warnings`). The follow-on (#5b in
+    src/backtest/survivorship.py) computes a Bessembinder-style haircut
+    and ships an adjusted summary alongside the headline so the operator
+    sees a credible lower bound, not just a qualitative warning.
 
-    Adopt point-in-time index membership (CRSP / Norgate / Sharadar) to
-    fully correct the bias; until then this flag is the trust signal.
+    When ``adjusted_full_summary`` / ``adjusted_oos_summary`` are passed,
+    severity flips from ``"uncorrected"`` to ``"haircut_estimated"`` and
+    the adjusted numbers embed in the block. Full PIT index membership
+    (CRSP / Norgate / Sharadar) is the proper fix; the haircut is the
+    quantitative bridge until that's wired.
     """
+    sb: dict = {
+        "applies": True,
+        "severity": "uncorrected",
+        "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+        "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+        "details": (
+            "Universe is built from a present-day ticker snapshot, so "
+            "stocks that delisted / went bankrupt / were acquired before "
+            "today are excluded entirely. Headline Sharpe / CAGR are "
+            "biased upward by an unknown amount."
+        ),
+        "remediation": (
+            "Adopt point-in-time index membership (CRSP / Norgate / "
+            "Sharadar) or apply Bessembinder-style synthetic delisted "
+            "returns. Until then, treat all headline numbers as upper "
+            "bounds."
+        ),
+    }
+    if universe_label:
+        sb["universe_label"] = universe_label
+    if adjusted_full_summary is not None or adjusted_oos_summary is not None:
+        sb["severity"] = "haircut_estimated"
+        sb["adjusted"] = {
+            "full": adjusted_full_summary,
+            "out_of_sample": adjusted_oos_summary,
+            "method": (
+                "Flat annual-return + Sharpe haircut applied to headline "
+                "metrics per universe. See src/backtest/survivorship.py for "
+                "magnitudes and citations. Headline numbers are unchanged; "
+                "the adjusted block is the credible lower bound."
+            ),
+        }
     return {
         "pipeline_version": PIPELINE_VERSION,
-        "survivorship_bias": {
-            "applies": True,
-            "severity": "uncorrected",
-            "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
-            "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
-            "details": (
-                "Universe is built from a present-day ticker snapshot, so "
-                "stocks that delisted / went bankrupt / were acquired before "
-                "today are excluded entirely. Headline Sharpe / CAGR are "
-                "biased upward by an unknown amount."
-            ),
-            "remediation": (
-                "Adopt point-in-time index membership (CRSP / Norgate / "
-                "Sharadar) or apply Bessembinder-style synthetic delisted "
-                "returns. Until then, treat all headline numbers as upper "
-                "bounds."
-            ),
-        },
+        "survivorship_bias": sb,
         "n_tickers_traded": int(n_tickers_traded),
     }
 
@@ -111,6 +136,14 @@ class BacktestConfig:
     bootstrap_resamples: int = 2000         # 0 disables bootstrap CIs
     # Analytics — Tier 4
     vol_target_risk_pct: float = 0.0        # 0 = fixed-fractional sizing; e.g. 0.01 = risk 1%/trade
+
+    # Data-quality — survivorship-bias haircut (Tier-1 audit #5 follow-on).
+    # When set, the result's data_quality.survivorship_bias.adjusted block
+    # carries Bessembinder-style adjusted Sharpe / return numbers. None
+    # means "haircut applies but no universe label was passed"; the
+    # adjusted block still ships, using a conservative fallback haircut.
+    universe_label: str | None = None
+    apply_survivorship_haircut: bool = True
 
 
 class LookaheadGuardError(RuntimeError):
@@ -979,9 +1012,45 @@ def _finalize_result(
         },
         "data_quality": _build_data_quality_block(
             n_tickers_traded=len({t.ticker for t in portfolio.closed_trades}),
+            universe_label=bt_cfg.universe_label,
+            adjusted_full_summary=_build_adjusted_summary(
+                full_section, start, end, bt_cfg,
+            ) if bt_cfg.apply_survivorship_haircut else None,
+            adjusted_oos_summary=_build_adjusted_summary(
+                oos_section, split_date, end, bt_cfg,
+            ) if bt_cfg.apply_survivorship_haircut else None,
         ),
         "warnings": warnings,
     }
+
+
+def _build_adjusted_summary(
+    section: dict,
+    section_start: pd.Timestamp,
+    section_end: pd.Timestamp,
+    bt_cfg: "BacktestConfig",
+) -> dict:
+    """Apply the survivorship haircut to one section's headline metrics.
+
+    Pure helper — does not mutate the input section. The returned dict
+    embeds into ``data_quality.survivorship_bias.adjusted.{full,oos}``.
+    """
+    from src.backtest.survivorship import (
+        adjusted_summary_block,
+        default_haircut_for_universe,
+    )
+
+    haircut = default_haircut_for_universe(bt_cfg.universe_label)
+    summary = section.get("summary", {}) or {}
+    equity_stats = section.get("equity_stats", {}) or {}
+    years = max(0.0, (section_end - section_start).days / 365.25)
+    return adjusted_summary_block(
+        total_return_pct=summary.get("total_return_pct"),
+        cagr_pct=summary.get("cagr_pct"),
+        ann_sharpe=equity_stats.get("ann_sharpe"),
+        years=years,
+        haircut=haircut,
+    )
 
 
 def _close_at_or_before(

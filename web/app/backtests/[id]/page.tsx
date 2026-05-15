@@ -50,6 +50,16 @@ type Regimes = {
   vix_high?: Record<string, number>;
 };
 
+type AdjustedSection = {
+  total_return_pct?: number | null;
+  cagr_pct?: number | null;
+  ann_sharpe?: number | null;
+  haircut_applied?: {
+    annual_return_haircut_pct?: number;
+    sharpe_haircut?: number;
+    rationale?: string;
+  };
+};
 type SurvivorshipBias = {
   applies?: boolean;
   severity?: string;
@@ -57,6 +67,12 @@ type SurvivorshipBias = {
   source?: string;
   details?: string;
   remediation?: string;
+  universe_label?: string;
+  adjusted?: {
+    full?: AdjustedSection | null;
+    out_of_sample?: AdjustedSection | null;
+    method?: string;
+  };
 };
 type DataQuality = {
   pipeline_version?: string;
@@ -340,6 +356,8 @@ function BacktestDetail({ result }: { result: Record<string, unknown> }) {
 function DataQualityBanner({ quality }: { quality: DataQuality | null }) {
   if (!quality || !quality.survivorship_bias?.applies) return null;
   const sb = quality.survivorship_bias;
+  const adjOos = sb.adjusted?.out_of_sample ?? null;
+  const adjFull = sb.adjusted?.full ?? null;
   return (
     <div
       role="note"
@@ -349,6 +367,11 @@ function DataQualityBanner({ quality }: { quality: DataQuality | null }) {
       <div className="flex items-baseline justify-between gap-3">
         <div className="font-semibold text-amber-700 dark:text-amber-300">
           Survivorship bias: {sb.severity ?? "uncorrected"}
+          {sb.universe_label ? (
+            <span className="text-muted-foreground ml-2 font-normal">
+              · universe: <span className="font-mono">{sb.universe_label}</span>
+            </span>
+          ) : null}
         </div>
         {quality.pipeline_version ? (
           <div className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
@@ -358,17 +381,55 @@ function DataQualityBanner({ quality }: { quality: DataQuality | null }) {
       </div>
       <p className="text-muted-foreground mt-1 leading-snug">
         {sb.details ?? "Universe excludes delisted tickers; headline numbers biased upward."}
-        {sb.magnitude_hint_annual_pct ? (
-          <>
-            {" "}
-            Magnitude hint: <span className="font-mono">{sb.magnitude_hint_annual_pct}%/yr</span>.
-          </>
-        ) : null}
       </p>
+      {(adjOos || adjFull) ? (
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {adjOos ? <AdjustedTile label="OOS (haircut-adjusted)" section={adjOos} /> : null}
+          {adjFull ? <AdjustedTile label="Full (haircut-adjusted)" section={adjFull} /> : null}
+        </div>
+      ) : sb.magnitude_hint_annual_pct ? (
+        <p className="text-muted-foreground mt-1 text-xs leading-snug">
+          Magnitude hint: <span className="font-mono">{sb.magnitude_hint_annual_pct}%/yr</span>
+        </p>
+      ) : null}
       {sb.remediation ? (
-        <p className="text-muted-foreground mt-1 text-xs italic leading-snug">
+        <p className="text-muted-foreground mt-2 text-xs italic leading-snug">
           {sb.remediation}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+function AdjustedTile({ label, section }: { label: string; section: AdjustedSection }) {
+  const h = section.haircut_applied;
+  return (
+    <div className="bg-background/40 rounded border border-amber-500/30 px-2 py-1.5 text-xs">
+      <div className="font-mono text-[10px] tracking-wider text-amber-700 uppercase dark:text-amber-300">
+        {label}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+        {section.ann_sharpe != null ? (
+          <span>
+            Sharpe <span className="font-semibold">{section.ann_sharpe.toFixed(2)}</span>
+          </span>
+        ) : null}
+        {section.cagr_pct != null ? (
+          <span>
+            CAGR <span className="font-semibold">{section.cagr_pct.toFixed(2)}%</span>
+          </span>
+        ) : null}
+        {section.total_return_pct != null ? (
+          <span>
+            Total <span className="font-semibold">{section.total_return_pct.toFixed(2)}%</span>
+          </span>
+        ) : null}
+      </div>
+      {h ? (
+        <div className="text-muted-foreground mt-1 text-[10px]">
+          haircut: -{h.annual_return_haircut_pct}%/yr, -{h.sharpe_haircut} Sharpe
+          {h.rationale ? <span className="ml-1 italic">({h.rationale})</span> : null}
+        </div>
       ) : null}
     </div>
   );
