@@ -273,17 +273,28 @@ def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _default_latest_price(ticker: str) -> float | None:
-    """Fallback realtime fetcher — calls yfinance with a 2-second timeout.
+    """Fallback realtime fetcher — calls yfinance with a 2-second budget.
 
     Realtime quotes aren't a storage concern; the FastAPI layer (Phase 1)
     will inject an Alpaca-backed fetcher for live trading. This default
-    preserves current CLI behavior for the parity test."""
-    try:
-        import yfinance as yf  # local import — yfinance is heavy
+    preserves current CLI behavior for the parity test.
 
+    The previous docstring claimed a 2-second timeout but the underlying
+    ``yf.Ticker(ticker).fast_info`` call had NO enforced timeout; a hung
+    connection blocked the caller until yfinance's internal HTTP layer
+    gave up minutes later (audit Tier-1 #8, E#5). Now wrapped in
+    ``call_with_timeout`` so the docstring is true.
+    """
+    import yfinance as yf  # local import — yfinance is heavy
+
+    from src.data.fetch_outcome import call_with_timeout
+
+    def _pull() -> float | None:
         info = yf.Ticker(ticker).fast_info
         price = getattr(info, "last_price", None)
         return float(price) if price else None
-    except Exception as e:
-        logger.debug("Latest price fetch failed for %s: %s", ticker, e)
-        return None
+
+    value, _err = call_with_timeout(
+        _pull, timeout_seconds=2.0, name=f"yf.fast_info({ticker})",
+    )
+    return value

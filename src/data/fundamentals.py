@@ -1,5 +1,9 @@
 """
 Fundamental data fetcher - downloads financial metrics from yfinance.
+
+`yf.Ticker.info` is the slowest yfinance endpoint (5-15s on a healthy
+network) and has no timeout, so every call is wrapped in
+src.data.fetch_outcome.call_with_timeout. Tier-1 audit #8.
 """
 
 import yfinance as yf
@@ -8,7 +12,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+from src.data.fetch_outcome import call_with_timeout
+
 logger = logging.getLogger(__name__)
+
+# 15s allows for a slow but healthy yfinance .info round-trip (vendor
+# claims 5-15s typical). A hung connection past this gets cut so the
+# worker pool doesn't drain on bad tickers.
+_INFO_TIMEOUT_SECONDS = 15.0
 
 
 class FundamentalsFetcher:
@@ -27,10 +38,18 @@ class FundamentalsFetcher:
         if cached is not None:
             return cached
 
+        info, err = call_with_timeout(
+            lambda: yf.Ticker(ticker).info,
+            timeout_seconds=_INFO_TIMEOUT_SECONDS,
+            name=f"yf.info({ticker})",
+        )
+        if err is not None:
+            # Timeout or exception. call_with_timeout already logged.
+            # Returning None loses the "fetch failed" vs "no data exists"
+            # distinction; callers that need it should switch to the
+            # FetchOutcome-returning shape in src.data.fetch_outcome.
+            return None
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-
             if not info or info.get("trailingPE") is None and info.get("sector") is None:
                 logger.warning(f"No fundamental data for {ticker}")
                 return None
