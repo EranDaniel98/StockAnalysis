@@ -22,6 +22,45 @@ logger = logging.getLogger(__name__)
 _INFO_TIMEOUT_SECONDS = 15.0
 
 
+def _coerce_numeric(value):
+    """Coerce a yfinance value to float or None.
+
+    yfinance returns string sentinels for undefined numerics — most
+    commonly ``'Infinity'`` when a P/E is undefined because earnings
+    are negative, but ``'NaN'`` / ``'Inf'`` / ``''`` also appear. Pre-fix,
+    these strings propagated into downstream analyzers where
+    ``value > 0`` exploded with TypeError. Caught BILL on 2024-05-20 in
+    the in-flight sweep battery — every Monday from there on was
+    silently skipped before the audit promoted the score-ticker
+    exception log from debug to warning (commit 9345a74).
+
+    None / NaN / Inf / unparseable strings all map to None; downstream
+    analyzers already handle missing fields gracefully via
+    ``value is not None`` guards.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        # Numerically NaN / Inf are not useful for comparisons either —
+        # treat them the same as None to keep downstream guards uniform.
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return None
+        if f != f or f in (float("inf"), float("-inf")):  # NaN or +/-Inf
+            return None
+        return f
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or stripped.lower() in {"nan", "inf", "infinity", "-inf", "-infinity", "none", "null"}:
+            return None
+        try:
+            return _coerce_numeric(float(stripped))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 class FundamentalsFetcher:
     def __init__(self, config, cache):
         self.config = config
@@ -54,8 +93,16 @@ class FundamentalsFetcher:
                 logger.warning(f"No fundamental data for {ticker}")
                 return None
 
+            # Every numeric field goes through _coerce_numeric so downstream
+            # analyzers can rely on float-or-None semantics. yfinance
+            # occasionally returns the string 'Infinity' for undefined P/E
+            # (negative-earnings filers) and 'NaN' for missing values,
+            # which previously crashed comparisons like ``pe > 0`` in
+            # src/scoring/analyzers/fundamental.py. Discovered when BILL
+            # tripped the new fail-loud score-error log on every Monday
+            # from 2024-05-20 onward.
             fundamentals = {
-                # Identification
+                # Identification (always string)
                 "ticker": ticker,
                 "name": info.get("longName") or info.get("shortName", ticker),
                 "sector": info.get("sector", "Unknown"),
@@ -63,55 +110,56 @@ class FundamentalsFetcher:
                 "description": info.get("longBusinessSummary", ""),
 
                 # Valuation
-                "market_cap": info.get("marketCap"),
-                "pe_trailing": info.get("trailingPE"),
-                "pe_forward": info.get("forwardPE"),
-                "peg_ratio": info.get("pegRatio"),
-                "pb_ratio": info.get("priceToBook"),
-                "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                "ev_to_ebitda": info.get("enterpriseToEbitda"),
+                "market_cap": _coerce_numeric(info.get("marketCap")),
+                "pe_trailing": _coerce_numeric(info.get("trailingPE")),
+                "pe_forward": _coerce_numeric(info.get("forwardPE")),
+                "peg_ratio": _coerce_numeric(info.get("pegRatio")),
+                "pb_ratio": _coerce_numeric(info.get("priceToBook")),
+                "ps_ratio": _coerce_numeric(info.get("priceToSalesTrailing12Months")),
+                "ev_to_ebitda": _coerce_numeric(info.get("enterpriseToEbitda")),
 
                 # Growth
-                "revenue_growth": info.get("revenueGrowth"),
-                "earnings_growth": info.get("earningsGrowth"),
-                "earnings_quarterly_growth": info.get("earningsQuarterlyGrowth"),
+                "revenue_growth": _coerce_numeric(info.get("revenueGrowth")),
+                "earnings_growth": _coerce_numeric(info.get("earningsGrowth")),
+                "earnings_quarterly_growth": _coerce_numeric(info.get("earningsQuarterlyGrowth")),
 
                 # Profitability
-                "profit_margin": info.get("profitMargins"),
-                "operating_margin": info.get("operatingMargins"),
-                "roe": info.get("returnOnEquity"),
-                "roa": info.get("returnOnAssets"),
-                "gross_margins": info.get("grossMargins"),
+                "profit_margin": _coerce_numeric(info.get("profitMargins")),
+                "operating_margin": _coerce_numeric(info.get("operatingMargins")),
+                "roe": _coerce_numeric(info.get("returnOnEquity")),
+                "roa": _coerce_numeric(info.get("returnOnAssets")),
+                "gross_margins": _coerce_numeric(info.get("grossMargins")),
 
                 # Financial Health
-                "debt_to_equity": info.get("debtToEquity"),
-                "current_ratio": info.get("currentRatio"),
-                "quick_ratio": info.get("quickRatio"),
-                "free_cash_flow": info.get("freeCashflow"),
-                "total_cash": info.get("totalCash"),
-                "total_debt": info.get("totalDebt"),
+                "debt_to_equity": _coerce_numeric(info.get("debtToEquity")),
+                "current_ratio": _coerce_numeric(info.get("currentRatio")),
+                "quick_ratio": _coerce_numeric(info.get("quickRatio")),
+                "free_cash_flow": _coerce_numeric(info.get("freeCashflow")),
+                "total_cash": _coerce_numeric(info.get("totalCash")),
+                "total_debt": _coerce_numeric(info.get("totalDebt")),
 
                 # Dividends
-                "dividend_yield": info.get("dividendYield"),
-                "dividend_rate": info.get("dividendRate"),
-                "payout_ratio": info.get("payoutRatio"),
-                "ex_dividend_date": info.get("exDividendDate"),
+                "dividend_yield": _coerce_numeric(info.get("dividendYield")),
+                "dividend_rate": _coerce_numeric(info.get("dividendRate")),
+                "payout_ratio": _coerce_numeric(info.get("payoutRatio")),
+                # ex_dividend_date is a unix epoch int from yfinance — also numeric
+                "ex_dividend_date": _coerce_numeric(info.get("exDividendDate")),
 
                 # Trading Info
-                "avg_volume": info.get("averageVolume"),
-                "avg_volume_10d": info.get("averageDailyVolume10Day"),
-                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                "fifty_day_avg": info.get("fiftyDayAverage"),
-                "two_hundred_day_avg": info.get("twoHundredDayAverage"),
-                "beta": info.get("beta"),
+                "avg_volume": _coerce_numeric(info.get("averageVolume")),
+                "avg_volume_10d": _coerce_numeric(info.get("averageDailyVolume10Day")),
+                "fifty_two_week_high": _coerce_numeric(info.get("fiftyTwoWeekHigh")),
+                "fifty_two_week_low": _coerce_numeric(info.get("fiftyTwoWeekLow")),
+                "fifty_day_avg": _coerce_numeric(info.get("fiftyDayAverage")),
+                "two_hundred_day_avg": _coerce_numeric(info.get("twoHundredDayAverage")),
+                "beta": _coerce_numeric(info.get("beta")),
 
                 # Analyst
-                "target_mean_price": info.get("targetMeanPrice"),
-                "target_high_price": info.get("targetHighPrice"),
-                "target_low_price": info.get("targetLowPrice"),
-                "recommendation": info.get("recommendationKey"),
-                "num_analyst_opinions": info.get("numberOfAnalystOpinions"),
+                "target_mean_price": _coerce_numeric(info.get("targetMeanPrice")),
+                "target_high_price": _coerce_numeric(info.get("targetHighPrice")),
+                "target_low_price": _coerce_numeric(info.get("targetLowPrice")),
+                "recommendation": info.get("recommendationKey"),  # string label
+                "num_analyst_opinions": _coerce_numeric(info.get("numberOfAnalystOpinions")),
             }
 
             self.cache.set(cache_key, fundamentals)
