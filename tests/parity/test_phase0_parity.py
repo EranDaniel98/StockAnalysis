@@ -100,10 +100,17 @@ def test_typed_scoring_matches_legacy_dict():
     assert len(typed.breakdown) == len(legacy["breakdown"])
     for typed_row, legacy_row in zip(typed.breakdown, legacy["breakdown"]):
         assert typed_row.category == legacy_row["category"]
-        assert typed_row.score == pytest.approx(legacy_row["score"], abs=0.001)
+        # score is None on error slots (Tier-1 #4 silent-50 fix); both
+        # sides go through the same engine, so they must agree on
+        # which slots errored.
+        if legacy_row.get("score") is None:
+            assert typed_row.score is None
+        else:
+            assert typed_row.score == pytest.approx(legacy_row["score"], abs=0.001)
         assert typed_row.contribution == pytest.approx(
             legacy_row["contribution"], abs=0.001
         )
+        assert typed_row.status == legacy_row.get("status", "ok")
 
     # Round-trip through legacy_dict() — Phase 0 callers still consume
     # the dict shape via the shim.

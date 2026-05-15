@@ -286,7 +286,14 @@ def _score_ticker(
         )
         return score_result
     except Exception as e:
-        logger.debug(f"Score error {ticker}: {e}")
+        # Promoted from logger.debug: this used to be invisible in prod and
+        # the ticker disappeared from scoring entirely. Now it's a warning
+        # so it surfaces in the backtest log, and the caller increments a
+        # skipped_score_errors counter on the result summary.
+        logger.warning(
+            "Score error %s @ %s: %s: %s",
+            ticker, as_of_date, type(e).__name__, e,
+        )
         return None
 
 
@@ -331,6 +338,7 @@ def _score_all_tickers_for_date(
             spy_slice = None
 
     scored: list[tuple[str, dict]] = []
+    skipped_score_errors = 0
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures: dict = {}
         for ticker, df in price_data.items():
@@ -388,9 +396,16 @@ def _score_all_tickers_for_date(
             try:
                 result = fut.result()
             except Exception as e:
-                logger.debug(f"Worker error {ticker}: {e}")
+                # Promoted from logger.debug. Pickling errors / fundamentals
+                # loader transient drops used to disappear silently from the
+                # scored set; now they're warnings and counted.
+                logger.warning(
+                    "Worker error %s @ %s: %s: %s",
+                    ticker, as_of, type(e).__name__, e,
+                )
                 result = None
             if result is None:
+                skipped_score_errors += 1
                 continue
             scored.append((ticker, result))
             if score_cache is not None:
@@ -403,6 +418,12 @@ def _score_all_tickers_for_date(
                     atr=float(result.get("_atr", 0.0)),
                     close=float(result.get("_close", 0.0)),
                 ))
+    if skipped_score_errors > 0:
+        logger.warning(
+            "Score-error skips on %s: %d tickers dropped (worker exception or "
+            "_score_ticker returned None).",
+            as_of, skipped_score_errors,
+        )
     return scored
 
 

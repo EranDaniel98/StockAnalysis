@@ -4,9 +4,63 @@ Combines all analysis results into a weighted score using strategy-defined weigh
 """
 
 import logging
+from typing import Literal
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# Status semantics for every sub-analyzer slot. Drives whether the slot
+# enters the weighted denominator. Tier-1 fix: before this, missing or
+# crashed analyzers contributed a silent neutral 50 to the composite —
+# a broken alpha158 or fundamentals module could never harm a score.
+AnalyzerStatus = Literal["ok", "disabled", "error"]
+
+
+def _infer_status(result, *, required: bool) -> AnalyzerStatus:
+    """Map an analyzer result dict to a status label.
+
+    Required analyzers (technical/fundamental/pattern/statistical/trend)
+    must produce a numeric score; a None or shapeless dict is an error.
+    Optional analyzers (alpha158, pead, insider_flow, ...) are "disabled"
+    when not invoked (None passed in) and "error" when invoked but
+    crashed (dict present but missing or non-numeric score).
+    """
+    if result is None:
+        return "disabled" if not required else "error"
+    if not isinstance(result, dict):
+        return "error"
+    if result.get("error"):
+        return "error"
+    score = result.get("score")
+    if score is None:
+        return "error"
+    try:
+        float(score)
+    except (TypeError, ValueError):
+        return "error"
+    return "ok"
+
+
+# Ordered metadata for every sub-score slot: (slot_name, required).
+# Required slots are the strategy-mandated core analyzers; optional slots
+# are passed as None when not enabled.
+_SLOT_SPECS: list[tuple[str, bool]] = [
+    ("technical", True),
+    ("fundamental", True),
+    ("pattern", True),
+    ("statistical", True),
+    ("trend", True),
+    ("alpha158", False),
+    ("rel_strength", False),
+    ("insider_flow", False),
+    ("catalyst", False),
+    ("short_interest", False),
+    ("sector_flows", False),
+    ("analyst_revisions", False),
+    ("options_skew", False),
+]
 
 
 def calculate_composite_score(
@@ -41,7 +95,9 @@ def calculate_composite_score(
             bonus rather than weighted average
 
     Returns:
-        dict with composite_score, sub_scores, all_signals, breakdown
+        dict with composite_score, sub_scores, all_signals, breakdown, plus
+        analyzer_status (slot -> "ok"/"disabled"/"error"), error_count, and
+        score_valid (True iff at least one "ok" slot contributed).
     """
     weights = strategy_config.get("weights", {
         "technical": 0.30,
@@ -51,75 +107,86 @@ def calculate_composite_score(
         "trend": 0.10,
     })
 
-    sub_scores = {
-        "technical": technical_result.get("score", 50),
-        "fundamental": fundamental_result.get("score", 50),
-        "pattern": pattern_result.get("score", 50),
-        "statistical": statistical_result.get("score", 50),
-        "trend": trend_result.get("score", 50),
+    raw_results = {
+        "technical": technical_result,
+        "fundamental": fundamental_result,
+        "pattern": pattern_result,
+        "statistical": statistical_result,
+        "trend": trend_result,
+        "alpha158": alpha158_result,
+        "rel_strength": rel_strength_result,
+        "insider_flow": insider_flow_result,
+        "catalyst": catalyst_result,
+        "short_interest": short_interest_result,
+        "sector_flows": sector_flows_result,
+        "analyst_revisions": analyst_revisions_result,
+        "options_skew": options_skew_result,
     }
-    if alpha158_result is not None:
-        sub_scores["alpha158"] = alpha158_result.get("score", 50)
-    if rel_strength_result is not None:
-        sub_scores["rel_strength"] = rel_strength_result.get("score", 50)
-    if insider_flow_result is not None:
-        sub_scores["insider_flow"] = insider_flow_result.get("score", 50)
-    if catalyst_result is not None:
-        sub_scores["catalyst"] = catalyst_result.get("score", 50)
-    if short_interest_result is not None:
-        sub_scores["short_interest"] = short_interest_result.get("score", 50)
-    if sector_flows_result is not None:
-        sub_scores["sector_flows"] = sector_flows_result.get("score", 50)
-    if analyst_revisions_result is not None:
-        sub_scores["analyst_revisions"] = analyst_revisions_result.get("score", 50)
-    if options_skew_result is not None:
-        sub_scores["options_skew"] = options_skew_result.get("score", 50)
 
-    # Collect all signals
-    result_list = [technical_result, fundamental_result, pattern_result,
-                   statistical_result, trend_result]
-    if alpha158_result is not None:
-        result_list.append(alpha158_result)
-    if pead_result is not None:
-        result_list.append(pead_result)
-    if rel_strength_result is not None:
-        result_list.append(rel_strength_result)
-    if insider_flow_result is not None:
-        result_list.append(insider_flow_result)
-    if catalyst_result is not None:
-        result_list.append(catalyst_result)
-    if short_interest_result is not None:
-        result_list.append(short_interest_result)
-    if sector_flows_result is not None:
-        result_list.append(sector_flows_result)
-    if analyst_revisions_result is not None:
-        result_list.append(analyst_revisions_result)
-    if options_skew_result is not None:
-        result_list.append(options_skew_result)
-    all_signals = []
-    for result in result_list:
-        all_signals.extend(result.get("signals", []))
+    analyzer_status: dict[str, AnalyzerStatus] = {}
+    sub_scores: dict[str, float] = {}
+    for slot, required in _SLOT_SPECS:
+        result = raw_results[slot]
+        status = _infer_status(result, required=required)
+        analyzer_status[slot] = status
+        if status == "ok":
+            sub_scores[slot] = float(result["score"])
+            continue
+        if status == "error":
+            # Surface the broken result so the upstream alert / dashboard
+            # can flag it. We do NOT substitute 50 — that would be the
+            # exact silent-neutral failure mode this fix exists to kill.
+            logger.warning(
+                "Analyzer %s returned no usable score (status=%s); excluding "
+                "from weighted denominator. result=%r",
+                slot, status,
+                # Don't dump full result — analyzer dicts can be large.
+                {k: result.get(k) for k in ("error", "score")} if isinstance(result, dict) else result,
+            )
 
-    # Calculate weighted composite
-    total_weight = 0
-    weighted_sum = 0
+    error_count = sum(1 for s in analyzer_status.values() if s == "error")
+    error_slots = [slot for slot, s in analyzer_status.items() if s == "error"]
 
-    for category, score in sub_scores.items():
-        w = weights.get(category, 0)
-        weighted_sum += score * w
-        total_weight += w
+    # Collect signals only from "ok" slots — a broken analyzer's stale
+    # signals would skew the bullish/bearish consensus adjustment.
+    all_signals: list[dict] = []
+    for slot in sub_scores:
+        result = raw_results[slot]
+        if isinstance(result, dict):
+            all_signals.extend(result.get("signals", []) or [])
 
-    composite = weighted_sum / total_weight if total_weight > 0 else 50
+    # PEAD is handled separately as an additive bonus; collect its signals
+    # too (when not None and structurally valid).
+    if pead_result is not None and isinstance(pead_result, dict):
+        all_signals.extend(pead_result.get("signals", []) or [])
+
+    # Calculate weighted composite over ok slots only. Renormalize so the
+    # denominator reflects what actually contributed; otherwise weights
+    # silently sum to <1 and the composite floats too low.
+    total_weight = sum(weights.get(slot, 0) for slot in sub_scores)
+    if total_weight > 0:
+        composite = sum(
+            sub_scores[slot] * weights.get(slot, 0) for slot in sub_scores
+        ) / total_weight
+        score_valid = True
+    else:
+        # All required slots errored or had zero weight. Composite is
+        # mathematically undefined; fall back to 50 but flag invalid.
+        composite = 50.0
+        score_valid = False
 
     # PEAD bonus (additive, not weighted) — captures earnings drift premium
-    if pead_result is not None:
-        pead_bonus = pead_result.get("composite_bonus", 0.0)  # in score points
-        composite += pead_bonus
+    if pead_result is not None and isinstance(pead_result, dict):
+        pead_bonus = pead_result.get("composite_bonus", 0.0) or 0.0
+        try:
+            composite += float(pead_bonus)
+        except (TypeError, ValueError):
+            pass
 
     # Carver-style consensus scaling: when sub-scores disagree, pull composite
     # toward 50 (neutral). Opt-in via strategy config to preserve baseline.
     consensus_diag: dict = {}
-    if strategy_config.get("use_consensus_scaling", False):
+    if strategy_config.get("use_consensus_scaling", False) and sub_scores:
         from src.scoring.diversification import apply_consensus_scaling
         composite, consensus_diag = apply_consensus_scaling(composite, sub_scores)
 
@@ -135,35 +202,32 @@ def calculate_composite_score(
 
     composite = max(0, min(100, composite))
 
-    # Breakdown for display — include alpha158 if present
-    breakdown_keys = ["technical", "fundamental", "pattern", "statistical", "trend"]
-    if alpha158_result is not None:
-        breakdown_keys.append("alpha158")
-    if rel_strength_result is not None:
-        breakdown_keys.append("rel_strength")
-    if insider_flow_result is not None:
-        breakdown_keys.append("insider_flow")
-    if catalyst_result is not None:
-        breakdown_keys.append("catalyst")
-    if short_interest_result is not None:
-        breakdown_keys.append("short_interest")
-    if sector_flows_result is not None:
-        breakdown_keys.append("sector_flows")
-    if analyst_revisions_result is not None:
-        breakdown_keys.append("analyst_revisions")
-    if options_skew_result is not None:
-        breakdown_keys.append("options_skew")
+    # Breakdown for display — only include slots that had a status entry
+    # (so disabled optional slots stay hidden, but error slots show with
+    # status="error" so operators can see WHY a number looks off).
     breakdown = []
-    for category in breakdown_keys:
-        w = weights.get(category, 0)
-        s = sub_scores.get(category, 50)
-        contribution = s * w / total_weight if total_weight > 0 else 0
-        breakdown.append({
-            "category": category.capitalize(),
-            "score": round(s, 1),
-            "weight": f"{w*100:.0f}%",
-            "contribution": round(contribution, 1),
-        })
+    for slot, status in analyzer_status.items():
+        if status == "disabled":
+            continue
+        w = weights.get(slot, 0)
+        if status == "ok":
+            s = sub_scores[slot]
+            contribution = s * w / total_weight if total_weight > 0 else 0
+            breakdown.append({
+                "category": slot.capitalize(),
+                "score": round(s, 1),
+                "weight": f"{w*100:.0f}%",
+                "contribution": round(contribution, 1),
+                "status": "ok",
+            })
+        else:
+            breakdown.append({
+                "category": slot.capitalize(),
+                "score": None,
+                "weight": f"{w*100:.0f}%",
+                "contribution": 0.0,
+                "status": status,
+            })
 
     return {
         "composite_score": round(float(composite), 2),
@@ -173,6 +237,10 @@ def calculate_composite_score(
         "bearish_signals": bearish_count,
         "breakdown": breakdown,
         "consensus": consensus_diag,
+        "analyzer_status": analyzer_status,
+        "error_count": error_count,
+        "error_slots": error_slots,
+        "score_valid": score_valid,
     }
 
 
@@ -185,7 +253,11 @@ def batch_score(analysis_results, strategy_config):
         strategy_config: strategy configuration
 
     Returns:
-        list of (ticker, score_result) tuples sorted by composite score descending
+        list of (ticker, score_result) tuples sorted by composite score descending.
+        Tickers whose scoring crashed at the engine level are still emitted with a
+        sentinel result (composite_score=0, error_count populated) so the caller can
+        see drift between len(input) and len(scored). Old behavior silently dropped
+        them.
     """
     scored = []
 
@@ -210,7 +282,29 @@ def batch_score(analysis_results, strategy_config):
             )
             scored.append((ticker, score_result))
         except Exception as e:
-            logger.error(f"Error scoring {ticker}: {e}")
+            # Promoted from logger.error: this path was previously silent
+            # at warning levels even though the ticker disappeared from
+            # `scored` entirely. Emit a sentinel so downstream count
+            # comparisons see the drift instead of just a shorter list.
+            logger.warning(
+                "batch_score: scoring engine crashed for %s (%s: %s) — "
+                "emitting sentinel result with error_count=999",
+                ticker, type(e).__name__, e,
+            )
+            scored.append((ticker, {
+                "composite_score": 0.0,
+                "sub_scores": {},
+                "all_signals": [],
+                "bullish_signals": 0,
+                "bearish_signals": 0,
+                "breakdown": [],
+                "consensus": {},
+                "analyzer_status": {slot: "error" for slot, _ in _SLOT_SPECS},
+                "error_count": 999,
+                "error_slots": [slot for slot, _ in _SLOT_SPECS],
+                "score_valid": False,
+                "scoring_engine_error": f"{type(e).__name__}: {e}",
+            }))
 
     # Sort by composite score
     scored.sort(key=lambda x: x[1]["composite_score"], reverse=True)
