@@ -7,22 +7,37 @@ meaningful change committed.
 
 ## TL;DR
 
-The 2022-2024 minimal_baseline result is the first credible signal we
-have, but the strategy is regime-dependent — it lost money for ~10
-months in the 2022 bear before recovering. Walk-forward strict gate
-fails on those two folds. Tooling shipped to investigate WHY: per-
-analyzer IC report (which analyzers actually predict?), regime-filter
-hypothesis flag (does skip_bear neutralize 2022?), and analyzer
+**Headline finding: the backtest engine is NOT deterministic across
+yfinance pulls.** Two runs of 2024-2026 minimal_baseline hours apart
+returned full Sharpe 2.08 → 1.60 (-0.48), OOS Sharpe 2.89 → 2.51
+(-0.38), walk-forward fold 0 Sharpe 1.57 → 0.49 (-1.08). Same code,
+same pipeline version, same window. Cause is almost certainly yfinance
+drift — Yahoo back-applies dividend/split adjustments for several days
+after the event, so two pulls of "the same" history return slightly
+different bars. **Every prior point estimate in the audit chain needs
+±~0.4 Sharpe error bars around it that include this noise.**
+
+The 2022-2024 minimal_baseline result is still the first credible
+signal we have, but the strategy is regime-dependent — it lost money
+for ~10 months in the 2022 bear before recovering. Walk-forward strict
+gate fails on those two folds. Tooling shipped to investigate WHY:
+per-analyzer IC report (which analyzers actually predict?), regime-
+filter hypothesis flag (does skip_bear neutralize 2022?), and analyzer
 correlation matrix (which scoring sources are redundant?). Pending the
 runs that need fresh compute, the next ranked decisions are:
 
-1. **Drop the entire "edge exists" claim until walk-forward passes
-   without survivorship + with the bear folds.** That is the load-
-   bearing question, not Sharpe magnitude.
-2. **Run the IC report; any analyzer in the NOISE bucket should have
+1. **Freeze price data into Parquet snapshots per backtest run.**
+   Until this lands, every Sharpe in the audit chain has ~0.4 of
+   irreducible yfinance noise on top of bootstrap noise. Without it
+   you cannot compare any two backtest runs cleanly.
+2. **Drop the entire "edge exists" claim until walk-forward passes
+   without survivorship + with the bear folds + averaged over ≥3
+   independent yfinance pulls.** That is the load-bearing question,
+   not point-estimate Sharpe magnitude.
+3. **Run the IC report; any analyzer in the NOISE bucket should have
    its weight zeroed in minimal_baseline_v2** — currently we silently
    weight noise into the composite.
-3. **Run the skip_bear regime gate on 2022-2024 and compare folds
+4. **Run the skip_bear regime gate on 2022-2024 and compare folds
    head-to-head.** If folds 0/1 turn neutral without killing 2-4, the
    strategy is salvageable behind a regime filter; if it kills 2-4 too,
    the "edge" was just being long in 2023.
@@ -74,16 +89,19 @@ runs that need fresh compute, the next ranked decisions are:
   skip_bear_and_chop}` flag, fetches ^VIX, monkey-patches the gate.
   Commit `87af0f4`.
 
-### Runs queued / in-flight
-- **Verification re-run** (2024-2026 window, fresh yfinance pull, task
-  `bx1m5fp0j`). Output → `data/baseline/minimal_baseline_verify1.json`.
-  Tests: is the engine deterministic across hours-apart runs, or does
-  yfinance drift produce 1.84-vs-2.89 Sharpe noise?
-- **Pending compute** (queued for the morning, blocked behind verify
-  finishing to avoid yfinance contention):
-  - Per-analyzer IC report on 2022-2024 (1000 tickers × 100 weeks)
-  - Analyzer correlation matrix on 2022-2024
-  - Regime-filter A/B (`--regime-mode skip_bear` vs `off`) on 2022-2024
+### Runs completed
+- **Verify1 (2024-2026, fresh yfinance pull, task `bx1m5fp0j`)** —
+  result at `data/baseline/minimal_baseline_verify1.json`. Headline:
+  ENGINE IS NON-DETERMINISTIC across yfinance pulls. Full Sharpe
+  2.08 → 1.60. OOS Sharpe 2.89 → 2.51. Walk-forward folds 0/1
+  shifted ~1.1-1.4 Sharpe each. Diff against the original is in
+  commit message `234fe17`.
+
+### Runs queued
+- Per-analyzer IC report on 2022-2024 (1000 tickers × 100 weeks).
+  Will run on cached prices now that verify1 freed yfinance.
+- Analyzer correlation matrix on 2022-2024 (reuses IC's panel cache).
+- Regime-filter A/B (`--regime-mode skip_bear` vs `off`) on 2022-2024.
 
 ## What you should look at first
 
