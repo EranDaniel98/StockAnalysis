@@ -134,6 +134,14 @@ class BacktestConfig:
     # Statistical validity — Tier 3
     oos_split_pct: float = 0.30             # last X of window held out for OOS
     bootstrap_resamples: int = 2000         # 0 disables bootstrap CIs
+    # Review item #5: walk-forward CV. The legacy single-holdout split
+    # (one Sharpe estimate) gives no fold variance — a strategy that
+    # earned its Sharpe entirely in fold 3 looks identical to one that
+    # earned it evenly. ``walk_forward_folds`` > 0 enables an N-fold
+    # report on top of the legacy split. 5 folds is the review default.
+    # 0 disables (legacy single-split only).
+    walk_forward_folds: int = 5
+    walk_forward_min_mean_sharpe: float = 0.5  # gate threshold
     # Analytics — Tier 4
     vol_target_risk_pct: float = 0.0        # 0 = fixed-fractional sizing; e.g. 0.01 = risk 1%/trade
 
@@ -1038,6 +1046,24 @@ def _finalize_result(
     ) if len(portfolio.closed_trades) >= 5 else None
     live_rec = recommend_live_threshold(oos_section["calibration"])
 
+    # Walk-forward CV report (review item #5). Built post-hoc on the
+    # closed-trade timeline + equity curve; the strategy was applied
+    # once over the full window — no per-fold retraining (the engine
+    # doesn't train a model, it applies rules). Per-fold Sharpe + a
+    # strict pass/fail gate let operators read one boolean instead of
+    # eyeballing fold variance.
+    from src.backtest.walk_forward import compute_walk_forward_report
+
+    walk_forward = None
+    if bt_cfg.walk_forward_folds and bt_cfg.walk_forward_folds >= 2:
+        walk_forward = compute_walk_forward_report(
+            portfolio.closed_trades,
+            equity_curve,
+            start, end,
+            n_folds=bt_cfg.walk_forward_folds,
+            min_mean_sharpe=bt_cfg.walk_forward_min_mean_sharpe,
+        )
+
     return {
         "full": full_section,
         "in_sample": is_section,
@@ -1055,6 +1081,7 @@ def _finalize_result(
         "regimes": regimes,
         "monthly_returns": monthly,
         "monte_carlo": mc_shuffle,
+        "walk_forward": walk_forward,
         "live_recommendation": live_rec,
         "sector_relative_scoring": {
             "enabled": sector_stats is not None,
