@@ -41,6 +41,74 @@ from src.market_data.regime import (
 logger = logging.getLogger(__name__)
 
 
+# Bumps whenever a scoring-engine change makes prior backtest results
+# non-comparable. Stamped onto every BacktestResult so downstream consumers
+# (sweep history, dashboards, memory notes) can tell which pipeline
+# version a number came from. Previous "OOS Sharpe 1.61" findings sat on
+# pre-9345a74 pipelines and are not directly comparable to post-9345a74.
+PIPELINE_VERSION = "2026-05-15-survivorship-haircut"
+
+
+def _build_data_quality_block(
+    *,
+    n_tickers_traded: int,
+    universe_label: str | None = None,
+    adjusted_full_summary: dict | None = None,
+    adjusted_oos_summary: dict | None = None,
+) -> dict:
+    """Structured data-quality flags that every backtest result inherits.
+
+    Tier-1 audit #5: surfacing the survivorship-bias warning as a typed
+    field (not buried in `warnings`). The follow-on (#5b in
+    src/backtest/survivorship.py) computes a Bessembinder-style haircut
+    and ships an adjusted summary alongside the headline so the operator
+    sees a credible lower bound, not just a qualitative warning.
+
+    When ``adjusted_full_summary`` / ``adjusted_oos_summary`` are passed,
+    severity flips from ``"uncorrected"`` to ``"haircut_estimated"`` and
+    the adjusted numbers embed in the block. Full PIT index membership
+    (CRSP / Norgate / Sharadar) is the proper fix; the haircut is the
+    quantitative bridge until that's wired.
+    """
+    sb: dict = {
+        "applies": True,
+        "severity": "uncorrected",
+        "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+        "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+        "details": (
+            "Universe is built from a present-day ticker snapshot, so "
+            "stocks that delisted / went bankrupt / were acquired before "
+            "today are excluded entirely. Headline Sharpe / CAGR are "
+            "biased upward by an unknown amount."
+        ),
+        "remediation": (
+            "Adopt point-in-time index membership (CRSP / Norgate / "
+            "Sharadar) or apply Bessembinder-style synthetic delisted "
+            "returns. Until then, treat all headline numbers as upper "
+            "bounds."
+        ),
+    }
+    if universe_label:
+        sb["universe_label"] = universe_label
+    if adjusted_full_summary is not None or adjusted_oos_summary is not None:
+        sb["severity"] = "haircut_estimated"
+        sb["adjusted"] = {
+            "full": adjusted_full_summary,
+            "out_of_sample": adjusted_oos_summary,
+            "method": (
+                "Flat annual-return + Sharpe haircut applied to headline "
+                "metrics per universe. See src/backtest/survivorship.py for "
+                "magnitudes and citations. Headline numbers are unchanged; "
+                "the adjusted block is the credible lower bound."
+            ),
+        }
+    return {
+        "pipeline_version": PIPELINE_VERSION,
+        "survivorship_bias": sb,
+        "n_tickers_traded": int(n_tickers_traded),
+    }
+
+
 @dataclass
 class BacktestConfig:
     start_date: pd.Timestamp
@@ -69,6 +137,14 @@ class BacktestConfig:
     # Analytics — Tier 4
     vol_target_risk_pct: float = 0.0        # 0 = fixed-fractional sizing; e.g. 0.01 = risk 1%/trade
 
+    # Data-quality — survivorship-bias haircut (Tier-1 audit #5 follow-on).
+    # When set, the result's data_quality.survivorship_bias.adjusted block
+    # carries Bessembinder-style adjusted Sharpe / return numbers. None
+    # means "haircut applies but no universe label was passed"; the
+    # adjusted block still ships, using a conservative fallback haircut.
+    universe_label: str | None = None
+    apply_survivorship_haircut: bool = True
+
 
 class LookaheadGuardError(RuntimeError):
     """Raised when a strategy's fundamental weight would silently leak future knowledge."""
@@ -79,21 +155,31 @@ def fetch_earnings_dates(tickers: list[str], workers: int = 8) -> dict[str, list
     Fetch historical + upcoming earnings dates for each ticker via yfinance.
     Returns {ticker: sorted list of tz-naive Timestamps}. Empty list on failure.
     Parallelized — each yfinance call is network-bound.
+
+    Each yfinance call is wrapped in a 30s timeout (audit Tier-1 #8 / E#6):
+    yfinance has no native timeout, and a single stuck Yahoo connection
+    used to wedge a worker for the duration of the backtest. The wrapper
+    converts timeouts into empty earnings lists — same shape downstream
+    code expects, but logged at warning level so misses are visible.
     """
     import yfinance as yf
 
+    from src.data.fetch_outcome import call_with_timeout
+
     def _fetch_one(t):
-        try:
-            df = yf.Ticker(t).get_earnings_dates(limit=40)
-            if df is None or df.empty:
-                return t, []
-            idx = df.index
-            if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
-                idx = idx.tz_localize(None)
-            return t, sorted(pd.to_datetime(idx).tolist())
-        except Exception as e:
-            logger.debug(f"Earnings fetch failed for {t}: {e}")
+        df, err = call_with_timeout(
+            lambda: yf.Ticker(t).get_earnings_dates(limit=40),
+            timeout_seconds=30.0,
+            name=f"yf.get_earnings_dates({t})",
+        )
+        if err is not None:
             return t, []
+        if df is None or df.empty:
+            return t, []
+        idx = df.index
+        if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
+            idx = idx.tz_localize(None)
+        return t, sorted(pd.to_datetime(idx).tolist())
 
     results: dict[str, list[pd.Timestamp]] = {}
     workers = max(1, min(workers, len(tickers)))
@@ -112,21 +198,28 @@ def fetch_earnings_history(tickers: list[str], workers: int = 8) -> dict[str, pd
     """
     Fetch full earnings-history DataFrames (with surprise %) per ticker. Used
     by PEAD detector. Parallelized; falls back to empty DataFrame on failure.
+
+    Same 30s yfinance timeout wrapping as ``fetch_earnings_dates`` (audit
+    Tier-1 #8 / E#6).
     """
     import yfinance as yf
 
+    from src.data.fetch_outcome import call_with_timeout
+
     def _fetch_one(t):
-        try:
-            df = yf.Ticker(t).get_earnings_dates(limit=40)
-            if df is None or df.empty:
-                return t, pd.DataFrame()
-            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
-                df = df.copy()
-                df.index = df.index.tz_localize(None)
-            return t, df
-        except Exception as e:
-            logger.debug(f"Earnings history fetch failed for {t}: {e}")
+        df, err = call_with_timeout(
+            lambda: yf.Ticker(t).get_earnings_dates(limit=40),
+            timeout_seconds=30.0,
+            name=f"yf.get_earnings_dates({t})",
+        )
+        if err is not None:
             return t, pd.DataFrame()
+        if df is None or df.empty:
+            return t, pd.DataFrame()
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df = df.copy()
+            df.index = df.index.tz_localize(None)
+        return t, df
 
     results: dict[str, pd.DataFrame] = {}
     workers = max(1, min(workers, len(tickers)))
@@ -261,10 +354,170 @@ def _score_ticker(
         )
         score_result["_atr"] = _atr(df_slice)
         score_result["_close"] = float(df_slice["Close"].iloc[-1])
+        # Per-source signal counts: needed by ScoreCache to re-derive the
+        # signal-consensus ±5 adjustment when an A/B sweep drops a source.
+        named_results = {
+            "technical": tech, "fundamental": fnd, "pattern": pat,
+            "statistical": stat, "trend": trnd,
+            "alpha158": a158, "pead": pd_result,
+            "rel_strength": rs_result,
+            "insider_flow": if_result, "catalyst": cat_result,
+            "short_interest": si_result, "sector_flows": sf_result,
+        }
+        bull_by_src: dict[str, int] = {}
+        bear_by_src: dict[str, int] = {}
+        for src, r in named_results.items():
+            if r is None:
+                continue
+            sigs = r.get("signals", []) or []
+            bull_by_src[src] = sum(1 for s in sigs if s.get("type") == "bullish")
+            bear_by_src[src] = sum(1 for s in sigs if s.get("type") == "bearish")
+        score_result["_bullish_by_source"] = bull_by_src
+        score_result["_bearish_by_source"] = bear_by_src
+        score_result["_pead_bonus"] = (
+            float(pd_result.get("composite_bonus", 0.0)) if pd_result is not None else 0.0
+        )
         return score_result
     except Exception as e:
-        logger.debug(f"Score error {ticker}: {e}")
+        # Promoted from logger.debug: this used to be invisible in prod and
+        # the ticker disappeared from scoring entirely. Now it's a warning
+        # so it surfaces in the backtest log, and the caller increments a
+        # skipped_score_errors counter on the result summary.
+        logger.warning(
+            "Score error %s @ %s: %s: %s",
+            ticker, as_of_date, type(e).__name__, e,
+        )
         return None
+
+
+def _score_all_tickers_for_date(
+    as_of: pd.Timestamp,
+    price_data: dict[str, pd.DataFrame],
+    fundamentals: dict[str, dict],
+    config,
+    strategy: dict,
+    workers: int,
+    min_history_bars: int,
+    *,
+    spy_df: Optional[pd.DataFrame] = None,
+    sector_stats: Optional[dict] = None,
+    earnings_history: Optional[dict[str, pd.DataFrame]] = None,
+    insider_transactions: Optional[dict[str, list]] = None,
+    narrative_snapshots: Optional[dict[str, list]] = None,
+    fundamentals_pit_loader=None,
+    short_interest_history: Optional[dict[str, list]] = None,
+    sector_etfs: Optional[dict[str, pd.DataFrame]] = None,
+    score_cache=None,
+) -> list[tuple[str, dict]]:
+    """Per-Monday parallel scoring of every ticker in ``price_data``.
+
+    Factored out of ``run_backtest`` so the multi-mode sweep entry point
+    can score each Monday once and replay the portfolio simulation per
+    mode without re-running analyzers.
+
+    When ``score_cache`` is a ``ScoreCache``, each successfully scored
+    ticker is captured as a ``CachedScore`` keyed by ``(as_of, ticker)``.
+    """
+    earnings_history = earnings_history or {}
+    insider_transactions = insider_transactions or {}
+    narrative_snapshots = narrative_snapshots or {}
+    short_interest_history = short_interest_history or {}
+    sector_etfs = sector_etfs or {}
+
+    spy_slice = None
+    if spy_df is not None and not spy_df.empty:
+        spy_slice = spy_df.loc[spy_df.index < as_of]
+        if spy_slice.empty:
+            spy_slice = None
+
+    scored: list[tuple[str, dict]] = []
+    skipped_score_errors = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures: dict = {}
+        for ticker, df in price_data.items():
+            df_slice = df.loc[df.index < as_of]
+            if len(df_slice) < min_history_bars:
+                continue
+            raw_overlay = fundamentals.get(ticker, {}) or {}
+            if fundamentals_pit_loader is not None:
+                overlay = {
+                    k: v for k, v in raw_overlay.items()
+                    if k in _PIT_SAFE_OVERLAY_KEYS
+                }
+                last_close = (
+                    float(df_slice["Close"].iloc[-1]) if not df_slice.empty else None
+                )
+                fund = fundamentals_pit_loader.lookup_dict(
+                    ticker, as_of, price=last_close, overlay=overlay,
+                )
+            else:
+                fund = raw_overlay
+            eh = earnings_history.get(ticker)
+            all_ins = insider_transactions.get(ticker, []) or []
+            ins_slice = [
+                tx for tx in all_ins if tx.filing_date <= as_of.date()
+            ] if all_ins else None
+            all_nars = narrative_snapshots.get(ticker, []) or []
+            nar_snap = None
+            if all_nars:
+                valid = [
+                    n for n in all_nars if n.cluster_end_date <= as_of.date()
+                ]
+                if valid:
+                    nar_snap = max(valid, key=lambda n: n.cluster_end_date)
+            all_si = short_interest_history.get(ticker, []) or []
+            si_slice = [
+                row for row in all_si if row.settlement_date <= as_of.date()
+            ] if all_si else None
+            sector_etf_slice = None
+            sector_etf_symbol = None
+            sec = (fund.get("sector") or "").strip()
+            if sec and sec in SECTOR_TO_ETF:
+                sector_etf_symbol = SECTOR_TO_ETF[sec]
+                etf_df = sector_etfs.get(sector_etf_symbol)
+                if etf_df is not None and not etf_df.empty:
+                    sector_etf_slice = etf_df.loc[etf_df.index < as_of]
+                    if sector_etf_slice.empty:
+                        sector_etf_slice = None
+            futures[ex.submit(
+                _score_ticker, ticker, df_slice, fund, config, strategy,
+                eh, as_of, sector_stats, spy_slice, ins_slice, nar_snap,
+                si_slice, sector_etf_slice, sector_etf_symbol,
+            )] = ticker
+        for fut in as_completed(futures):
+            ticker = futures[fut]
+            try:
+                result = fut.result()
+            except Exception as e:
+                # Promoted from logger.debug. Pickling errors / fundamentals
+                # loader transient drops used to disappear silently from the
+                # scored set; now they're warnings and counted.
+                logger.warning(
+                    "Worker error %s @ %s: %s: %s",
+                    ticker, as_of, type(e).__name__, e,
+                )
+                result = None
+            if result is None:
+                skipped_score_errors += 1
+                continue
+            scored.append((ticker, result))
+            if score_cache is not None:
+                from src.backtest.score_cache import CachedScore
+                score_cache.put(as_of, ticker, CachedScore(
+                    sub_scores=dict(result.get("sub_scores", {})),
+                    bullish_by_source=dict(result.get("_bullish_by_source", {})),
+                    bearish_by_source=dict(result.get("_bearish_by_source", {})),
+                    pead_bonus=float(result.get("_pead_bonus", 0.0)),
+                    atr=float(result.get("_atr", 0.0)),
+                    close=float(result.get("_close", 0.0)),
+                ))
+    if skipped_score_errors > 0:
+        logger.warning(
+            "Score-error skips on %s: %d tickers dropped (worker exception or "
+            "_score_ticker returned None).",
+            as_of, skipped_score_errors,
+        )
+    return scored
 
 
 def _next_trading_day_inclusive(df: pd.DataFrame, on_or_after: pd.Timestamp) -> Optional[pd.Timestamp]:
@@ -461,92 +714,19 @@ def run_backtest(
             # 2) For each ticker, slice df strictly BEFORE as_of (pre-open scan
             #    semantic — matches live `paper trade` running Sunday with Friday
             #    data) and score in parallel.
-            #    Slice the benchmark the same way so RS can't peek either.
-            spy_slice = None
-            if spy_df is not None and not spy_df.empty:
-                spy_slice = spy_df.loc[spy_df.index < as_of]
-                if spy_slice.empty:
-                    spy_slice = None
-            scored: list[tuple[str, dict]] = []
-            with ThreadPoolExecutor(max_workers=bt_cfg.workers) as ex:
-                futures = {}
-                for ticker, df in price_data.items():
-                    df_slice = df.loc[df.index < as_of]
-                    if len(df_slice) < bt_cfg.min_history_bars:
-                        continue
-                    raw_overlay = fundamentals.get(ticker, {}) or {}
-                    if fundamentals_pit_loader is not None:
-                        # PIT lookup: most-recent EDGAR row valid at as_of,
-                        # adapted to analyzer dict shape. Overlay is FILTERED
-                        # to PIT_SAFE keys (sector/analyst/etc.) — numeric
-                        # fields like pe_trailing / debt_to_equity come from
-                        # the EDGAR row only, never the current-snapshot dict,
-                        # to preserve PIT semantics.
-                        overlay = {
-                            k: v for k, v in raw_overlay.items()
-                            if k in _PIT_SAFE_OVERLAY_KEYS
-                        }
-                        last_close = float(df_slice["Close"].iloc[-1]) if not df_slice.empty else None
-                        fund = fundamentals_pit_loader.lookup_dict(
-                            ticker, as_of, price=last_close, overlay=overlay,
-                        )
-                    else:
-                        fund = raw_overlay
-                    eh = earnings_history.get(ticker)
-                    # Slice insider txs: only those on or before as_of
-                    # (lookahead-safe — we never read tomorrow's filings).
-                    all_ins = insider_transactions.get(ticker, []) or []
-                    ins_slice = [
-                        tx for tx in all_ins
-                        if tx.filing_date <= as_of.date()
-                    ] if all_ins else None
-                    # Catalyst: pick the most recent narrative snapshot
-                    # whose cluster_end_date is on or before as_of. The
-                    # analyzer enforces its own freshness cutoff
-                    # (default 60d) — we don't pre-filter that here.
-                    all_nars = narrative_snapshots.get(ticker, []) or []
-                    nar_snap = None
-                    if all_nars:
-                        valid = [
-                            n for n in all_nars
-                            if n.cluster_end_date <= as_of.date()
-                        ]
-                        if valid:
-                            nar_snap = max(valid, key=lambda n: n.cluster_end_date)
-                    # Short interest: pre-slice to rows on or before as_of.
-                    all_si = short_interest_history.get(ticker, []) or []
-                    si_slice = [
-                        row for row in all_si
-                        if row.settlement_date <= as_of.date()
-                    ] if all_si else None
-                    # Sector ETF: resolve from ticker's sector (yfinance dict
-                    # or EDGAR overlay), look up symbol, slice ETF history
-                    # to bars strictly before as_of (same lookahead rule as
-                    # the price slice itself).
-                    sector_etf_slice = None
-                    sector_etf_symbol = None
-                    sec = (fund.get("sector") or "").strip()
-                    if sec and sec in SECTOR_TO_ETF:
-                        sector_etf_symbol = SECTOR_TO_ETF[sec]
-                        etf_df = sector_etfs.get(sector_etf_symbol)
-                        if etf_df is not None and not etf_df.empty:
-                            sector_etf_slice = etf_df.loc[etf_df.index < as_of]
-                            if sector_etf_slice.empty:
-                                sector_etf_slice = None
-                    futures[ex.submit(
-                        _score_ticker, ticker, df_slice, fund, config, strategy,
-                        eh, as_of, sector_stats, spy_slice, ins_slice, nar_snap,
-                        si_slice, sector_etf_slice, sector_etf_symbol,
-                    )] = ticker
-                for fut in as_completed(futures):
-                    ticker = futures[fut]
-                    try:
-                        result = fut.result()
-                    except Exception as e:
-                        logger.debug(f"Worker error {ticker}: {e}")
-                        result = None
-                    if result is not None:
-                        scored.append((ticker, result))
+            scored = _score_all_tickers_for_date(
+                as_of, price_data, fundamentals, config, strategy,
+                workers=bt_cfg.workers,
+                min_history_bars=bt_cfg.min_history_bars,
+                spy_df=spy_df,
+                sector_stats=sector_stats,
+                earnings_history=earnings_history,
+                insider_transactions=insider_transactions,
+                narrative_snapshots=narrative_snapshots,
+                fundamentals_pit_loader=fundamentals_pit_loader,
+                short_interest_history=short_interest_history,
+                sector_etfs=sector_etfs,
+            )
 
             # 3) Rank by (composite_score desc, ticker asc). Deterministic
             #    tie-break ensures reproducible results across runs.
@@ -564,6 +744,13 @@ def run_backtest(
             for ticker, result in scored:
                 composite = result["composite_score"]
                 if pd.isna(composite):
+                    continue
+                # Refuse to act on a structurally-broken score even if its
+                # placeholder composite happens to cross min_score (reviewer
+                # B1). Engine returns score_valid=False when all required
+                # analyzers errored; the 50.0 fallback + PEAD/consensus can
+                # otherwise lift composite past the threshold.
+                if not result.get("score_valid", True):
                     continue
                 if composite < bt_cfg.min_score:
                     break  # sorted: rest are worse
@@ -624,7 +811,46 @@ def run_backtest(
         ),
     )
 
-    # 6) Final metrics
+    return _finalize_result(
+        portfolio=portfolio,
+        equity_curve=equity_curve,
+        regime_history=regime_history,
+        warnings=warnings,
+        start=start, end=end,
+        bt_cfg=bt_cfg,
+        spy_df=spy_df, vix_df=vix_df,
+        sector_stats=sector_stats, sector_cfg=sector_cfg,
+        regime_enabled=regime_enabled,
+        regime_mode=regime_mode,
+        regime_params=regime_params,
+        skipped_earnings=skipped_earnings,
+        skipped_regime=skipped_regime,
+    )
+
+
+def _finalize_result(
+    portfolio: SimPortfolio,
+    equity_curve: list[dict],
+    regime_history: list[dict],
+    warnings: list[str],
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    bt_cfg: BacktestConfig,
+    spy_df: Optional[pd.DataFrame],
+    vix_df: Optional[pd.DataFrame],
+    sector_stats: Optional[dict],
+    sector_cfg: dict,
+    regime_enabled: bool,
+    regime_mode: GateMode,
+    regime_params: RegimeParams,
+    skipped_earnings: int,
+    skipped_regime: int,
+) -> dict:
+    """Build the BacktestResult dict from a completed SimPortfolio + equity curve.
+
+    Pulled out of ``run_backtest`` so the multi-mode sweep can finalize each
+    mode independently from the shared walk."""
     from src.backtest.metrics import (
         bootstrap_cis,
         calibration_table,
@@ -641,15 +867,18 @@ def run_backtest(
         verdict,
         verdict_with_stats,
     )
-    # Normalize VIX index for regime lookups
     vix_normalized = _normalize_index(vix_df) if vix_df is not None and not vix_df.empty else None
     spy_normalized = _normalize_index(spy_df) if spy_df is not None and not spy_df.empty else None
     spy_ret = _spy_buy_hold_return(spy_df, start, end)
     spy_match_ret = deployment_matched_spy_return(equity_curve, spy_df, start, end)
     exits = exit_reason_breakdown(portfolio.closed_trades)
 
-    # Universal caveat: yfinance universe is current-snapshot — survivorship bias
-    # is uncorrected. Delisted, bankrupt, and merged-away tickers are absent.
+    # Tier-1 audit #5 (Q#3 / Q-cross): every result currently inherits this
+    # bias because universe membership is sourced from a present-day snapshot.
+    # The string warning is preserved for back-compat (any CLI/script that
+    # iterates `result["warnings"]` keeps showing it), but the structured
+    # `data_quality.survivorship_bias` block below is the one dashboards and
+    # sweep history should render so this can't be visually ignored.
     warnings.append(
         "Survivorship bias: universe is built from current-snapshot ticker lists. "
         "Stocks that delisted, went bankrupt, or were acquired before today are "
@@ -673,7 +902,6 @@ def run_backtest(
             "to run_backtest() to activate the gate."
         )
 
-    # OOS split: last X of window is the held-out validation set.
     split_date = start + (end - start) * (1 - bt_cfg.oos_split_pct)
     is_trades = [t for t in portfolio.closed_trades if t.entry_date < split_date]
     oos_trades = [t for t in portfolio.closed_trades if t.entry_date >= split_date]
@@ -682,11 +910,8 @@ def run_backtest(
 
     def _compute_section(trades, equity_subset, section_start, section_end,
                          starting_capital, ending_equity):
-        """
-        Build a section's metrics. starting_capital is the equity at the
-        section's start (= bt_cfg.starting_cash for Full and IS; = IS-end equity
-        for OOS, so OOS measures returns on the capital actually deployed there).
-        """
+        # Pass bt_cfg.compound through so summary_stats / equity_curve_stats
+        # choose the right annualization formula. Tier-2 audit #18.
         return {
             "summary": summary_stats(
                 trades,
@@ -698,16 +923,13 @@ def run_backtest(
                 spy_deployment_matched_pct=deployment_matched_spy_return(
                     equity_subset, spy_df, section_start, section_end
                 ),
-                total_costs=None,  # full-window costs only on the headline summary
+                total_costs=None,
+                compound=bt_cfg.compound,
             ),
-            "equity_stats": equity_curve_stats(equity_subset),
+            "equity_stats": equity_curve_stats(equity_subset, compound=bt_cfg.compound),
             "calibration": calibration_table(trades),
         }
 
-    # IS section starts at $starting_cash and ends at the equity-at-split.
-    # OOS section starts at IS-end equity and ends at final cash. Without this,
-    # OOS total return spuriously equals Full because both are anchored to
-    # bt_cfg.starting_cash.
     is_ending_equity = is_equity[-1]["equity"] if is_equity else bt_cfg.starting_cash
     full_section = _compute_section(
         portfolio.closed_trades, equity_curve, start, end,
@@ -734,10 +956,8 @@ def run_backtest(
         is_ending_equity, portfolio.cash,
     )
 
-    # Verdict on OOS (the only trustworthy bucket)
     oos_verdict = verdict_with_stats(oos_section["calibration"])
 
-    # Cost sensitivity (post-hoc on the trade list)
     sensitivity = cost_sensitivity_grid(
         portfolio.closed_trades,
         starting_cash=bt_cfg.starting_cash,
@@ -745,7 +965,6 @@ def run_backtest(
         fixed_reg_bps=bt_cfg.regulatory_bps_on_sale,
     )
 
-    # Bootstrap CIs on OOS trades (or full if OOS too small)
     boot_target = oos_trades if len(oos_trades) >= 20 else portfolio.closed_trades
     boot_label = "OOS" if len(oos_trades) >= 20 else "full window"
     bootstrap = bootstrap_cis(
@@ -754,12 +973,10 @@ def run_backtest(
         n_resamples=bt_cfg.bootstrap_resamples,
     ) if bt_cfg.bootstrap_resamples > 0 else None
 
-    # Tier 4 analytics
     excursion = excursion_stats(portfolio.closed_trades)
     regimes = regime_split(portfolio.closed_trades, spy_normalized, vix_normalized)
     monthly = monthly_return_grid(equity_curve)
 
-    # Tier 5: path-dependence + live-threshold recommendation
     mc_shuffle = monte_carlo_shuffle(
         portfolio.closed_trades, bt_cfg.starting_cash, n_shuffles=1000
     ) if len(portfolio.closed_trades) >= 5 else None
@@ -803,8 +1020,47 @@ def run_backtest(
             ) if regime_enabled else 0,
             "history": regime_history,
         },
+        "data_quality": _build_data_quality_block(
+            n_tickers_traded=len({t.ticker for t in portfolio.closed_trades}),
+            universe_label=bt_cfg.universe_label,
+            adjusted_full_summary=_build_adjusted_summary(
+                full_section, start, end, bt_cfg,
+            ) if bt_cfg.apply_survivorship_haircut else None,
+            adjusted_oos_summary=_build_adjusted_summary(
+                oos_section, split_date, end, bt_cfg,
+            ) if bt_cfg.apply_survivorship_haircut else None,
+        ),
         "warnings": warnings,
     }
+
+
+def _build_adjusted_summary(
+    section: dict,
+    section_start: pd.Timestamp,
+    section_end: pd.Timestamp,
+    bt_cfg: "BacktestConfig",
+) -> dict:
+    """Apply the survivorship haircut to one section's headline metrics.
+
+    Pure helper — does not mutate the input section. The returned dict
+    embeds into ``data_quality.survivorship_bias.adjusted.{full,oos}``.
+    """
+    from src.backtest.survivorship import (
+        adjusted_summary_block,
+        default_haircut_for_universe,
+    )
+
+    haircut = default_haircut_for_universe(bt_cfg.universe_label)
+    summary = section.get("summary", {}) or {}
+    equity_stats = section.get("equity_stats", {}) or {}
+    years = max(0.0, (section_end - section_start).days / 365.25)
+    return adjusted_summary_block(
+        total_return_pct=summary.get("total_return_pct"),
+        cagr_pct=summary.get("cagr_pct"),
+        ann_sharpe=equity_stats.get("ann_sharpe"),
+        years=years,
+        haircut=haircut,
+    )
 
 
 def _close_at_or_before(
@@ -860,3 +1116,329 @@ def _process_exits_through(
         if (through - last_bar_date).days > max_staleness_days:
             last_close = float(bars["Close"].iloc[-1]) if not bars.empty else pos.entry_price
             portfolio._close(ticker, last_bar_date, last_close, "delisted_or_halted")
+
+
+# ─── Multi-mode sweep entry point ───────────────────────────────────────────
+
+
+@dataclass
+class SweepMode:
+    """One variant in a multi-mode A/B sweep.
+
+    The analyzer chain is shared across modes (it only depends on price/
+    fundamental/insider data, not on weights), so the multi-mode runner
+    scores each Monday once and re-derives the composite per mode by
+    re-weighting the cached sub-scores.
+
+    Args:
+        label: human name surfaced in the result dict and progress output.
+        strategy: the strategy config for THIS mode — its ``weights`` and
+            ``use_consensus_scaling`` flag drive the composite. Other
+            keys (description, time_horizon, etc.) are passed through.
+        enabled_sources: which sub-score sources contribute to the
+            composite and the signal-consensus adjustment. ``None`` =
+            every source we have in the cache. Use this to drop a
+            source entirely (e.g. ``{"technical", ..., "alpha158"}``
+            without ``"insider_flow"`` to reproduce the prior
+            ``insider_transactions=None`` baseline).
+    """
+    label: str
+    strategy: dict
+    enabled_sources: Optional[set[str]] = None
+
+
+def run_backtest_multi_mode(
+    modes: list[SweepMode],
+    price_data: dict[str, pd.DataFrame],
+    fundamentals: dict[str, dict],
+    config,
+    bt_cfg: BacktestConfig,
+    spy_df: Optional[pd.DataFrame] = None,
+    vix_df: Optional[pd.DataFrame] = None,
+    earnings_dates: Optional[dict[str, list[pd.Timestamp]]] = None,
+    earnings_history: Optional[dict[str, pd.DataFrame]] = None,
+    insider_transactions: Optional[dict[str, list]] = None,
+    narrative_snapshots: Optional[dict[str, list]] = None,
+    fundamentals_pit_loader=None,
+    short_interest_history: Optional[dict[str, list]] = None,
+    sector_etfs: Optional[dict[str, pd.DataFrame]] = None,
+    progress_label: str = "Multi-mode backtest",
+) -> dict[str, dict]:
+    """Score each Monday once, replay the portfolio simulation per mode.
+
+    Drop-in replacement for the ``for mode in MODES: run_backtest(...)``
+    pattern in sweep scripts. Returns ``{label: BacktestResult}`` — each
+    value matches the dict shape of ``run_backtest``.
+
+    The first mode's strategy is used to drive the analyzer chain (the
+    analyzers themselves are weight-independent; only sub_score
+    aggregation differs). Sub-scores, signal counts, PEAD bonus, and
+    ATR/close are cached per ``(as_of, ticker)`` and replayed via
+    ``recompose_composite`` for each mode's weights + enabled_sources.
+
+    Pre-flight inputs (insider_transactions, narrative_snapshots, etc.)
+    must be the *union* of what any mode needs — modes that want to
+    exclude a source set ``enabled_sources`` accordingly. Pass
+    ``insider_transactions=full_dict`` and let mode=off drop
+    ``"insider_flow"`` from ``enabled_sources`` rather than passing
+    ``None`` for the off mode.
+    """
+    from src.backtest.score_cache import ScoreCache, recompose_composite
+
+    if not modes:
+        raise ValueError("modes must be non-empty")
+    if len({m.label for m in modes}) != len(modes):
+        raise ValueError("mode labels must be unique")
+
+    shared_warnings: list[str] = []
+    earnings_dates = earnings_dates or {}
+    earnings_history = earnings_history or {}
+    insider_transactions = insider_transactions or {}
+    narrative_snapshots = narrative_snapshots or {}
+    short_interest_history = short_interest_history or {}
+    sector_etfs = sector_etfs or {}
+    if sector_etfs:
+        sector_etfs = {k: _normalize_index(v) for k, v in sector_etfs.items() if v is not None and not v.empty}
+
+    # Shared regime classification — same SPY/VIX inputs across modes,
+    # same gate config, so each Monday's regime label / entries_allowed
+    # is mode-invariant.
+    sector_cfg = config.get_sector_relative_scoring() if hasattr(config, "get_sector_relative_scoring") else {}
+    sector_stats: Optional[dict] = None
+    if sector_cfg.get("enabled", False):
+        sector_stats = compute_sector_stats(
+            fundamentals,
+            min_cohort=int(sector_cfg.get("min_cohort", 5)),
+        )
+
+    rf_cfg = config.get_regime_filter() if hasattr(config, "get_regime_filter") else {}
+    regime_enabled: bool = bool(rf_cfg.get("enabled", False))
+    regime_mode: GateMode = rf_cfg.get("mode", "off") if regime_enabled else "off"
+    regime_params = RegimeParams(
+        sma_period=int(rf_cfg.get("sma_period", 200)),
+        vix_low=float(rf_cfg.get("vix_low", 20.0)),
+        vix_high=float(rf_cfg.get("vix_high", 25.0)),
+    )
+
+    price_data = {t: _normalize_index(df) for t, df in price_data.items() if df is not None and not df.empty}
+    if not price_data:
+        return {m.label: {"error": "No price data available"} for m in modes}
+    if spy_df is not None and not spy_df.empty:
+        spy_df = _normalize_index(spy_df)
+    if vix_df is not None and not vix_df.empty:
+        vix_df = _normalize_index(vix_df)
+
+    start = pd.Timestamp(bt_cfg.start_date)
+    if start.tz is not None:
+        start = start.tz_localize(None)
+    end = pd.Timestamp(bt_cfg.end_date)
+    if end.tz is not None:
+        end = end.tz_localize(None)
+
+    schedule = pd.date_range(start=start, end=end, freq="W-MON").tolist()
+    if not schedule:
+        return {m.label: {"error": "Empty schedule"} for m in modes}
+
+    # Lookahead check: run per-mode (different fundamental weights → different
+    # PIT requirements). LookaheadGuardError from any mode is a hard fail.
+    for m in modes:
+        fundamental_weight = m.strategy.get("weights", {}).get("fundamental", 0)
+        if fundamental_weight > 0.05:
+            pit_coverage = 0.0
+            if fundamentals_pit_loader is not None and price_data:
+                covered = sum(1 for t in price_data if t.upper() in fundamentals_pit_loader.tickers)
+                pit_coverage = covered / max(1, len(price_data))
+            if fundamentals_pit_loader is not None and pit_coverage >= 0.5:
+                shared_warnings.append(
+                    f"[{m.label}] PIT fundamentals active: loader covers {pit_coverage*100:.0f}% of universe."
+                )
+            else:
+                msg = (
+                    f"[{m.label}] Strategy weights fundamentals at {fundamental_weight*100:.0f}%. "
+                    f"yfinance fundamentals are current-snapshot — lookahead leak."
+                )
+                if not bt_cfg.accept_lookahead:
+                    raise LookaheadGuardError(msg + " Pass accept_lookahead=True to override.")
+                shared_warnings.append("LOOKAHEAD ACCEPTED: " + msg)
+
+    # Per-mode state holders.
+    mode_state: dict[str, dict] = {}
+    for m in modes:
+        mode_state[m.label] = {
+            "portfolio": SimPortfolio(
+                starting_cash=bt_cfg.starting_cash,
+                max_position_pct=bt_cfg.max_position_pct,
+                max_open_positions=bt_cfg.max_open_positions,
+                compound=bt_cfg.compound,
+                commission_per_trade=bt_cfg.commission_per_trade,
+                regulatory_bps_on_sale=bt_cfg.regulatory_bps_on_sale,
+                slippage_bps=bt_cfg.slippage_bps,
+                vol_target_risk_pct=bt_cfg.vol_target_risk_pct,
+            ),
+            "equity_curve": [],
+            "skipped_earnings": 0,
+            "skipped_regime": 0,
+            "warnings": list(shared_warnings),
+        }
+
+    regime_history: list[dict] = []
+    # Strategy used for the analyzer chain. Analyzers don't depend on weights;
+    # we discard the composite they compute and re-derive per mode from cache.
+    primary_strategy = modes[0].strategy
+
+    score_cache = ScoreCache()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn(f"[bold]{progress_label}[/bold]"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("{task.fields[when]}"),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("walking", total=len(schedule), when="")
+        for as_of in schedule:
+            progress.update(task, when=as_of.strftime("%Y-%m-%d"))
+
+            # Per-mode exits.
+            for m in modes:
+                _process_exits_through(
+                    mode_state[m.label]["portfolio"], price_data, as_of,
+                    bt_cfg.max_staleness_days,
+                )
+
+            # Shared regime classification.
+            regime_snap = classify_at(spy_df, vix_df, as_of, regime_params)
+            regime_history.append({
+                "date": as_of.strftime("%Y-%m-%d"),
+                "label": regime_snap.label,
+                "vix": regime_snap.vix_level,
+                "spy_above_sma": regime_snap.spy_above_sma,
+            })
+            entries_allowed = gate_allows_entry(regime_snap.label, regime_mode)
+
+            # Score ONCE — cache populated as a side effect.
+            scored = _score_all_tickers_for_date(
+                as_of, price_data, fundamentals, config, primary_strategy,
+                workers=bt_cfg.workers,
+                min_history_bars=bt_cfg.min_history_bars,
+                spy_df=spy_df,
+                sector_stats=sector_stats,
+                earnings_history=earnings_history,
+                insider_transactions=insider_transactions,
+                narrative_snapshots=narrative_snapshots,
+                fundamentals_pit_loader=fundamentals_pit_loader,
+                short_interest_history=short_interest_history,
+                sector_etfs=sector_etfs,
+                score_cache=score_cache,
+            )
+            result_by_ticker = {t: r for t, r in scored}
+            cached_today = score_cache.for_date(as_of)
+
+            # Per-mode entries / mark-to-market.
+            for m in modes:
+                st = mode_state[m.label]
+                portfolio = st["portfolio"]
+                use_cs = bool(m.strategy.get("use_consensus_scaling", False))
+                weights = m.strategy.get("weights", {}) or {}
+
+                rescored: list[tuple[str, dict, float]] = []
+                for ticker in result_by_ticker:
+                    cached = cached_today.get(ticker)
+                    if cached is None:
+                        continue
+                    composite, _diag = recompose_composite(
+                        cached, weights,
+                        enabled_sources=m.enabled_sources,
+                        use_consensus_scaling=use_cs,
+                    )
+                    rescored.append((ticker, result_by_ticker[ticker], composite))
+
+                rescored.sort(key=lambda x: (-x[2], x[0]))
+
+                if not entries_allowed:
+                    st["skipped_regime"] += sum(
+                        1 for _, _, c in rescored
+                        if not pd.isna(c) and c >= bt_cfg.min_score
+                    )
+                    rescored = []
+
+                for ticker, result, composite in rescored:
+                    if pd.isna(composite):
+                        continue
+                    # See single-mode gate above — reviewer B1.
+                    if not result.get("score_valid", True):
+                        continue
+                    if composite < bt_cfg.min_score:
+                        break
+                    if not portfolio.can_open(ticker):
+                        continue
+                    df = price_data[ticker]
+                    next_day = _next_trading_day_inclusive(df, as_of)
+                    if next_day is None:
+                        continue
+                    if _is_in_earnings_blackout(ticker, next_day, earnings_dates, bt_cfg.earnings_blackout_days):
+                        st["skipped_earnings"] += 1
+                        continue
+                    next_bar = df.loc[next_day]
+                    entry_price = float(next_bar["Open"])
+                    if entry_price <= 0:
+                        continue
+                    atr = result.get("_atr", 0)
+                    if atr <= 0:
+                        continue
+                    stop_price = entry_price - atr * bt_cfg.atr_stop_mult
+                    target_price = entry_price + atr * bt_cfg.atr_target_mult
+                    max_exit_date = next_day + pd.Timedelta(days=bt_cfg.max_hold_days)
+                    fund = fundamentals.get(ticker, {}) or {}
+                    portfolio.open_position(
+                        ticker=ticker,
+                        entry_price=entry_price,
+                        entry_date=next_day,
+                        stop_price=stop_price,
+                        target_price=target_price,
+                        max_exit_date=max_exit_date,
+                        score=composite,
+                        sector=fund.get("sector", "Unknown"),
+                    )
+
+                mtm = {
+                    t: _close_at_or_before(price_data[t], as_of, bt_cfg.max_staleness_days)
+                    for t in portfolio.positions
+                }
+                st["equity_curve"].append({
+                    "date": as_of.strftime("%Y-%m-%d"),
+                    "equity": round(portfolio.equity({k: v for k, v in mtm.items() if v is not None}), 2),
+                    "open_positions": len(portfolio.positions),
+                    "cash": round(portfolio.cash, 2),
+                })
+            progress.advance(task)
+
+    # End-of-walk per mode.
+    results: dict[str, dict] = {}
+    for m in modes:
+        st = mode_state[m.label]
+        portfolio = st["portfolio"]
+        _process_exits_through(portfolio, price_data, end, bt_cfg.max_staleness_days)
+        portfolio.force_close_all(
+            last_day=end,
+            price_lookup=lambda t, d, _pd=price_data: _close_at_or_before(
+                _pd.get(t), d, bt_cfg.max_staleness_days
+            ),
+        )
+        results[m.label] = _finalize_result(
+            portfolio=portfolio,
+            equity_curve=st["equity_curve"],
+            regime_history=list(regime_history),
+            warnings=list(st["warnings"]),
+            start=start, end=end,
+            bt_cfg=bt_cfg,
+            spy_df=spy_df, vix_df=vix_df,
+            sector_stats=sector_stats, sector_cfg=sector_cfg,
+            regime_enabled=regime_enabled,
+            regime_mode=regime_mode,
+            regime_params=regime_params,
+            skipped_earnings=st["skipped_earnings"],
+            skipped_regime=st["skipped_regime"],
+        )
+    return results

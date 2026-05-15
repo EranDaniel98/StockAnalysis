@@ -1,8 +1,8 @@
 """Recommendation entity — the user-facing output of the scoring pipeline."""
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.contracts.entities.score import CompositeScore
 from src.contracts.entities.signal import Signal
@@ -15,6 +15,104 @@ ConfidenceLabel = Literal["High", "Medium-High", "Medium", "Low"]
 
 OrderType = Literal["Limit", "Stop", "Market"]
 
+StopLossMethod = Literal["atr", "percentage", "support"]
+TakeProfitMethod = Literal["risk_reward", "atr", "resistance"]
+
+
+class StopLossSpec(BaseModel):
+    """Typed stop-loss output from src/scoring/recommender.py:_calculate_stop_loss.
+
+    Tier-1 audit #6 (D#17 / T#5 / X#7): the previous shape was a free-form
+    dict, and the repository read it via `isinstance(rm.stop_loss, dict)`.
+    A future caller passing the model itself instead of a dict bypassed
+    the isinstance check, `stop_loss` quietly became `None`, and the
+    paper trade shipped with no stop. The typed model + `extract_price`
+    helper close that path.
+
+    `method` is the method actually used at exit time. If the configured
+    method fell back (e.g. ATR=0 -> percentage, support not found ->
+    percentage), `method` must reflect the fallback — not the input
+    config (audit X#7 specifically).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    method: StopLossMethod
+    price: float = Field(gt=0)
+    pct_from_current: float
+    detail: str = ""
+
+
+class TakeProfitSpec(BaseModel):
+    """Typed take-profit output — see StopLossSpec for the rationale."""
+
+    model_config = ConfigDict(frozen=True)
+
+    method: TakeProfitMethod
+    price: float = Field(gt=0)
+    pct_from_current: float
+    detail: str = ""
+
+
+def extract_stop_loss_price(rm: "RiskManagement | dict | None") -> Optional[float]:
+    """Pull the stop-loss price out of a RiskManagement, regardless of
+    whether `stop_loss` is a typed spec, a legacy dict, or absent.
+
+    The legacy ``isinstance(rm.stop_loss, dict)`` check returned None on
+    a typed spec and shipped a stop-less paper trade. This helper raises
+    on truly unrecognized shapes (so a future divergence is loud) and
+    returns None only when the spec genuinely is absent.
+    """
+    if rm is None:
+        return None
+    sl = getattr(rm, "stop_loss", None) if not isinstance(rm, dict) else rm.get("stop_loss")
+    return _extract_price(sl, field="stop_loss")
+
+
+def extract_take_profit_price(rm: "RiskManagement | dict | None") -> Optional[float]:
+    """Pull the take-profit price out of a RiskManagement. Symmetric with
+    extract_stop_loss_price."""
+    if rm is None:
+        return None
+    tp = getattr(rm, "take_profit", None) if not isinstance(rm, dict) else rm.get("take_profit")
+    return _extract_price(tp, field="take_profit")
+
+
+def _extract_price(spec: "StopLossSpec | TakeProfitSpec | dict | None", *, field: str) -> Optional[float]:
+    if spec is None:
+        return None
+    if isinstance(spec, (StopLossSpec, TakeProfitSpec)):
+        return spec.price
+    if isinstance(spec, dict):
+        price = spec.get("price")
+        return float(price) if price is not None else None
+    raise TypeError(
+        f"Unrecognized {field} shape: {type(spec).__name__}. Expected "
+        f"StopLossSpec/TakeProfitSpec, dict, or None."
+    )
+
+
+def _coerce_to_stop_loss_spec(value: Any) -> Any:
+    """model_validator coercer — accept legacy dict OR typed StopLossSpec.
+    Empty / missing -> None. Pydantic then validates the spec normally."""
+    if value is None or isinstance(value, StopLossSpec):
+        return value
+    if isinstance(value, dict):
+        if not value or "price" not in value:
+            return None
+        return value  # Pydantic constructs the spec from this dict
+    raise TypeError(f"stop_loss must be StopLossSpec, dict, or None; got {type(value).__name__}")
+
+
+def _coerce_to_take_profit_spec(value: Any) -> Any:
+    if value is None or isinstance(value, TakeProfitSpec):
+        return value
+    if isinstance(value, dict):
+        if not value or "price" not in value:
+            return None
+        return value
+    raise TypeError(f"take_profit must be TakeProfitSpec, dict, or None; got {type(value).__name__}")
+
 
 class RiskManagement(BaseModel):
     """Stop loss + take profit + position sizing + R/R for a single
@@ -24,12 +122,28 @@ class RiskManagement(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     current_price: float
-    stop_loss: dict = Field(default_factory=dict)
-    """Sub-dict: {price, method, pct_from_current, ...}. Stays as dict
-    until Phase 0 parity is locked; narrows in a follow-up."""
-    take_profit: dict = Field(default_factory=dict)
+    stop_loss: StopLossSpec | None = None
+    """Typed (Tier-1 #6). Recommender historically built a dict; the
+    `_coerce_stop_loss` validator below converts on construction so
+    legacy call sites still work."""
+    take_profit: TakeProfitSpec | None = None
     position_size: dict = Field(default_factory=dict)
     risk_reward: dict = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_specs(cls, data: Any) -> Any:
+        """Accept legacy dict shape for stop_loss / take_profit so the
+        recommender (which still emits dicts) constructs a valid model
+        without an explicit conversion step. Once the recommender returns
+        typed specs natively, this validator becomes a no-op pass-through."""
+        if not isinstance(data, dict):
+            return data
+        if "stop_loss" in data:
+            data["stop_loss"] = _coerce_to_stop_loss_spec(data["stop_loss"])
+        if "take_profit" in data:
+            data["take_profit"] = _coerce_to_take_profit_spec(data["take_profit"])
+        return data
 
 
 class OrderInstruction(BaseModel):
@@ -82,9 +196,38 @@ class Recommendation(BaseModel):
     industry: str = "Unknown"
     market_cap: Optional[float] = None
 
+    # --- engine-level validity (Tier-1 B1 reviewer finding) ---
+    # Propagated from CompositeScore so downstream gates (paper-trade,
+    # backtest entry) can refuse on a structurally-broken score rather
+    # than acting on the 50.0 placeholder composite. Default True keeps
+    # callers that construct Recommendation directly working unchanged.
+    score_valid: bool = True
+    error_count: int = 0
+    error_slots: tuple[str, ...] = ()
+
     def legacy_dict(self) -> dict:
         """Return the legacy untyped-dict shape current call sites expect.
-        Shim. Remove in Phase 1."""
+        Shim. Remove in Phase 1.
+
+        risk_management.{stop_loss,take_profit} emit as legacy sub-dicts
+        rather than None-when-absent so paper_trade_service's
+        ``.get("stop_loss", {}).get("price")`` chain doesn't crash on the
+        migration (reviewer I3). The DB repo already uses
+        ``extract_stop_loss_price`` which handles both shapes.
+
+        score_valid / error_count / error_slots emit so downstream gates
+        on the legacy-dict surface can refuse a broken-pipeline result
+        (reviewer B1/I4)."""
+        if self.risk_management is None:
+            rm_payload: dict = {}
+        else:
+            rm_payload = self.risk_management.model_dump()
+            # Empty-dict fallback preserves the legacy
+            # ``.get("stop_loss", {}).get("price")`` chain (reviewer I3).
+            if rm_payload.get("stop_loss") is None:
+                rm_payload["stop_loss"] = {}
+            if rm_payload.get("take_profit") is None:
+                rm_payload["take_profit"] = {}
         return {
             "ticker": self.ticker,
             "action": self.action,
@@ -96,13 +239,14 @@ class Recommendation(BaseModel):
             "bullish_signals": self.bullish_signals,
             "bearish_signals": self.bearish_signals,
             "all_signals": [s.model_dump() for s in self.all_signals],
-            "risk_management": (
-                self.risk_management.model_dump() if self.risk_management else {}
-            ),
+            "risk_management": rm_payload,
             "name": self.name,
             "sector": self.sector,
             "industry": self.industry,
             "market_cap": self.market_cap,
+            "score_valid": self.score_valid,
+            "error_count": self.error_count,
+            "error_slots": list(self.error_slots),
         }
 
     @classmethod
@@ -139,4 +283,7 @@ class Recommendation(BaseModel):
             sector=sector,
             industry=industry,
             market_cap=market_cap,
+            score_valid=score.score_valid,
+            error_count=score.error_count,
+            error_slots=tuple(score.error_slots),
         )

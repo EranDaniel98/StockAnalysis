@@ -70,9 +70,14 @@ def _dict_to_composite_score(ticker: str, result: dict[str, Any]) -> CompositeSc
     breakdown = tuple(
         ScoreBreakdownRow(
             category=row.get("category", ""),
-            score=float(row.get("score", 0)),
+            score=(
+                float(row["score"])
+                if row.get("score") is not None
+                else None
+            ),
             weight=str(row.get("weight", "")),
             contribution=float(row.get("contribution", 0)),
+            status=str(row.get("status", "ok")),
         )
         for row in breakdown_raw
     )
@@ -96,6 +101,10 @@ def _dict_to_composite_score(ticker: str, result: dict[str, Any]) -> CompositeSc
         bearish_signals=int(result.get("bearish_signals", 0)),
         breakdown=breakdown,
         consensus=consensus,
+        analyzer_status=dict(result.get("analyzer_status", {}) or {}),
+        error_count=int(result.get("error_count", 0)),
+        error_slots=tuple(result.get("error_slots", []) or []),
+        score_valid=bool(result.get("score_valid", True)),
         atr=result.get("_atr"),
         close=result.get("_close"),
     )

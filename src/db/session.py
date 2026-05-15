@@ -75,3 +75,31 @@ async def dispose_engine() -> None:
         await _engine.dispose()
         _engine = None
         _sessionmaker = None
+
+
+def run_with_dispose(coro):
+    """Run an async coroutine via asyncio.run and dispose the engine before
+    returning.
+
+    Necessary for every sync entry-point that wraps async DB work: the
+    global ``_engine`` asyncpg pool stays bound to whichever event loop
+    first built it, so a second ``asyncio.run`` later in the same process
+    sees a pool bound to a dead loop. On Windows ProactorEventLoop this
+    hangs silently; on Linux it can return stale rows from half-closed
+    connections. Disposing the engine inside the same ``asyncio.run`` that
+    created it breaks the cycle — each sync entry-point pays the cheap
+    reconnect cost and starts with a fresh pool bound to its own loop.
+
+    Use this from every sync wrapper that calls into the async DB stack
+    (scan service pre-passes, short-interest loader sync wrapper, sweep
+    scripts). Never call ``asyncio.run(some_async_db_call())`` directly.
+    """
+    import asyncio
+
+    async def _wrapped():
+        try:
+            return await coro
+        finally:
+            await dispose_engine()
+
+    return asyncio.run(_wrapped())

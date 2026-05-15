@@ -40,12 +40,16 @@ from src.data.cache import DataCache
 from src.data.fetcher import DataFetcher
 from src.data.fundamentals import FundamentalsFetcher
 from src.db.models import InsiderTransaction as InsiderTxRow
+from src.db.repositories import PostgresFundamentalsRepository
 from src.db.session import dispose_engine, get_sessionmaker
 from src.backtest.engine import (
     BacktestConfig,
+    SweepMode,
     fetch_earnings_history,
-    run_backtest,
+    run_backtest_multi_mode,
 )
+from src.backtest.score_cache import ALL_SOURCES
+from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
 import src.scoring.analyzers.insider_flow as if_module
 
 console = Console()
@@ -80,6 +84,21 @@ def _strategy_with_insider_weight(
     weights["insider_flow"] = weight
     strat["weights"] = weights
     return strat
+
+
+async def _build_pit_loader(tickers: list[str]) -> FundamentalsPITLoader:
+    """Pre-load EDGAR PIT fundamentals for the universe. Run once before
+    the sweep; the engine then resolves ``(ticker, as_of)`` lookups
+    in-memory."""
+    SL = get_sessionmaker()
+    async with SL() as session:
+        repo = PostgresFundamentalsRepository(session)
+        loader = await FundamentalsPITLoader.from_repository(repo, tickers)
+    # dispose so the next asyncio.run() (insider txs) doesn't inherit a
+    # connection pool bound to this now-closed loop — the asyncpg ping
+    # crashes on Windows when the old proactor is gone.
+    await dispose_engine()
+    return loader
 
 
 async def _load_insider_transactions(
@@ -175,6 +194,25 @@ def main() -> int:
     parser.add_argument("--earnings-blackout", type=int, default=3)
     parser.add_argument("--bootstrap-resamples", type=int, default=0)
     parser.add_argument("--save", default="data/sweep_insider_flow.json")
+    parser.add_argument(
+        "--save-full",
+        default=None,
+        help=(
+            "Optional path to dump full per-mode BacktestResult dicts "
+            "(includes per-trade rows, equity curve, bootstrap CIs). "
+            "Lets us paired-bootstrap or re-analyze post-hoc without "
+            "re-running the multi-hour sweep."
+        ),
+    )
+    parser.add_argument(
+        "--pit-fundamentals",
+        action="store_true",
+        help=(
+            "Load EDGAR PIT fundamentals from Postgres and pass to the "
+            "backtest engine. Required for strategies with fundamental "
+            "weight > 0.05 — otherwise the lookahead guard fires."
+        ),
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -234,6 +272,16 @@ def main() -> int:
         for t, df_h in earnings_history.items()
     }
 
+    pit_loader = None
+    if args.pit_fundamentals:
+        console.print("[bold]Loading EDGAR PIT fundamentals from Postgres...[/bold]")
+        pit_loader = asyncio.run(_build_pit_loader(tickers))
+        coverage = sum(1 for t in tickers if t.upper() in pit_loader.tickers)
+        console.print(
+            f"  PIT loader covers {coverage}/{len(tickers)} tickers "
+            f"({100*coverage/max(1,len(tickers)):.0f}%)\n"
+        )
+
     console.print("[bold]Loading insider transactions from Postgres...[/bold]")
     insider_txs = asyncio.run(_load_insider_transactions(tickers))
     n_txs = sum(len(v) for v in insider_txs.values())
@@ -263,29 +311,57 @@ def main() -> int:
         bootstrap_resamples=args.bootstrap_resamples,
     )
 
+    # Build the SweepMode list. All three modes share the cached analyzer
+    # output — "off" reproduces the prior "insider_transactions=None"
+    # baseline by dropping insider_flow from enabled_sources (no sub-score,
+    # no signal contribution to the ±5 consensus adjustment).
+    sweep_modes = [
+        SweepMode(
+            label="off",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.0),
+            enabled_sources=set(ALL_SOURCES - {"insider_flow"}),
+        ),
+        SweepMode(
+            label="signal_only",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.0),
+            enabled_sources=None,
+        ),
+        SweepMode(
+            label="weighted",
+            strategy=_strategy_with_insider_weight(base_strategy, 0.10),
+            enabled_sources=None,
+        ),
+    ]
+
+    console.print(
+        f"[bold cyan]Running multi-mode sweep "
+        f"(off / signal_only / weighted) — scoring once, replaying per mode...[/bold cyan]"
+    )
+    t0 = time.time()
+    multi_result = run_backtest_multi_mode(
+        sweep_modes,
+        price_data, fundamentals, config, bt_cfg,
+        spy_df=spy_df, vix_df=vix_df,
+        earnings_dates=earnings_dates,
+        earnings_history=earnings_history,
+        insider_transactions=insider_txs,
+        fundamentals_pit_loader=pit_loader,
+    )
+    elapsed = time.time() - t0
+    console.print(f"  multi-mode sweep done in {elapsed:.1f}s\n")
+
+    # Map label -> (weight, run_analyzer) for backwards-compatible summary shape.
+    mode_meta = {"off": (0.0, False), "signal_only": (0.0, True), "weighted": (0.10, True)}
     rows: list[dict[str, Any]] = []
     for mode, weight, run_analyzer in MODES:
-        strat = _strategy_with_insider_weight(base_strategy, weight)
-        # Withhold the insider data entirely when running the off-baseline
-        # so the analyzer can't fire signals into the consensus adjustment.
-        ins_for_run = insider_txs if run_analyzer else None
-        console.print(
-            f"[bold cyan]Running mode={mode} (weight={weight}, "
-            f"analyzer={'on' if run_analyzer else 'off'})...[/bold cyan]"
-        )
-        t0 = time.time()
-        result = run_backtest(
-            price_data, fundamentals, config, strat, bt_cfg,
-            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
-            insider_transactions=ins_for_run,
-        )
-        elapsed = time.time() - t0
+        result = multi_result[mode]
         summary = _summarize(mode, weight, run_analyzer, result)
         console.print(
-            f"  done in {elapsed:.1f}s — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
-            f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%\n"
+            f"  mode={mode:>11} — OOS Sharpe {summary['oos_sharpe']:+.2f}, "
+            f"trades {summary['n_trades']}, win rate {summary['win_rate_pct']:.1f}%"
         )
         rows.append(summary)
+    console.print()
 
     _print_table(rows, args.strategy, universe_label)
 
@@ -293,6 +369,15 @@ def main() -> int:
     save_path.parent.mkdir(parents=True, exist_ok=True)
     save_path.write_text(json.dumps(rows, indent=2, default=str), encoding="utf-8")
     console.print(f"\n[dim]Saved comparison rows to {save_path}[/dim]")
+
+    if args.save_full:
+        full_path = Path(args.save_full)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(
+            json.dumps(multi_result, indent=2, default=str), encoding="utf-8"
+        )
+        console.print(f"[dim]Saved full per-mode results to {full_path}[/dim]")
+
     return 0
 
 

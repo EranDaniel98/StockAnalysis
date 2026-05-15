@@ -229,7 +229,7 @@ def excursion_stats(closed_trades) -> dict:
     }
 
 
-def equity_curve_stats(equity_curve: list[dict]) -> dict:
+def equity_curve_stats(equity_curve: list[dict], *, compound: bool = True) -> dict:
     """
     Compute risk-adjusted metrics from a weekly equity curve.
     Returns dict with: max_drawdown_pct, time_in_dd_pct, ann_sharpe, ann_sortino,
@@ -237,6 +237,14 @@ def equity_curve_stats(equity_curve: list[dict]) -> dict:
 
     Sharpe assumes 0% risk-free rate (small adjustment vs reality on a single-account
     backtest; user can subtract t-bill rate if needed).
+
+    Tier-2 audit #18: ``compound=False`` runs use FIXED-FRACTIONAL sizing
+    (every trade gets the same dollar budget, derived from starting_cash)
+    so the equity curve is approximately linear under positive expectancy.
+    Annualizing as ``(1+total)^(1/y) - 1`` (compounding formula) on a
+    linear curve overstates the headline CAGR — the right linear
+    annualization is ``total_return / years``. Calmar denominator follows
+    the same logic.
     """
     if len(equity_curve) < 2:
         return {
@@ -272,16 +280,42 @@ def equity_curve_stats(equity_curve: list[dict]) -> dict:
     downside = weekly_returns[weekly_returns < 0]
     downside_std = float(downside.std(ddof=1)) if len(downside) > 1 else 0.0
 
-    ann_sharpe = (mean_w / std_w) * math.sqrt(WEEKS_PER_YEAR) if std_w > 0 else 0.0
-    ann_sortino = (mean_w / downside_std) * math.sqrt(WEEKS_PER_YEAR) if downside_std > 0 else 0.0
-    ann_vol = std_w * math.sqrt(WEEKS_PER_YEAR) * 100
+    # Tier-2 #27: empirical periods_per_year. Pre-fix hardcoded
+    # ``sqrt(WEEKS_PER_YEAR=52)`` annualized the weekly Sharpe regardless
+    # of how many periods actually fell into the year. When a backtest
+    # window included U.S. market holidays (MLK / Memorial / July 4 /
+    # Labor Day / Thanksgiving / Christmas → ~9 holiday Mondays a year),
+    # the equity curve had fewer-than-52 samples per year but the
+    # annualizer behaved as if it had 52, overstating Sharpe and
+    # Sortino. Compute the factor from actual elapsed days instead.
+    # First/last date come from the equity_curve dicts — caller's
+    # contract preserves them as ISO strings, so we parse to compute
+    # elapsed years.
+    first_date = pd.Timestamp(equity_curve[0]["date"])
+    last_date = pd.Timestamp(equity_curve[-1]["date"])
+    elapsed_days = max(1, (last_date - first_date).days)
+    years_elapsed = elapsed_days / 365.25
+    periods_per_year = (
+        len(weekly_returns) / years_elapsed if years_elapsed > 0 else float(WEEKS_PER_YEAR)
+    )
+    ann_factor = math.sqrt(periods_per_year)
+
+    ann_sharpe = (mean_w / std_w) * ann_factor if std_w > 0 else 0.0
+    ann_sortino = (mean_w / downside_std) * ann_factor if downside_std > 0 else 0.0
+    ann_vol = std_w * ann_factor * 100
 
     # Calmar = annualized return / |max DD|
     total_return = equities[-1] / equities[0] - 1
-    weeks_elapsed = len(weekly_returns)
-    years_elapsed = weeks_elapsed / WEEKS_PER_YEAR
-    cagr = ((1 + total_return) ** (1 / years_elapsed) - 1) if years_elapsed > 0 else 0.0
-    calmar = (cagr / abs(max_dd)) if max_dd < 0 else 0.0
+    if years_elapsed > 0:
+        if compound:
+            ann_return = (1 + total_return) ** (1 / years_elapsed) - 1
+        else:
+            # Linear annualization for fixed-fractional sizing — see
+            # docstring. ``total_return / years_elapsed``.
+            ann_return = total_return / years_elapsed
+    else:
+        ann_return = 0.0
+    calmar = (ann_return / abs(max_dd)) if max_dd < 0 else 0.0
 
     return {
         "max_drawdown_pct": round(max_dd * 100, 2),
@@ -564,14 +598,37 @@ def summary_stats(
     spy_return_pct: Optional[float] = None,
     spy_deployment_matched_pct: Optional[float] = None,
     total_costs: Optional[dict] = None,
+    *,
+    compound: bool = True,
 ) -> dict:
-    """Top-level backtest summary."""
+    """Top-level backtest summary.
+
+    Tier-2 audit #18: ``compound=False`` runs use fixed-fractional sizing
+    (every trade gets the same dollar budget) so the equity curve is
+    linear, not exponential. Annualizing with ``(1+r)^(1/y) - 1`` on a
+    linear curve overstates the headline CAGR by the convexity of the
+    function — at +30%/2y the compound formula gives 14.0%, the linear
+    gives 15.0%, on the same data. Pre-fix every fixed-fractional run
+    reported the compound number as "CAGR".
+    """
     n = len(closed_trades)
     total_pnl = ending_equity - starting_cash
     total_return_pct = (ending_equity / starting_cash - 1) * 100 if starting_cash > 0 else 0
     days = max(1, (end_date - start_date).days)
     years = days / 365.25
-    cagr_pct = ((ending_equity / starting_cash) ** (1 / years) - 1) * 100 if years > 0 and starting_cash > 0 else 0
+    if years > 0 and starting_cash > 0:
+        if compound:
+            cagr_pct = ((ending_equity / starting_cash) ** (1 / years) - 1) * 100
+        else:
+            # Linear annualization: total return divided by years. The
+            # output key stays ``cagr_pct`` for back-compat with existing
+            # consumers (web UI, sweep summaries); operators reading it
+            # see the SAME number they'd get from the compound formula
+            # iff actual returns were small or duration short. The flag
+            # ``annualization_method`` makes the distinction explicit.
+            cagr_pct = (total_return_pct / years)
+    else:
+        cagr_pct = 0
 
     if n > 0:
         returns = np.array([t.pnl_pct for t in closed_trades])
@@ -603,6 +660,7 @@ def summary_stats(
         "total_pnl": round(total_pnl, 2),
         "total_return_pct": round(total_return_pct, 2),
         "cagr_pct": round(cagr_pct, 2),
+        "annualization_method": "compound" if compound else "linear",
         "win_rate_pct": round(win_rate, 1),
         "avg_win_pct": round(avg_win, 2),
         "avg_loss_pct": round(avg_loss, 2),

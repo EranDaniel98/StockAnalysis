@@ -7,6 +7,7 @@ All thresholds come from config.
 import logging
 import numpy as np
 
+from src.data.numeric import coerce_numeric
 from src.scoring.sector_stats import percentile_bucket
 
 logger = logging.getLogger(__name__)
@@ -121,13 +122,13 @@ def _score_valuation_sector_relative(fund, sector_stats, signals):
 
     # P/E: trailing preferred, forward as fallback (matches absolute path).
     for key in ("pe_trailing", "pe_forward"):
-        pe = fund.get(key)
+        pe = coerce_numeric(fund.get(key))
         if pe is None or pe <= 0:
             continue
         stats = _sector_relative_lookup(sector_stats, sector, key)
         if stats is None:
             continue
-        bucket = percentile_bucket(float(pe), stats)
+        bucket = percentile_bucket(pe, stats)
         scored.append(_SECTOR_RELATIVE_BANDS[bucket])
         if bucket == "low":
             signals.append({
@@ -145,13 +146,13 @@ def _score_valuation_sector_relative(fund, sector_stats, signals):
         break  # only score one P/E
 
     for key, label in (("peg_ratio", "PEG"), ("pb_ratio", "P/B"), ("ev_to_ebitda", "EV/EBITDA")):
-        value = fund.get(key)
+        value = coerce_numeric(fund.get(key))
         if value is None or value <= 0:
             continue
         stats = _sector_relative_lookup(sector_stats, sector, key)
         if stats is None:
             continue
-        bucket = percentile_bucket(float(value), stats)
+        bucket = percentile_bucket(value, stats)
         scored.append(_SECTOR_RELATIVE_BANDS[bucket])
         if bucket == "low":
             signals.append({
@@ -186,7 +187,7 @@ def _score_valuation(fund, config, signals, *, sector_stats=None):
 
     # P/E Ratio (only if sector-relative didn't already score it)
     if "pe_trailing" not in sector_used:
-        pe = fund.get("pe_trailing") or fund.get("pe_forward")
+        pe = coerce_numeric(fund.get("pe_trailing")) or coerce_numeric(fund.get("pe_forward"))
         if pe is not None and pe > 0:
             max_pe = filters.get("max_pe_ratio", 50)
             if pe < 15:
@@ -202,7 +203,7 @@ def _score_valuation(fund, config, signals, *, sector_stats=None):
 
     # PEG Ratio (P/E to Growth)
     if "peg_ratio" not in sector_used:
-        peg = fund.get("peg_ratio")
+        peg = coerce_numeric(fund.get("peg_ratio"))
         if peg is not None and peg > 0:
             if peg < 1:
                 scores.append(85)
@@ -216,7 +217,7 @@ def _score_valuation(fund, config, signals, *, sector_stats=None):
 
     # Price-to-Book
     if "pb_ratio" not in sector_used:
-        pb = fund.get("pb_ratio")
+        pb = coerce_numeric(fund.get("pb_ratio"))
         if pb is not None and pb > 0:
             if pb < 1:
                 scores.append(80)
@@ -230,7 +231,7 @@ def _score_valuation(fund, config, signals, *, sector_stats=None):
 
     # EV/EBITDA
     if "ev_to_ebitda" not in sector_used:
-        ev_ebitda = fund.get("ev_to_ebitda")
+        ev_ebitda = coerce_numeric(fund.get("ev_to_ebitda"))
         if ev_ebitda is not None and ev_ebitda > 0:
             if ev_ebitda < 10:
                 scores.append(75)
@@ -249,7 +250,7 @@ def _score_growth(fund, config, signals):
     min_rev_growth = filters.get("min_revenue_growth_pct", 10) / 100
 
     # Revenue growth
-    rg = fund.get("revenue_growth")
+    rg = coerce_numeric(fund.get("revenue_growth"))
     if rg is not None:
         if rg > 0.5:
             scores.append(90)
@@ -266,7 +267,7 @@ def _score_growth(fund, config, signals):
             signals.append({"type": "bearish", "source": "Revenue", "detail": f"Declining: {rg*100:.1f}%"})
 
     # Earnings growth
-    eg = fund.get("earnings_growth")
+    eg = coerce_numeric(fund.get("earnings_growth"))
     if eg is not None:
         if eg > 0.5:
             scores.append(85)
@@ -287,7 +288,7 @@ def _score_profitability(fund, config, signals):
     filters = config.get("fundamental_filters", default={})
 
     # Return on Equity
-    roe = fund.get("roe")
+    roe = coerce_numeric(fund.get("roe"))
     min_roe = filters.get("min_roe_pct", 10) / 100
     if roe is not None:
         if roe > 0.25:
@@ -302,7 +303,7 @@ def _score_profitability(fund, config, signals):
             signals.append({"type": "bearish", "source": "ROE", "detail": f"Negative: {roe*100:.1f}%"})
 
     # Profit Margin
-    pm = fund.get("profit_margin")
+    pm = coerce_numeric(fund.get("profit_margin"))
     min_pm = filters.get("min_profit_margin_pct", 5) / 100
     if pm is not None:
         if pm > 0.3:
@@ -317,7 +318,7 @@ def _score_profitability(fund, config, signals):
             scores.append(15)
 
     # Operating Margin
-    om = fund.get("operating_margin")
+    om = coerce_numeric(fund.get("operating_margin"))
     if om is not None:
         if om > 0.3:
             scores.append(80)
@@ -329,7 +330,7 @@ def _score_profitability(fund, config, signals):
             scores.append(20)
 
     # Gross Margin
-    gm = fund.get("gross_margins")
+    gm = coerce_numeric(fund.get("gross_margins"))
     if gm is not None:
         if gm > 0.6:
             scores.append(80)
@@ -349,7 +350,7 @@ def _score_health(fund, config, signals):
     filters = config.get("fundamental_filters", default={})
 
     # Debt-to-Equity
-    de = fund.get("debt_to_equity")
+    de = coerce_numeric(fund.get("debt_to_equity"))
     max_de = filters.get("max_debt_to_equity", 2.0)
     if de is not None:
         # yfinance reports D/E as percentage (e.g., 150 = 1.5x)
@@ -366,7 +367,7 @@ def _score_health(fund, config, signals):
             signals.append({"type": "bearish", "source": "Debt", "detail": f"High debt: {de_ratio:.2f}x"})
 
     # Current Ratio
-    cr = fund.get("current_ratio")
+    cr = coerce_numeric(fund.get("current_ratio"))
     min_cr = filters.get("min_current_ratio", 1.0)
     if cr is not None:
         if cr > 2.0:
@@ -380,7 +381,7 @@ def _score_health(fund, config, signals):
             signals.append({"type": "bearish", "source": "Liquidity", "detail": f"Low current ratio: {cr:.2f}"})
 
     # Free Cash Flow
-    fcf = fund.get("free_cash_flow")
+    fcf = coerce_numeric(fund.get("free_cash_flow"))
     if fcf is not None:
         if fcf > 1_000_000_000:
             scores.append(80)
@@ -395,7 +396,7 @@ def _score_health(fund, config, signals):
 
 def _score_dividend(fund, config, signals):
     """Score dividend metrics (optional, many growth stocks don't pay dividends)."""
-    div_yield = fund.get("dividend_yield")
+    div_yield = coerce_numeric(fund.get("dividend_yield"))
     if div_yield is None or div_yield == 0:
         return None  # Not applicable, won't affect composite
 
@@ -404,7 +405,7 @@ def _score_dividend(fund, config, signals):
     if div_yield > 0.25:
         return None  # Bad data, skip
 
-    payout = fund.get("payout_ratio")
+    payout = coerce_numeric(fund.get("payout_ratio"))
     scores = []
 
     if div_yield > 0.05:
@@ -441,7 +442,7 @@ def _score_analyst(fund, config, signals):
             return None
 
     rec = fund.get("recommendation")
-    num_analysts = fund.get("num_analyst_opinions", 0)
+    num_analysts = coerce_numeric(fund.get("num_analyst_opinions")) or 0
 
     if not rec:
         return None
@@ -464,8 +465,8 @@ def _score_analyst(fund, config, signals):
         score = 50 + (score - 50) * 0.7
 
     # Target price comparison
-    target = fund.get("target_mean_price")
-    current_approx = fund.get("fifty_day_avg")
+    target = coerce_numeric(fund.get("target_mean_price"))
+    current_approx = coerce_numeric(fund.get("fifty_day_avg"))
     if target and current_approx and current_approx > 0:
         upside = (target / current_approx - 1) * 100
         if upside > 20:

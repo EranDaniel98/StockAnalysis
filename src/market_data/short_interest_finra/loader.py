@@ -182,10 +182,13 @@ def load_short_interest_rows_sync(
     closes it before returning. Don't call this from inside an
     already-running event loop — that's an ``asyncio.run`` violation.
     Use ``load_short_interest_rows`` directly under async code.
-    """
-    import asyncio
 
-    from src.db.session import get_sessionmaker
+    ``run_with_dispose`` tears down the engine inside this run so any
+    later sync caller (insider txs pre-pass, sweep scripts) starts with
+    a fresh asyncpg pool bound to its own loop. See
+    ``src/db/session.py:run_with_dispose`` for why.
+    """
+    from src.db.session import get_sessionmaker, run_with_dispose
 
     async def _run() -> dict[str, list[ShortInterestRow]]:
         SessionLocal = get_sessionmaker()
@@ -194,7 +197,7 @@ def load_short_interest_rows_sync(
                 session, tickers, lookback_days=lookback_days, as_of=as_of,
             )
 
-    return asyncio.run(_run())
+    return run_with_dispose(_run())
 
 
 # Re-exported helpers — unit tests import these for the synthetic-row

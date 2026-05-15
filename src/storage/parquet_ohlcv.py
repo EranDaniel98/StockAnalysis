@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
+import portalocker
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
@@ -31,6 +32,19 @@ from src.storage.partition import DEFAULT_ROOT, partition_path, year_partitions
 logger = logging.getLogger(__name__)
 
 OHLCV_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+
+
+class CorruptPartitionError(DataError):
+    """Raised when an existing Parquet partition can't be read for merge.
+
+    Tier-1 audit #7 (X#21 / X#20 / D#8): the previous behavior was to
+    swallow the read exception and overwrite the file with whatever the
+    new write happened to carry. A transient read error or a half-written
+    partition then silently destroyed up to a year of OHLCV history. Now
+    we rename the bad file to ``.corrupt.bak`` and raise so the operator
+    notices, rather than letting the next backtest run against truncated
+    history.
+    """
 
 
 def get_ohlcv_root() -> Path:
@@ -66,6 +80,14 @@ class ParquetPriceRepository:
         and written to a temp file then renamed. Returns total bars written
         across all year partitions.
 
+        The whole read-merge-write sequence runs under a per-partition
+        portalocker lock so a second writer can't observe a half-written
+        ``.parquet.tmp`` or race the ``tmp.replace(path)`` call on Windows
+        NTFS where ``replace`` is "near-atomic" rather than atomic (Tier-1
+        audit #7 / D#8). On a read failure mid-merge we rename the existing
+        file to ``.corrupt.bak`` and raise — the previous behavior swallowed
+        the exception and silently destroyed up to a year of OHLCV.
+
         Sync method — Parquet I/O is CPU-bound, not async-friendly. Callers
         from async contexts should wrap in asyncio.to_thread().
         """
@@ -77,12 +99,46 @@ class ParquetPriceRepository:
         for year, year_slice in df.groupby(df.index.year):
             path = partition_path(self._root, ticker, int(year))
             path.parent.mkdir(parents=True, exist_ok=True)
-            merged = _merge_with_existing(path, year_slice)
-            tmp = path.with_suffix(".parquet.tmp")
-            table = pa.Table.from_pandas(merged, preserve_index=True)
-            pq.write_table(table, tmp, compression="snappy")
-            tmp.replace(path)  # atomic on POSIX; near-atomic on Windows NTFS
-            total += len(merged)
+            # Lock files go into a sibling .locks/ subdirectory rather than
+            # next to the partition (reviewer I2). Living alongside .parquet
+            # files was noisy in directory listings, confused backup glob
+            # rules, and a future cleanup script could mistake a stale lock
+            # for orphan data. .locks/ is unambiguous.
+            locks_dir = path.parent / ".locks"
+            locks_dir.mkdir(parents=True, exist_ok=True)
+            lock_path = locks_dir / f"{path.stem}.parquet.lock"
+            try:
+                with portalocker.Lock(
+                    str(lock_path),
+                    mode="a",
+                    # Block until we can grab the lock, but don't wait forever
+                    # — a stuck writer should surface, not deadlock the caller.
+                    # portalocker raises LockException on timeout; callers see
+                    # the partition write fail loudly rather than silently
+                    # blocking the worker pool.
+                    timeout=30,
+                ):
+                    merged = _merge_with_existing(path, year_slice)
+                    tmp = path.with_suffix(".parquet.tmp")
+                    table = pa.Table.from_pandas(merged, preserve_index=True)
+                    pq.write_table(table, tmp, compression="snappy")
+                    tmp.replace(path)  # near-atomic on Windows NTFS, atomic under the lock
+                    total += len(merged)
+            finally:
+                # Best-effort lock-file cleanup AFTER the lock has been
+                # released by portalocker.__exit__ — on Windows, deleting
+                # while the handle is still open races with the lock
+                # owner. Outside the with-block means the handle is
+                # closed before we unlink. Failure to delete is non-fatal
+                # — the next writer will reacquire the same path.
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError as e:
+                    logger.debug(
+                        "lock-file cleanup failed for %s: %s "
+                        "(non-fatal, will retry on next write)",
+                        lock_path, e,
+                    )
         return total
 
     # ---- async reads (Protocol surface) -------------------------------
@@ -155,7 +211,10 @@ class ParquetPriceRepository:
         if not frames:
             return pd.DataFrame(columns=OHLCV_COLUMNS)
         df = pd.concat(frames).sort_index()
-        # Index may carry tz; clip on the same tz-form to avoid issues
+        # Normalize tz on both sides — Parquet stores tz-naive (see
+        # _normalize_df) but callers commonly pass tz-aware UTC bounds
+        # (datetime.now(timezone.utc) from the API). Mismatched tz raises
+        # TypeError on the .loc slice, so coerce both sides to the index's tz.
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
         if df.index.tz is not None:
@@ -163,6 +222,11 @@ class ParquetPriceRepository:
                 start_ts = start_ts.tz_localize("UTC")
             if end_ts.tz is None:
                 end_ts = end_ts.tz_localize("UTC")
+        else:
+            if start_ts.tz is not None:
+                start_ts = start_ts.tz_convert("UTC").tz_localize(None)
+            if end_ts.tz is not None:
+                end_ts = end_ts.tz_convert("UTC").tz_localize(None)
         return df.loc[start_ts:end_ts]
 
 
@@ -170,12 +234,29 @@ class ParquetPriceRepository:
 
 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure DataFrame conforms to the OHLCV contract."""
+    """Ensure DataFrame conforms to the OHLCV contract.
+
+    Tier-2 audit #15: tz handling. Pre-fix this stripped tz info via
+    ``tz_localize(None)`` directly, which keeps the WALL-CLOCK hour
+    intact and discards the offset. An ``America/New_York`` bar at
+    09:30 EDT and a ``UTC`` bar at 13:30 UTC are the SAME moment, but
+    after the naive strip they had different naive timestamps
+    (09:30 vs 13:30) — ``_merge_with_existing``'s "keep latest by
+    index" logic then either dropped overlapping bars silently or
+    kept rows that were actually hours apart.
+
+    Convert to UTC FIRST, then strip the tz info. After this:
+      * NY 09:30 EDT -> 13:30 UTC -> naive 13:30
+      * UTC 13:30 -> 13:30 UTC -> naive 13:30
+      * Both bars share the same naive index → dedup works correctly.
+
+    Storage convention: every partition's index is naive-UTC.
+    """
     df = df.copy()
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
     if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
+        df.index = df.index.tz_convert("UTC").tz_localize(None)
     df.index.name = "Date"
     # Only keep canonical columns (yfinance sometimes adds 'Adj Close', 'Dividends', etc.)
     keep = [c for c in OHLCV_COLUMNS if c in df.columns]
@@ -186,7 +267,16 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
     """Read existing partition (if any), concat new bars, drop duplicates
-    by index (new bars win), sort."""
+    by index (new bars win), sort.
+
+    Tier-1 audit #7 (X#21 / X#20): a transient read failure used to fall
+    through to ``return new_df``, which the caller then wrote on top of
+    the existing file — destroying up to a year of OHLCV silently. The
+    new behavior preserves the bad file as ``.corrupt.bak`` and raises
+    so the operator notices BEFORE the next backtest reads truncated
+    history. Recovery: inspect the .corrupt.bak file, decide whether to
+    re-fetch, then delete the backup.
+    """
     if not path.exists():
         return new_df
     try:
@@ -194,8 +284,31 @@ def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
         # Strip Hive-inferred partition columns (see _read_sync for context)
         existing = existing.drop(columns=["year", "ticker"], errors="ignore")
     except Exception as e:
-        logger.warning("Could not read existing %s, overwriting: %s", path, e)
-        return new_df
+        # Preserve the bad file (with timestamp suffix so repeated failures
+        # don't clobber each other) and raise. Operator MUST review before
+        # any further writes proceed.
+        backup = path.with_suffix(
+            f".parquet.corrupt-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}.bak"
+        )
+        try:
+            path.replace(backup)
+        except OSError as rename_err:
+            logger.error(
+                "Failed to rename corrupt partition %s to %s: %s",
+                path, backup, rename_err,
+            )
+            # Re-raise the ORIGINAL read error with the rename failure
+            # chained — the read error is the actual cause; the rename
+            # failure is a follow-on diagnostic.
+            raise CorruptPartitionError(
+                f"Existing partition {path} is unreadable AND backup rename failed: "
+                f"read error: {e!r}; rename error: {rename_err!r}"
+            ) from e
+        raise CorruptPartitionError(
+            f"Existing partition {path} was unreadable ({e!r}); renamed to "
+            f"{backup.name} pending operator review. Re-run the write after "
+            f"deciding whether to re-fetch the year or restore from the backup."
+        ) from e
     combined = pd.concat([existing, new_df])
     # Keep last on duplicates so the new write wins for same-index bars
     combined = combined[~combined.index.duplicated(keep="last")]
@@ -203,17 +316,28 @@ def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _default_latest_price(ticker: str) -> float | None:
-    """Fallback realtime fetcher — calls yfinance with a 2-second timeout.
+    """Fallback realtime fetcher — calls yfinance with a 2-second budget.
 
     Realtime quotes aren't a storage concern; the FastAPI layer (Phase 1)
     will inject an Alpaca-backed fetcher for live trading. This default
-    preserves current CLI behavior for the parity test."""
-    try:
-        import yfinance as yf  # local import — yfinance is heavy
+    preserves current CLI behavior for the parity test.
 
+    The previous docstring claimed a 2-second timeout but the underlying
+    ``yf.Ticker(ticker).fast_info`` call had NO enforced timeout; a hung
+    connection blocked the caller until yfinance's internal HTTP layer
+    gave up minutes later (audit Tier-1 #8, E#5). Now wrapped in
+    ``call_with_timeout`` so the docstring is true.
+    """
+    import yfinance as yf  # local import — yfinance is heavy
+
+    from src.data.fetch_outcome import call_with_timeout
+
+    def _pull() -> float | None:
         info = yf.Ticker(ticker).fast_info
         price = getattr(info, "last_price", None)
         return float(price) if price else None
-    except Exception as e:
-        logger.debug("Latest price fetch failed for %s: %s", ticker, e)
-        return None
+
+    value, _err = call_with_timeout(
+        _pull, timeout_seconds=2.0, name=f"yf.fast_info({ticker})",
+    )
+    return value

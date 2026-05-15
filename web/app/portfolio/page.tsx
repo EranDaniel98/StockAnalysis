@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Radio, RefreshCw } from "lucide-react";
+import { ExternalLink, Radio, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import {
   Area,
@@ -48,6 +48,7 @@ import {
   CHART_TOKEN,
 } from "@/lib/chart-tokens";
 import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
+import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
 
 /** Local tone helper bound to the new bullish/bearish tokens. */
@@ -125,11 +126,16 @@ function isIntraday(tf: Timeframe): boolean {
 }
 
 export default function PortfolioPage() {
+  const mounted = useMounted();
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: qk.portfolio.status(),
     queryFn: () => api.portfolio.status(),
     refetchInterval: 60_000,
   });
+  // `isFetching` is false during SSR but flips to true on client mount,
+  // which mismatches the Refresh button's `disabled` attribute. Gate it
+  // until after the first client paint so the hydration match holds.
+  const fetching = mounted && isFetching;
 
   const symbols = data?.positions.map((p) => p.ticker) ?? [];
   const { prices, connected, error: liveError } = useLivePrices(symbols);
@@ -143,7 +149,28 @@ export default function PortfolioPage() {
     (sum, p) => sum + p.avg_price * p.shares,
     0,
   );
-  const liveUnrealizedPnl = liveLongMarketValue - liveCostBasis;
+
+  // Tier-2 #23: the Unrealized P&L TILE must show Alpaca's authoritative
+  // number, not a client-side recompute. Per-position ``unrealized_pnl``
+  // in ``data.positions`` is sourced from Alpaca's ``Position.unrealized_pl``
+  // — that's what the broker reports. Recomputing as
+  // ``tick.price * shares - cost_basis`` drops fees / accruals / dividend
+  // receivables and drifts visibly from the Alpaca dashboard.
+  //
+  // Live ticks modulate the tile via a per-position price-delta sum,
+  // marked as an estimate. When the next 60s snapshot arrives the delta
+  // resets to zero and the tile re-anchors to Alpaca's truth.
+  const snapshotUnrealizedPnl = (data?.positions ?? []).reduce(
+    (sum, p) => sum + p.unrealized_pnl,
+    0,
+  );
+  const liveTickDelta = (data?.positions ?? []).reduce((sum, p) => {
+    const tick = prices[p.ticker];
+    if (!tick || !p.shares || p.current_price == null) return sum;
+    return sum + (tick.price - p.current_price) * p.shares;
+  }, 0);
+  const liveUnrealizedPnl = snapshotUnrealizedPnl + liveTickDelta;
+  // Cost basis is the same in both views — use it for the % denominator.
   const liveUnrealizedPnlPct =
     liveCostBasis > 0 ? (liveUnrealizedPnl / liveCostBasis) * 100 : 0;
   // Total Equity must mirror Alpaca's dashboard exactly — `equity` is the
@@ -177,10 +204,10 @@ export default function PortfolioPage() {
               variant="outline"
               size="sm"
               onClick={() => refetch()}
-              disabled={isFetching}
+              disabled={fetching}
             >
               <RefreshCw
-                className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+                className={`mr-2 h-4 w-4 ${fetching ? "animate-spin" : ""}`}
               />
               Refresh
             </Button>
@@ -205,6 +232,10 @@ export default function PortfolioPage() {
         />
         <ScoreboardTile
           label="Unrealized P&L"
+          tooltip={
+            "Sum of Alpaca's authoritative per-position unrealized P&L from the last snapshot. " +
+            "Live ticks modulate the displayed number as an estimate; re-anchors to Alpaca's number on the next 60s snapshot."
+          }
           value={
             <span className={cn(toneClass(liveUnrealizedPnl))}>
               {fmtUSD(liveUnrealizedPnl)}
@@ -212,7 +243,7 @@ export default function PortfolioPage() {
           }
           sub={
             data
-              ? `${liveUnrealizedPnlPct >= 0 ? "+" : ""}${liveUnrealizedPnlPct.toFixed(2)}% on ${fmtUSD(liveCostBasis)} cost`
+              ? `${liveUnrealizedPnlPct >= 0 ? "+" : ""}${liveUnrealizedPnlPct.toFixed(2)}% on ${fmtUSD(liveCostBasis)} cost${liveTickDelta !== 0 ? " · live tick est." : ""}`
               : undefined
           }
           subTone={toneFor(liveUnrealizedPnl)}
@@ -282,9 +313,21 @@ export default function PortfolioPage() {
                   return (
                     <TableRow key={p.ticker} mono>
                       <TableCell>
-                        <span className="font-mono text-foreground">
-                          {p.ticker}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-foreground">
+                            {p.ticker}
+                          </span>
+                          <a
+                            href={`https://www.tradingview.com/symbols/${encodeURIComponent(p.ticker)}/`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground/60 hover:text-primary transition-colors"
+                            title={`Open ${p.ticker} chart on TradingView`}
+                            aria-label={`Open ${p.ticker} chart on TradingView (new tab)`}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         {fmtNumber(p.shares, 0)}

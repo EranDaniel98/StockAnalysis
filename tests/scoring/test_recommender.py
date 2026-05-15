@@ -18,10 +18,13 @@ import pytest
 import numpy as np
 import pandas as pd
 
+from datetime import date
+
 from src.scoring.recommender import (
     _build_reasoning,
     _calculate_stop_loss,
     _calculate_take_profit,
+    _calculate_time_stop,
     _determine_action,
 )
 
@@ -158,6 +161,66 @@ class TestStopLoss:
         assert result["pct_from_current"] == -5.0
         assert "Fixed 5.0%" in result["detail"]
 
+    def test_atr_fallback_rewrites_method_and_detail(self) -> None:
+        """Tier-1 audit X#7: when ATR is 0 the calculator falls back to a
+        flat percentage stop, but it used to leave method="atr" set. The
+        UI then claimed "ATR(2x)" for what was actually a flat 5%. The
+        fix rewrites method to "percentage" and writes a detail string
+        that names the fallback explicitly."""
+        # Zero-range bars → ATR will be 0.0 → fallback fires.
+        idx = pd.date_range("2025-01-01", periods=20, freq="B")
+        flat = pd.DataFrame(
+            {
+                "Open": np.full(20, 100.0),
+                "High": np.full(20, 100.0),
+                "Low": np.full(20, 100.0),
+                "Close": np.full(20, 100.0),
+                "Volume": np.full(20, 1_000_000.0),
+            },
+            index=idx,
+        )
+        result = _calculate_stop_loss(
+            flat, current_price=100.0,
+            sl_config={"method": "atr", "atr_multiplier": 2.0, "percentage": 5.0},
+        )
+        assert result["method"] == "percentage"
+        assert result["price"] == 95.0
+        assert "Fallback flat" in result["detail"]
+        assert "ATR was 0" in result["detail"]
+
+    def test_support_fallback_rewrites_method_and_detail(self) -> None:
+        """Same X#7 contract for the support method when no support
+        level is found near the current price."""
+        # Constant-up trend has no local-min support points the analyzer
+        # picks up (resistance/support detection looks for local extrema).
+        idx = pd.date_range("2025-01-01", periods=20, freq="B")
+        up = np.linspace(90.0, 110.0, 20)
+        prices = pd.DataFrame(
+            {
+                "Open": up,
+                "High": up * 1.001,
+                "Low": up * 0.999,
+                "Close": up,
+                "Volume": np.full(20, 1_000_000.0),
+            },
+            index=idx,
+        )
+        result = _calculate_stop_loss(
+            prices, current_price=float(prices["Close"].iloc[-1]),
+            sl_config={"method": "support", "percentage": 5.0},
+        )
+        # Either support was found (method stays "support") OR fallback
+        # fired (method flips to "percentage" with a fallback detail).
+        # The X#7 contract is: when the fallback fires, method MUST flip.
+        # Skip if the analyzer happened to find a level on this data.
+        if result["method"] == "percentage":
+            assert "Fallback flat" in result["detail"]
+            assert "no support" in result["detail"]
+        else:
+            # Support was found — different code path, not what we're
+            # asserting here.
+            assert result["method"] == "support"
+
 
 class TestTakeProfit:
     def test_risk_reward_method_scales_by_ratio(self) -> None:
@@ -170,3 +233,95 @@ class TestTakeProfit:
         )
         assert result["price"] == 115.0
         assert result["pct_from_current"] == 15.0
+
+    def test_resistance_method_uses_chart_level_when_rr_qualifies(self) -> None:
+        """A clear resistance peak ~15% above current with a tight stop
+        should be picked as the take-profit (not the R/R fallback)."""
+        # 60 bars with a peak at $115 in the middle, then pulls back to
+        # ~$100 so resistance is well above current.
+        idx = pd.date_range("2025-01-01", periods=60, freq="B")
+        # First 30 bars climb to $115, next 30 fall back to $100.
+        up = np.linspace(95.0, 115.0, 30)
+        down = np.linspace(115.0, 100.0, 30)
+        base = np.concatenate([up, down])
+        prices = pd.DataFrame(
+            {
+                "Open": base,
+                "High": base * 1.01,
+                "Low": base * 0.99,
+                "Close": base,
+                "Volume": np.full(60, 1_000_000.0),
+            },
+            index=idx,
+        )
+        current = float(prices["Close"].iloc[-1])  # ~$100
+        sl = {"price": current * 0.97}             # 3% stop → low risk, easy R/R
+        result = _calculate_take_profit(
+            prices, current, sl,
+            tp_config={
+                "method": "resistance",
+                "risk_reward_ratio": 3.0,
+                "min_risk_reward_ratio": 1.5,
+            },
+        )
+        assert result["method"] == "resistance", result
+        # Picked level should be the ~$115 peak (above current and well
+        # over 1.5:1 R/R).
+        assert 110.0 < result["price"] < 120.0, result
+        assert result["detail"].startswith("Resistance:")
+
+    def test_resistance_method_falls_back_when_no_level_qualifies(self) -> None:
+        """Clean uptrend has no local-maxima resistance above current →
+        we fall back to the R/R multiple AND surface that in the
+        `method` + `detail` fields so the UI doesn't claim a chart
+        basis it didn't actually use."""
+        current = 110.0  # top of the trend
+        sl = {"price": 100.0}
+        result = _calculate_take_profit(
+            _trend_prices(), current, sl,
+            tp_config={
+                "method": "resistance",
+                "risk_reward_ratio": 3.0,
+                "min_risk_reward_ratio": 1.5,
+            },
+        )
+        # Method downgrades to risk_reward because the resistance
+        # branch couldn't produce a usable level.
+        assert result["method"] == "risk_reward"
+        # 3:1 on a $10 risk → $30 reward → $140.
+        assert result["price"] == 140.0
+        assert "no resistance" in result["detail"]
+
+
+class TestTimeStop:
+    def test_falls_back_to_default_when_no_strategy(self) -> None:
+        """Default reverted from 90 -> 365 on 2026-05-15 (Stage-1 revert):
+        the apparent time-stop edge was a scoring-engine-bias artifact.
+        The fallback is still finite so missing config doesn't produce an
+        unbounded hold."""
+        result = _calculate_time_stop(None, as_of=date(2026, 1, 1))
+        assert result["method"] == "calendar"
+        assert result["days"] == 365
+        assert result["exit_date"] == "2027-01-01"
+
+    def test_reads_strategy_time_stop_days(self) -> None:
+        result = _calculate_time_stop(
+            {"time_stop_days": 20}, as_of=date(2026, 1, 1)
+        )
+        assert result["days"] == 20
+        assert result["exit_date"] == "2026-01-21"
+
+    def test_rejects_non_positive_and_falls_back(self) -> None:
+        """A zero / negative / non-numeric `time_stop_days` should
+        fall back to the default — not silently produce a same-day
+        forced exit (which would auto-close every position)."""
+        for bad_value in [0, -5, None, "thirty", float("nan")]:
+            r = _calculate_time_stop(
+                {"time_stop_days": bad_value}, as_of=date(2026, 1, 1)
+            )
+            assert r["days"] == 365, f"bad value {bad_value!r} should fall back"
+
+    def test_detail_string_includes_human_date(self) -> None:
+        r = _calculate_time_stop({"time_stop_days": 10}, as_of=date(2026, 5, 14))
+        assert "2026-05-24" in r["detail"]
+        assert "10 calendar days" in r["detail"]

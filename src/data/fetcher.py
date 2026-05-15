@@ -1,5 +1,8 @@
 """
 Price data fetcher - downloads OHLCV data from yfinance with caching.
+
+yfinance does not expose a per-call timeout, so every fetch is wrapped
+in src.data.fetch_outcome.call_with_timeout. Tier-1 audit #8.
 """
 
 import yfinance as yf
@@ -9,7 +12,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+from src.data.fetch_outcome import call_with_timeout
+from src.data.numeric import coerce_numeric
+
 logger = logging.getLogger(__name__)
+
+# Wall-clock budget per yfinance call. History is the slowest endpoint
+# (10y of daily bars ~ 2500 rows), so it gets the longest leash. Snapshot
+# endpoints are tight — a healthy fast_info round-trip is <500ms.
+_HISTORY_TIMEOUT_SECONDS = 30.0
+_REALTIME_TIMEOUT_SECONDS = 5.0
 
 
 class DataFetcher:
@@ -43,25 +55,27 @@ class DataFetcher:
             except Exception:
                 pass
 
-        try:
-            stock = yf.Ticker(ticker)
-            df = stock.history(period=period, interval=interval)
-
-            if df.empty:
-                logger.warning(f"No price data returned for {ticker}")
-                return None
-
-            df.columns = [c.strip() for c in df.columns]
-
-            cache_data = df.copy()
-            cache_data.index = cache_data.index.astype(str)
-            self.cache.set(cache_key, cache_data.to_dict())
-
-            return df
-
-        except Exception as e:
-            logger.error(f"Error fetching price data for {ticker}: {e}")
+        df, err = call_with_timeout(
+            lambda: yf.Ticker(ticker).history(period=period, interval=interval),
+            timeout_seconds=_HISTORY_TIMEOUT_SECONDS,
+            name=f"yf.history({ticker})",
+        )
+        if err is not None:
+            # Timeout or exception. call_with_timeout already logged at
+            # warning level; do not log again. Return None for back-compat
+            # with existing callers that check `is not None`.
             return None
+        if df is None or df.empty:
+            logger.warning(f"No price data returned for {ticker}")
+            return None
+
+        df.columns = [c.strip() for c in df.columns]
+
+        cache_data = df.copy()
+        cache_data.index = cache_data.index.astype(str)
+        self.cache.set(cache_key, cache_data.to_dict())
+
+        return df
 
     def fetch_batch(self, tickers, period=None, interval=None):
         """
@@ -106,22 +120,35 @@ class DataFetcher:
     def fetch_realtime_price(self, ticker):
         """
         Fetch the latest real-time (or near real-time) price info.
+        Wrapped with a 5s wall-clock timeout (audit Tier-1 #8) so a hung
+        TCP connection can't tie up the worker for minutes.
         """
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.fast_info
+        def _pull():
+            info = yf.Ticker(ticker).fast_info
+            # Every numeric field goes through coerce_numeric so downstream
+            # consumers (bootstrap position sizing, P&L math, stop-loss
+            # comparisons) get float-or-None. yfinance's fast_info has the
+            # same string-sentinel quirks as .info — 'Infinity' on undefined
+            # last_price, 'NaN' on thinly-traded snapshots — which exploded
+            # ``current_px <= 0`` in bootstrap_service. Sister fix to the
+            # fundamentals.py boundary (commit f1039c1).
             return {
-                "last_price": getattr(info, "last_price", None),
-                "previous_close": getattr(info, "previous_close", None),
-                "open": getattr(info, "open", None),
-                "day_high": getattr(info, "day_high", None),
-                "day_low": getattr(info, "day_low", None),
-                "last_volume": getattr(info, "last_volume", None),
-                "market_cap": getattr(info, "market_cap", None),
+                "last_price": coerce_numeric(getattr(info, "last_price", None)),
+                "previous_close": coerce_numeric(getattr(info, "previous_close", None)),
+                "open": coerce_numeric(getattr(info, "open", None)),
+                "day_high": coerce_numeric(getattr(info, "day_high", None)),
+                "day_low": coerce_numeric(getattr(info, "day_low", None)),
+                "last_volume": coerce_numeric(getattr(info, "last_volume", None)),
+                "market_cap": coerce_numeric(getattr(info, "market_cap", None)),
             }
-        except Exception as e:
-            logger.error(f"Error fetching real-time data for {ticker}: {e}")
-            return None
+        result, err = call_with_timeout(
+            _pull,
+            timeout_seconds=_REALTIME_TIMEOUT_SECONDS,
+            name=f"yf.fast_info({ticker})",
+        )
+        # call_with_timeout already logs; on failure we just propagate None
+        # so existing callers (which check `is not None`) keep working.
+        return result if err is None else None
 
     def fetch_realtime_batch(self, tickers):
         """Fetch realtime prices for multiple tickers in parallel."""

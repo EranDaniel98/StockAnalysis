@@ -8,9 +8,27 @@
 
 import type { components, paths } from "./schema";
 
-/** Default base URL — overridable via NEXT_PUBLIC_API_URL. */
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+/**
+ * API base URL.
+ *
+ * Resolution order:
+ *   1. `NEXT_PUBLIC_API_URL` env (build-time bake-in for prod / overrides).
+ *   2. In the browser, derive from `window.location.hostname:8000` so the
+ *      page works the same whether opened at `localhost:3000`,
+ *      `127.0.0.1:3000`, or `192.168.x.y:3000` from a phone on the LAN.
+ *   3. SSR fallback: `127.0.0.1:8000`. Our queries don't run on the server
+ *      (no HydrationBoundary), so this only matters if something inadvertently
+ *      fetches during render.
+ */
+function resolveApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return "http://127.0.0.1:8000";
+}
+
+export const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   status: number;
@@ -94,6 +112,10 @@ export type MLModelsResponse = Schemas["MLModelsResponse"];
 export type ModelVersionRow = Schemas["ModelVersionRow"];
 export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
 export type FoldMetric = Schemas["FoldMetric"];
+
+export type DashboardResponse = Schemas["DashboardResponse"];
+export type DashboardPick = Schemas["DashboardPick"];
+export type StrategyCard = Schemas["StrategyCard"];
 
 export type ResearchAskRequest = Schemas["ResearchAskRequest"];
 export type ResearchRunSummary = Schemas["ResearchRunSummary"];
@@ -285,6 +307,20 @@ export const api = {
         `/api/stocks/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`,
       );
     },
+    /**
+     * Run the full analyzer chain on a single ticker on-demand. Used as a
+     * fallback when the ticker isn't present in any recent scan_run — keeps
+     * the deep-dive page useful for arbitrary user input from the search bar.
+     */
+    analyze: (ticker: string, params?: { strategy?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.strategy) q.set("strategy", params.strategy);
+      const qs = q.toString();
+      return request<ScanResultItem>(
+        `/api/stocks/${encodeURIComponent(ticker)}/analyze${qs ? `?${qs}` : ""}`,
+        { method: "POST" },
+      );
+    },
   },
 
   recommendations: {
@@ -306,6 +342,20 @@ export const api = {
     },
     get: (id: number) =>
       request<PaperRecommendationItem>(`/api/recommendations/${id}`),
+  },
+
+  dashboard: {
+    get: (params?: { top_n_per_strategy?: number; cross_strategy_top_n?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.top_n_per_strategy != null)
+        q.set("top_n_per_strategy", String(params.top_n_per_strategy));
+      if (params?.cross_strategy_top_n != null)
+        q.set("cross_strategy_top_n", String(params.cross_strategy_top_n));
+      const qs = q.toString();
+      return request<DashboardResponse>(
+        `/api/dashboard${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 };
 

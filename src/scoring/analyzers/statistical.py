@@ -6,7 +6,6 @@ Momentum scoring, mean reversion, seasonality, and trend regression.
 import pandas as pd
 import numpy as np
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +185,18 @@ def _calc_seasonality(df, metrics, signals):
             monthly_returns_grouped[month] = []
         monthly_returns_grouped[month].append(ret)
 
-    # Current month
-    current_month = datetime.now().month
+    # As-of month: the month of the latest bar in `df`. The backtest
+    # engine pre-slices price history to `df.index < as_of` before
+    # calling, so `df.index[-1]` is the most-recent bar the trader
+    # had access to at the as-of moment. Using `datetime.now()` here
+    # is a lookahead bug — it reads TODAY's calendar month into every
+    # historical Monday, producing a constant noise signal that
+    # contaminates every backtest result. Bug found by audit agent Q,
+    # 2026-05-15.
+    try:
+        current_month = int(df.index[-1].month)
+    except (IndexError, AttributeError):
+        return None
     if current_month not in monthly_returns_grouped:
         return None
 

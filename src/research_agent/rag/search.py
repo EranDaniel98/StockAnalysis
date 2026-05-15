@@ -21,7 +21,7 @@ from typing import Optional
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.research_agent.rag.embedder import embed_one
+from src.research_agent.rag.embedder import EMBEDDING_MODEL, embed_one
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,14 @@ async def search_filings(
     q_vec = await asyncio.to_thread(embed_one, query)
     q_str = "[" + ",".join(f"{x:.6f}" for x in q_vec.tolist()) + "]"
 
-    where_clauses = []
-    params: dict = {"q": q_str, "k": top_k}
+    # Tier-2 #16: ALWAYS filter by embedding_model. Cosine distance
+    # between vectors from different embedding spaces is meaningless,
+    # so a corpus that ever held two models' chunks would return
+    # nonsense. Even if the corpus is "all one model right now", the
+    # filter is the only thing that keeps a future model swap from
+    # silently corrupting results until every chunk is re-embedded.
+    where_clauses = ["embedding_model = :model"]
+    params: dict = {"q": q_str, "k": top_k, "model": EMBEDDING_MODEL}
     if ticker:
         where_clauses.append("ticker = :ticker")
         params["ticker"] = ticker.upper()
@@ -69,9 +75,7 @@ async def search_filings(
         where_clauses.append("filing_date >= :after")
         params["after"] = after
 
-    where_sql = ""
-    if where_clauses:
-        where_sql = " WHERE " + " AND ".join(where_clauses)
+    where_sql = " WHERE " + " AND ".join(where_clauses)
 
     # Per-query ef_search — project convention is to scope this rather
     # than mutate the session globally.

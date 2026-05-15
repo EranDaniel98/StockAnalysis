@@ -17,7 +17,11 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.contracts.entities.recommendation import Recommendation
+from src.contracts.entities.recommendation import (
+    Recommendation,
+    extract_stop_loss_price,
+    extract_take_profit_price,
+)
 from src.db.models import PaperRecommendation
 
 
@@ -53,14 +57,13 @@ class PostgresRecommendationRepository:
         this table for the paper-trading subset that actually went to Alpaca."""
         rm = recommendation.risk_management
         entry_price = rm.current_price if rm else None
-        stop_loss = (
-            rm.stop_loss.get("price") if rm and isinstance(rm.stop_loss, dict) else None
-        )
-        take_profit = (
-            rm.take_profit.get("price")
-            if rm and isinstance(rm.take_profit, dict)
-            else None
-        )
+        # Tier-1 audit #6: do NOT use `isinstance(rm.stop_loss, dict)` —
+        # if the caller passes a typed StopLossSpec, isinstance is False
+        # and the trade silently persists with no stop. The helpers below
+        # accept BOTH typed specs and legacy dicts, and raise loudly on
+        # anything unrecognized.
+        stop_loss = extract_stop_loss_price(rm)
+        take_profit = extract_take_profit_price(rm)
 
         row = PaperRecommendation(
             ticker=recommendation.ticker,

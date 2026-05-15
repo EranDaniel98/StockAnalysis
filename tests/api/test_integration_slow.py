@@ -121,3 +121,17 @@ async def _delete_scan_run(run_id: str) -> None:
             await s.commit()
     finally:
         await engine.dispose()
+
+
+# NOTE — there is intentionally no slow happy-path test for
+# `/api/stream/scan`. SSE coverage on the unhappy path lives in the fast
+# suite (`test_scan_stream_unknown_strategy_emits_error`); a real-scan
+# happy path is covered by the POST-based `test_live_scan_round_trip`
+# above. Combining "real scan" + "async stream consumer" was attempted
+# and consistently failed with "Future attached to a different loop" —
+# the module-scoped TestClient drives lifespan + asyncpg pool on its
+# own loop, and `httpx.AsyncClient(ASGITransport(app=client.app))`
+# routes the request through a different loop, which asyncpg connections
+# refuse to cross. Wiring this up correctly needs `asgi-lifespan` (extra
+# dep) or running uvicorn in a subprocess (extra complexity) — neither
+# justified for one test whose two halves are already each covered.

@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { use, useEffect } from "react";
 import {
   Area,
   AreaChart,
@@ -17,6 +18,7 @@ import {
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { MyPositionCard } from "@/components/stocks/my-position-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,33 +119,49 @@ export default function StockDetailPage({
   const { ticker: tickerParam } = use(params);
   const ticker = decodeURIComponent(tickerParam).toUpperCase();
 
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
     queryFn: () => api.stocks.get(ticker, { history_days: HISTORY_DAYS }),
+    retry: false,
   });
 
-  if (error instanceof ApiError && error.status === 404) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
-          Ticker not found
-        </p>
-        <p className="font-mono text-sm text-foreground">{ticker}</p>
-        <Link
-          href="/scan"
-          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
-        >
-          [ Back to scan ]
-        </Link>
-      </div>
-    );
-  }
+  // Fallback path: the /api/stocks endpoint only returns a recommendation
+  // if the ticker is present in a recent scan_run. For ad-hoc tickers from
+  // the sidebar search bar we run the analyzer chain on-demand.
+  const needsAnalyze =
+    (data && !data.latest_recommendation) ||
+    (error instanceof ApiError && error.status === 404);
 
-  if (isLoading || !data) {
+  const {
+    data: analyzeRec,
+    isLoading: analyzeLoading,
+    error: analyzeError,
+  } = useQuery({
+    queryKey: ["stocks", "analyze", ticker],
+    queryFn: () => api.stocks.analyze(ticker),
+    enabled: needsAnalyze,
+    retry: false,
+  });
+
+  // /api/stocks/{ticker}/analyze writes the fetched OHLCV to Parquet as a
+  // side effect. Once analyze lands, re-query /api/stocks so the chart
+  // panel picks up the freshly-written bars (it reads from Parquet only).
+  useEffect(() => {
+    if (analyzeRec && (!data?.history || data.history.length === 0)) {
+      queryClient.invalidateQueries({
+        queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
+      });
+    }
+  }, [analyzeRec, data?.history, ticker, queryClient]);
+
+  if (isLoading || (needsAnalyze && analyzeLoading)) {
     return (
       <>
-        <PageHeader title={ticker} description="Loading…" />
-        {error ? <ErrorState error={error} /> : null}
+        <PageHeader
+          title={ticker}
+          description={analyzeLoading ? "Running on-demand analysis…" : "Loading…"}
+        />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
@@ -157,7 +175,58 @@ export default function StockDetailPage({
     );
   }
 
-  return <StockDetail ticker={ticker} data={data} error={error} />;
+  // Both detail + analyze 404'd → ticker is unfetchable (e.g. typo).
+  if (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    analyzeError instanceof ApiError &&
+    analyzeError.status === 404
+  ) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
+        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
+          No price or fundamental data available
+        </p>
+        <p className="font-mono text-sm text-foreground">{ticker}</p>
+        <Link
+          href="/scan"
+          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
+        >
+          [ Back to scan ]
+        </Link>
+      </div>
+    );
+  }
+
+  // Merge: prefer the scan-derived recommendation; fall back to the
+  // on-demand analyze result. The /api/stocks payload still owns the
+  // history / scan metadata even when the recommendation came from analyze.
+  const merged = {
+    ticker,
+    latest_recommendation: data?.latest_recommendation ?? analyzeRec ?? null,
+    scan_run_id: data?.scan_run_id ?? null,
+    scan_strategy: data?.scan_strategy ?? null,
+    scan_timestamp: data?.scan_timestamp ?? null,
+    history: data?.history ?? [],
+    onDemand: !data?.latest_recommendation && !!analyzeRec,
+  };
+
+  if (!merged.latest_recommendation) {
+    return (
+      <>
+        <PageHeader title={ticker} description="No recommendation available" />
+        {error ? <ErrorState error={error} /> : null}
+        {analyzeError ? <ErrorState error={analyzeError} /> : null}
+      </>
+    );
+  }
+
+  // Suppress the original /api/stocks 404 once the analyze fallback has
+  // produced a recommendation — that error is expected for ad-hoc tickers
+  // not in any recent scan, and surfacing it next to a successful analysis
+  // is just confusing noise.
+  const surfaceError = merged.onDemand ? null : error;
+  return <StockDetail ticker={ticker} data={merged} error={surfaceError} />;
 }
 
 function StockDetail({
@@ -173,6 +242,7 @@ function StockDetail({
     scan_strategy?: string | null;
     scan_timestamp?: string | null;
     history?: OHLCBar[];
+    onDemand?: boolean;
   };
   error: unknown;
 }) {
@@ -185,6 +255,28 @@ function StockDetail({
   const entry = num(risk.entry_price) ?? num(risk.current_price);
   const stop = numFromRiskField(risk.stop_loss);
   const target = numFromRiskField(risk.take_profit);
+  // Triple-barrier time stop. Calendar-day budget the engine applies to
+  // new positions of this strategy. Shape: { method, days, exit_date,
+  // detail }. Older recommendations won't have it — guard defensively.
+  const timeStop =
+    isPlainObject(risk.time_stop) && typeof risk.time_stop.exit_date === "string"
+      ? {
+          exitDate: risk.time_stop.exit_date as string,
+          days:
+            typeof risk.time_stop.days === "number"
+              ? (risk.time_stop.days as number)
+              : null,
+        }
+      : null;
+  // Surface which method the engine actually used for the take-profit.
+  // The basis affects how you should read the number: "resistance" =
+  // chart-derived level (a real price the stock has struggled at);
+  // "risk_reward" = mechanical 3:1 multiple of the stop distance, not
+  // a price forecast.
+  const takeProfitMethod =
+    isPlainObject(risk.take_profit) && typeof risk.take_profit.method === "string"
+      ? (risk.take_profit.method as string)
+      : null;
   const lastClose = history.length > 0 ? history[history.length - 1].close : null;
 
   const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;
@@ -214,11 +306,42 @@ function StockDetail({
         description={headerDescription}
         actions={
           rec ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant={actionBadgeVariant(rec.action)}>{rec.action}</Badge>
+              {timeStop ? (
+                <Badge
+                  variant="neutral"
+                  className="text-[10px]"
+                  title={
+                    timeStop.days != null
+                      ? `Triple-barrier time stop: forced exit after ${timeStop.days} calendar days from entry. Calibrated to the strategy's alpha half-life.`
+                      : "Triple-barrier time stop"
+                  }
+                >
+                  Exit by {timeStop.exitDate}
+                  {timeStop.days != null ? ` · ${timeStop.days}d` : ""}
+                </Badge>
+              ) : null}
+              <a
+                href={`https://www.tradingview.com/symbols/${encodeURIComponent(ticker)}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider border border-border rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                title={`Open ${ticker} chart on TradingView`}
+                aria-label={`Open ${ticker} chart on TradingView (new tab)`}
+              >
+                <ExternalLink className="h-3 w-3" />
+                TradingView
+              </a>
               <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-                Last scored {fmtDate(data.scan_timestamp)}
-                {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
+                {data.onDemand ? (
+                  <>On-demand analysis · swing_trading</>
+                ) : (
+                  <>
+                    Last scored {fmtDate(data.scan_timestamp)}
+                    {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
+                  </>
+                )}
               </span>
             </div>
           ) : null
@@ -259,8 +382,12 @@ function StockDetail({
           subTone="muted"
         />
         <ScoreboardTile
-          label="Stop / Target"
-          tooltip="Stop loss (top, bearish) and take profit (bottom, bullish). Stop is computed from ATR or a configured percentage; target is set so the R/R ratio (sub-value) hits the strategy's target multiple."
+          label="Stop / Take profit"
+          tooltip={
+            takeProfitMethod === "resistance"
+              ? "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is the nearest chart resistance level above entry that gives at least 1.5:1 reward-to-risk — a real price the stock has struggled at, not a forecast that it must reach."
+              : "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is a mechanical 3:1 reward-to-risk multiple of the stop distance — NOT a forecast that the stock will reach this price. The system fell back to this when no chart resistance gave a usable level."
+          }
           value={
             <span className="flex flex-col leading-none gap-1">
               <span className="text-bearish text-lg font-semibold tabular-nums">
@@ -271,7 +398,19 @@ function StockDetail({
               </span>
             </span>
           }
-          sub={rr !== null ? `${rr.toFixed(2)}:1 R/R` : undefined}
+          sub={
+            <span>
+              {rr !== null ? `${rr.toFixed(2)}:1 R/R` : null}
+              {takeProfitMethod ? (
+                <span className="ml-1 opacity-70">
+                  {rr !== null ? "· " : ""}
+                  {takeProfitMethod === "resistance"
+                    ? "chart resistance"
+                    : "R/R multiple"}
+                </span>
+              ) : null}
+            </span>
+          }
           subTone="muted"
         />
         <ScoreboardTile
@@ -341,6 +480,16 @@ function StockDetail({
         <div className="lg:col-span-1 space-y-4">
           {rec ? (
             <>
+              <MyPositionCard
+                ticker={ticker}
+                mark={lastClose ?? entry}
+                entry={entry}
+                stop={stop}
+                target={target}
+                action={rec.action}
+                score={rec.composite_score}
+                timeStop={timeStop}
+              />
               <Card>
                 <CardHeader>
                   <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">

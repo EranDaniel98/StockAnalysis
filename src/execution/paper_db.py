@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS paper_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_orders_rec ON paper_orders(recommendation_id);
 CREATE INDEX IF NOT EXISTS idx_orders_alpaca ON paper_orders(alpaca_order_id);
+-- Idempotency: same (strategy, ticker, date) -> same client_order_id; uniqueness
+-- enforced at DB level so a retry that bypasses Alpaca's check still can't
+-- double-write the orders table. Partial index skips legacy NULLs from rows
+-- inserted before the client_order_id contract was tightened.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_coid
+    ON paper_orders(client_order_id)
+    WHERE client_order_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS paper_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

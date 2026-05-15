@@ -11,6 +11,7 @@ import {
   Briefcase,
   Grid3x3,
   HelpCircle,
+  Home,
   LineChart,
   Microscope,
   MessageSquare,
@@ -40,6 +41,12 @@ type NavLink = {
 };
 
 const NAV: NavLink[] = [
+  {
+    href: "/",
+    label: "Home",
+    icon: Home,
+    description: "Today's best plays across every strategy",
+  },
   {
     href: "/portfolio",
     label: "Portfolio",
@@ -144,13 +151,45 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const [tickerInput, setTickerInput] = useState("");
+  const onTickerSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = tickerInput.trim().toUpperCase();
+    if (!t) return;
+    // Strip anything that isn't an alphanumeric / dot / dash. Tickers like
+    // BRK.B or BF-B are valid; arbitrary user input shouldn't reach the URL.
+    const clean = t.replace(/[^A-Z0-9.\-]/g, "");
+    if (!clean) return;
+    setTickerInput("");
+    router.push(`/stocks/${clean}`);
+  };
+
   return (
     <div className="flex min-h-screen">
       <aside className="border-border/40 bg-background/50 sticky top-0 hidden h-screen w-64 shrink-0 border-r p-4 md:flex md:flex-col">
-        <Link href="/" className="mb-6 flex items-center gap-2 px-2">
+        <Link href="/" className="mb-4 flex items-center gap-2 px-2">
           <Activity className="text-primary h-5 w-5" />
           <span className="font-semibold tracking-tight">StockNew</span>
         </Link>
+
+        <form
+          onSubmit={onTickerSubmit}
+          className="mb-4 flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 focus-within:border-primary/50"
+        >
+          <Search className="h-3.5 w-3.5 opacity-50" />
+          <input
+            type="text"
+            value={tickerInput}
+            onChange={(e) => setTickerInput(e.target.value)}
+            placeholder="Analyze ticker…"
+            spellCheck={false}
+            autoCapitalize="characters"
+            className="flex-1 bg-transparent py-1.5 font-mono text-xs tracking-wider uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-muted-foreground/60 focus:outline-none"
+          />
+          <kbd className="bg-muted/60 rounded px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+            ↵
+          </kbd>
+        </form>
 
         <nav className="flex flex-col gap-1">
           {NAV.map((item) => {

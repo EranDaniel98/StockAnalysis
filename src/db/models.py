@@ -130,7 +130,12 @@ class PaperOrder(Base):
         BigInteger, ForeignKey("paper_recommendations.id"), nullable=False, index=True
     )
     alpaca_order_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    client_order_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Idempotency key; UNIQUE NOT NULL so a retry that bypasses Alpaca's
+    # duplicate-id check still can't double-write the orders table.
+    # Pre-0010 rows were backfilled with `legacy-<id>` to satisfy NOT NULL.
+    client_order_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True
+    )
     ticker: Mapped[str] = mapped_column(String(16), nullable=False)
     side: Mapped[str] = mapped_column(String(8), nullable=False)
     qty: Mapped[float] = mapped_column(Float, nullable=False)

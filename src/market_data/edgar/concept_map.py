@@ -6,9 +6,14 @@ so we try multiple concept names per field and take the first one that has
 data. This list is seeded from the most-common us-gaap tags and will need
 curation as we add more tickers.
 
-The unit fields ("USD", "USD/shares", "pure") tell the parser how to
-interpret the value. EDGAR returns multiple unit groups per concept; we
-prefer USD over USD/shares over pure.
+Tier-2 audit #14: EXPECTED_UNIT_BY_FIELD pins which XBRL unit bucket
+the parser may read for each field. Pre-fix the parser did
+``units.get("USD") or units.get("USD/shares") or units.get("shares")``
+which silently accepted any non-empty bucket. For EPS that meant a
+filer whose USD/shares bucket was empty would have its raw share-count
+read as EPS — producing a "diluted EPS = 1,000,000,000" row in the
+fundamentals timeline. Per-field expected unit makes the parser refuse
+the wrong bucket.
 """
 
 from __future__ import annotations
@@ -33,18 +38,20 @@ CONCEPT_MAP: list[tuple[str, list[str]]] = [
     ("eps_diluted", ["EarningsPerShareDiluted"]),
     # --- balance sheet ---
     ("total_cash", ["CashAndCashEquivalentsAtCarryingValue", "Cash"]),
+    # Tier-1 audit #9 (D#5): `total_debt` used to include `DebtCurrent` in
+    # the candidate list and let first-match win. A filer reporting only
+    # `DebtCurrent` had that value emitted as total_debt — under-reporting
+    # by an order of magnitude. Now the slot only accepts long-term debt
+    # tags; the parser sums in `current_debt` (below) when reported, so
+    # banks/REITs/etc. that disclose only short-term debt produce
+    # total_debt=None (honest "we don't know") instead of a wrong number.
     (
-        "total_debt",
+        "long_term_debt",
         [
             "LongTermDebt",
             "LongTermDebtNoncurrent",
-            "DebtCurrent",  # combine with LongTermDebt at parser level
         ],
     ),
-    # --- cash flow ---
-    ("free_cash_flow", ["NetCashProvidedByOperatingActivities"]),
-    # FCF strictly = OCF - CapEx, but EDGAR's CapEx concept varies more
-    # widely than OCF. Phase 0 uses OCF as a proxy; Phase 4 can refine.
 ]
 
 
@@ -64,4 +71,37 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
     ],
     "current_assets": ["AssetsCurrent"],
     "current_liabilities": ["LiabilitiesCurrent"],
+    # Tier-1 audit #9 (D#5): summed into total_debt at the parser level.
+    "current_debt": [
+        "DebtCurrent",
+        "LongTermDebtCurrent",
+        "ShortTermBorrowings",
+    ],
+    # Tier-1 audit #9 (D#6): operating cash flow is what EDGAR reports
+    # directly. Used to be slotted under `free_cash_flow` which lied —
+    # downstream analyzers scored stocks as "FCF-positive" when they were
+    # actually OCF-positive but CapEx-heavy. Parser now subtracts capex
+    # (below) so the FundamentalSnapshot.free_cash_flow column is TRUE
+    # FCF when capex is available, falling back to OCF as a proxy with
+    # a logged warning when capex is absent.
+    "operating_cash_flow": ["NetCashProvidedByOperatingActivities"],
+    # Capital expenditures. EDGAR reports as a positive cash outflow;
+    # subtract from OCF (positive number) to get FCF (positive = cash
+    # generated AFTER reinvestment). Two common tags cover ~all filers.
+    "capex": [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+    ],
+}
+
+
+# Tier-2 #14: which XBRL unit bucket the parser may read per field.
+# A field missing from this map defaults to "USD" (most common). Any
+# field listed here REQUIRES the named bucket — facts in other buckets
+# are skipped with a debug log, NOT silently re-typed.
+EXPECTED_UNIT_BY_FIELD: dict[str, str] = {
+    # EPS is per-share, so the unit is USD per share.
+    "eps_diluted": "USD/shares",
+    # All other fields in CONCEPT_MAP + DERIVED_CONCEPTS are USD-denominated
+    # quantities (revenue, debt, cash flow, equity, ...). Default applies.
 }

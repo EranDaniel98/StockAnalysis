@@ -80,6 +80,11 @@ async def _build_loader(tickers: list[str]) -> FundamentalsPITLoader:
     async with SessionLocal() as session:
         repo = PostgresFundamentalsRepository(session)
         loader = await FundamentalsPITLoader.from_repository(repo, tickers)
+    # Dispose inside this run so the trailing asyncio.run(dispose_engine())
+    # at script end doesn't try to dispose a pool bound to a different
+    # (now-closed) loop. Same fix the other sweep scripts use; matches
+    # commit 4199d8a where this pattern was first established.
+    await dispose_engine()
     return loader
 
 
@@ -264,8 +269,9 @@ def main() -> int:
     save_path.write_text(json.dumps(all_rows, indent=2, default=str), encoding="utf-8")
     console.print(f"\n[dim]Saved {len(all_rows)} comparison rows to {save_path}[/dim]")
 
-    # Engine module imports asyncpg engines on first session use; clean up.
-    asyncio.run(dispose_engine())
+    # Engine was disposed inside _build_loader so its asyncpg pool didn't
+    # outlive that loop. Nothing else opened a new pool, so no further
+    # cleanup needed here.
     return 0
 
 

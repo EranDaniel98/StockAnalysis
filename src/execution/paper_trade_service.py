@@ -14,13 +14,21 @@ order so that (qty * current_price) <= max_per_order_usd, with qty >= 1. If even
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from dataclasses import dataclass
 from datetime import datetime, date, timedelta
+from typing import Literal, Optional
 
 import yfinance as yf
 from rich.table import Table
 from rich import box
 
-from src.execution.alpaca import AlpacaClient, AlpacaClientError
+from src.execution.alpaca import (
+    AlpacaClient,
+    AlpacaClientError,
+    AlpacaDuplicateOrderError,
+    make_client_order_id,
+)
 from src.execution.paper_db import PaperDB
 from src.presentation.cli.cli_output import console
 from src.data.cache import DataCache
@@ -37,6 +45,23 @@ DEFAULT_MIN_SCORE = 55
 DEFAULT_TOP_N = 10
 DEFAULT_EARNINGS_BLACKOUT_DAYS = 5
 DEFAULT_MAX_PER_ORDER_USD = 1000  # cap per single bracket order
+
+# Wall-clock budget for the yfinance .calendar lookup. yfinance does not
+# expose a per-call timeout, so we wrap it in a worker future. 5s is
+# generous for a healthy round-trip and tight enough to keep a hung
+# Yahoo connection from blocking the whole trade loop.
+EARNINGS_LOOKUP_TIMEOUT_SECONDS = 5
+
+# Module-level executor. A timed-out lookup MUST NOT block the next
+# ticker waiting for the orphan worker thread to finish — that's what
+# happens with `with ThreadPoolExecutor(...)` per call (shutdown(wait=True)
+# is the default). Keeping a shared pool lets the orphan thread linger
+# until yfinance returns while the trade loop moves on to the next
+# ticker on a different worker. The pool size caps how many concurrent
+# hung lookups can pile up before back-pressure kicks in.
+_EARNINGS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="earnings_lookup"
+)
 
 
 def run_paper_trade(config, args):
@@ -101,13 +126,31 @@ def run_paper_trade(config, args):
     )
 
     # --- Gate ---
+    # score_valid=False means the engine's composite is a 50.0 placeholder
+    # over a broken analyzer chain — never act on that, no matter what the
+    # action label or PEAD bonus says (reviewer B1). Default True keeps
+    # legacy recommendations (pre-silent-50 fix) qualifying as before.
     qualified = [
         r for r in recommendations
-        if r["composite_score"] >= min_score
+        if r.get("score_valid", True)
+        and r["composite_score"] >= min_score
         and r["action"] in ("BUY", "STRONG BUY", "HOLD")  # don't trade SELL signals
         and r.get("risk_management", {}).get("stop_loss", {}).get("price")
         and r.get("risk_management", {}).get("take_profit", {}).get("price")
     ][:top_n]
+
+    # Log how many were refused on validity grounds — fail-loud diagnostic
+    # so an upstream regression that flips every score to invalid is
+    # immediately visible in the operator log.
+    invalid_refused = sum(
+        1 for r in recommendations if not r.get("score_valid", True)
+    )
+    if invalid_refused:
+        logger.warning(
+            "paper_trade: refused %d recommendation(s) on score_valid=False "
+            "(broken-analyzer-chain guard, reviewer B1)",
+            invalid_refused,
+        )
 
     if not qualified:
         console.print(
@@ -159,9 +202,20 @@ def _process_recommendation(rec, strategy_name, client, db,
     elif stop_loss >= current_price or take_profit <= current_price:
         skip_reason = f"invalid_levels (sl={stop_loss}, tp={take_profit}, px={current_price})"
 
-    earnings_in_days = _days_to_next_earnings(ticker)
-    if skip_reason is None and earnings_in_days is not None and earnings_in_days <= blackout_days:
-        skip_reason = f"earnings_in_{earnings_in_days}d"
+    earnings_lookup = _check_next_earnings(ticker)
+    earnings_in_days = earnings_lookup.days_until
+    if skip_reason is None:
+        if earnings_lookup.status == "unknown":
+            # Real-money safety: a hung/broken lookup must NOT pass the
+            # blackout filter. Old code returned None and treated it as
+            # "no earnings ahead", happily trading into announcements.
+            skip_reason = "earnings_unknown"
+        elif (
+            earnings_lookup.status == "scheduled"
+            and earnings_in_days is not None
+            and earnings_in_days <= blackout_days
+        ):
+            skip_reason = f"earnings_in_{earnings_in_days}d"
 
     qty = 0
     if skip_reason is None:
@@ -205,6 +259,7 @@ def _process_recommendation(rec, strategy_name, client, db,
         outcome["skip_reason"] = "dry_run"
         return outcome
 
+    client_order_id = make_client_order_id(strategy_name, ticker)
     try:
         order = client.submit_bracket_order(
             ticker=ticker,
@@ -212,46 +267,112 @@ def _process_recommendation(rec, strategy_name, client, db,
             take_profit_price=take_profit,
             stop_loss_price=stop_loss,
             side="buy",
+            client_order_id=client_order_id,
         )
         db.insert_order(rec_id, order, take_profit, stop_loss)
         db.mark_recommendation_submitted(rec_id)
         outcome["submitted"] = True
         outcome["order_id"] = order["order_id"]
+    except AlpacaDuplicateOrderError:
+        logger.warning(
+            "Duplicate client_order_id rejected by Alpaca for %s (%s) — "
+            "already submitted today; skipping to prevent double-fill.",
+            ticker,
+            client_order_id,
+        )
+        outcome["skip_reason"] = "already_submitted_today"
     except Exception as e:
         logger.error(f"Failed to submit {ticker}: {e}")
         outcome["skip_reason"] = f"submit_failed: {e}"
     return outcome
 
 
-def _days_to_next_earnings(ticker):
-    """Return integer days until next earnings, or None if unknown/past."""
-    try:
-        cal = yf.Ticker(ticker).calendar
-        if cal is None:
-            return None
-        next_dt = None
-        if isinstance(cal, dict):
-            ed = cal.get("Earnings Date")
-            if isinstance(ed, list) and ed:
-                next_dt = ed[0]
-            else:
-                next_dt = ed
-        else:
-            try:
-                next_dt = cal.loc["Earnings Date"].iloc[0]
-            except Exception:
-                return None
-        if next_dt is None:
-            return None
-        if hasattr(next_dt, "date"):
-            next_dt = next_dt.date()
-        if not isinstance(next_dt, date):
-            return None
-        delta = (next_dt - date.today()).days
-        return delta if delta >= 0 else None
-    except Exception as e:
-        logger.debug(f"Earnings lookup failed for {ticker}: {e}")
+@dataclass(frozen=True)
+class EarningsLookup:
+    """Discriminated outcome for an earnings-calendar lookup.
+
+    "unknown" is distinct from "not_scheduled" on purpose: the blackout
+    filter must refuse to trade when the lookup itself failed, not silently
+    treat it as "no earnings ahead". The old return-`None`-for-everything
+    path could trade into an earnings announcement on any yfinance hang.
+    """
+
+    status: Literal["scheduled", "not_scheduled", "unknown"]
+    days_until: Optional[int] = None
+
+
+def _fetch_next_earnings_date(ticker: str) -> Optional[date]:
+    """Pull the next earnings date from yfinance. Raises on yfinance failure.
+
+    Split out from the timeout wrapper so the wrapper handles ALL exception
+    paths (timeout + yfinance shape changes + network errors) the same way.
+    """
+    cal = yf.Ticker(ticker).calendar
+    if cal is None:
         return None
+    next_dt = None
+    if isinstance(cal, dict):
+        ed = cal.get("Earnings Date")
+        if isinstance(ed, list) and ed:
+            next_dt = ed[0]
+        else:
+            next_dt = ed
+    else:
+        # DataFrame shape — yfinance has changed this at least twice; if the
+        # row label disappears we propagate the KeyError up so the caller
+        # records "unknown" rather than silently swallowing it.
+        next_dt = cal.loc["Earnings Date"].iloc[0]
+    if next_dt is None:
+        return None
+    if hasattr(next_dt, "date"):
+        next_dt = next_dt.date()
+    if not isinstance(next_dt, date):
+        return None
+    return next_dt
+
+
+def _check_next_earnings(ticker: str) -> EarningsLookup:
+    """Real-money-safe earnings-blackout lookup.
+
+    Always returns an EarningsLookup; never raises. Status semantics:
+      * "scheduled": days_until is the integer days from today.
+      * "not_scheduled": yfinance returned no upcoming date, or the next
+        date is in the past. Safe to trade as far as earnings are concerned.
+      * "unknown": yfinance hung, errored, or returned an unexpected shape.
+        Caller MUST refuse to submit — that is the whole point of this fix.
+    """
+    future = _EARNINGS_EXECUTOR.submit(_fetch_next_earnings_date, ticker)
+    try:
+        next_dt = future.result(timeout=EARNINGS_LOOKUP_TIMEOUT_SECONDS)
+    except FuturesTimeout:
+        # Leave the future running on the shared pool; whoever finishes
+        # first frees a worker. Do NOT cancel — a submitted future for a
+        # sync function can't be cancelled, and waiting on it here would
+        # defeat the timeout.
+        logger.warning(
+            "Earnings lookup timed out (>%ss) for %s — refusing to trade.",
+            EARNINGS_LOOKUP_TIMEOUT_SECONDS,
+            ticker,
+        )
+        return EarningsLookup(status="unknown")
+    except Exception as e:
+        logger.warning(
+            "Earnings lookup failed for %s (%s: %s) — refusing to trade.",
+            ticker,
+            type(e).__name__,
+            e,
+        )
+        return EarningsLookup(status="unknown")
+
+    if next_dt is None:
+        return EarningsLookup(status="not_scheduled")
+    delta = (next_dt - date.today()).days
+    if delta < 0:
+        # Past date returned (yfinance occasionally caches stale rows). Treat
+        # as "no upcoming earnings"; the next refresh will pick up the real
+        # one. NOT "unknown" — we did successfully reach yfinance.
+        return EarningsLookup(status="not_scheduled")
+    return EarningsLookup(status="scheduled", days_until=delta)
 
 
 def _display_summary(results, dry_run):

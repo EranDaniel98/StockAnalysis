@@ -206,7 +206,11 @@ async def _scan_event_stream(
     """
     try:
         strategy_cfg = config.get_strategy(strategy_name)
-    except KeyError:
+    except (KeyError, ValueError):
+        # Config.get_strategy raises ValueError on unknown name (not
+        # KeyError) — narrow except still catches both so the SSE
+        # generator emits a structured error event instead of crashing
+        # the connection mid-handshake.
         yield {
             "event": "error",
             "data": json.dumps({"detail": f"unknown strategy '{strategy_name}'"}),

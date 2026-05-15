@@ -104,6 +104,15 @@ def embed_texts(texts: list[str], *, batch_size: int = 32) -> np.ndarray:
 
     ``normalize_embeddings=True`` so the pgvector cosine index can use
     inner product equivalently — saves a sqrt in the hot path.
+
+    Tier-2 #16: dimension validation. ``EMBEDDING_DIM=384`` is
+    hardcoded and must match both the pgvector column declaration
+    (``Vector(384)`` in src/db/models.py) AND the actual model
+    output. Pre-fix swapping ``STOCKNEW_EMBEDDING_MODEL`` to a
+    768-dim model (e.g. bge-base) would silently produce 768-d
+    vectors → insert fails at the DB layer with a cryptic dimension
+    error per-chunk. The startup assert below catches the mismatch
+    at the first embed call instead.
     """
     if not texts:
         return np.empty((0, EMBEDDING_DIM), dtype=np.float32)
@@ -115,6 +124,15 @@ def embed_texts(texts: list[str], *, batch_size: int = 32) -> np.ndarray:
         convert_to_numpy=True,
         show_progress_bar=False,
     )
+    if vecs.ndim != 2 or vecs.shape[1] != EMBEDDING_DIM:
+        raise RuntimeError(
+            f"Embedding model {EMBEDDING_MODEL!r} produced shape {vecs.shape} "
+            f"but EMBEDDING_DIM is {EMBEDDING_DIM}. The pgvector column is "
+            f"declared as Vector({EMBEDDING_DIM}); mixing dims will corrupt "
+            f"search results. To swap embedding models, update both "
+            f"EMBEDDING_DIM and the Alembic migration for filings_corpus, "
+            f"then re-embed every chunk."
+        )
     return vecs.astype(np.float32, copy=False)
 
 

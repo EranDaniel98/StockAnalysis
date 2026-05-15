@@ -15,6 +15,7 @@ already produced.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -22,9 +23,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.dependencies import get_db_session, get_price_repo
+from src.api.dependencies import get_config, get_db_session, get_price_repo
 from src.api.schemas.scan import ScanResultItem
 from src.api.schemas.stock import OHLCBar, StockDetail
+from src.config_loader import Config
 from src.db.models import ScanRun
 from src.storage.parquet_ohlcv import ParquetPriceRepository
 
@@ -105,8 +107,10 @@ async def get_stock_detail(
                 )
     except Exception as e:
         # Don't block the response on a price-data miss; the trade plan
-        # is the load-bearing part of this view.
-        logger.debug("price history fetch failed for %s: %s", tu, e)
+        # is the load-bearing part of this view. WARN-level so silent
+        # data-loss (e.g. tz mismatches in the Parquet read) surfaces in
+        # logs — the AVGO 404 bug went unseen for a session at debug-level.
+        logger.warning("price history fetch failed for %s: %s", tu, e)
 
     if rec is None and not history:
         raise HTTPException(
@@ -122,3 +126,88 @@ async def get_stock_detail(
         scan_timestamp=matched_row.scan_timestamp if matched_row else None,
         history=history,
     )
+
+
+def _analyze_single_ticker(
+    ticker: str, config: Config, strategy_name: str
+) -> dict | None:
+    """Synchronous worker: full analyzer chain on one ticker. Returns the
+    composite/recommendation dict or None if data fetch failed.
+
+    Side effect: backfills the Parquet OHLCV store with the fetched price
+    history. The store is populated lazily by scan runs, so ad-hoc
+    tickers from the search bar would otherwise have no chart data —
+    writing here means the next /api/stocks/{ticker} call gets a chart
+    overlay without a second yfinance round-trip.
+    """
+    from src.data.cache import DataCache
+    from src.data.fetcher import DataFetcher
+    from src.data.fundamentals import FundamentalsFetcher
+    from src.scoring.service import analyze_and_score
+    from src.storage.parquet_ohlcv import ParquetPriceRepository
+
+    strategy = config.get_strategy(strategy_name)
+    cache = DataCache(
+        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+        market_hours_expiry_minutes=config.get(
+            "data", "market_hours_cache_minutes", default=5
+        ),
+        force_fresh=False,
+    )
+    fetcher = DataFetcher(config, cache)
+    fund_fetcher = FundamentalsFetcher(config, cache)
+
+    price_map = fetcher.fetch_batch([ticker])
+    fund_map = fund_fetcher.fetch_batch([ticker])
+    if not price_map or price_map.get(ticker) is None:
+        return None
+
+    # Persist the fetched OHLCV to Parquet so the chart panel on the
+    # /stocks/[ticker] page can pull from the canonical store on the
+    # next read, same as it does for scan-driven tickers.
+    df = price_map.get(ticker)
+    if df is not None and not df.empty:
+        try:
+            ParquetPriceRepository().write_history(ticker.upper(), df)
+        except Exception as e:
+            logger.warning("parquet write failed for %s: %s", ticker, e)
+
+    recs = analyze_and_score(price_map, fund_map, config, strategy)
+    if not recs:
+        return None
+    for r in recs:
+        if r.get("ticker", "").upper() == ticker.upper():
+            return r
+    return recs[0]
+
+
+@router.post("/{ticker}/analyze", response_model=ScanResultItem)
+async def analyze_ticker(
+    ticker: str,
+    strategy: str = Query(default="swing_trading"),
+    config: Config = Depends(get_config),
+) -> ScanResultItem:
+    """Run the full analyzer chain on a single ticker on-demand.
+
+    Used by the web ticker-search bar so users can pull up a deep-dive on
+    any ticker, not just ones present in the latest scan_run. Returns a
+    ``ScanResultItem`` shaped identically to the rows produced by
+    ``/api/scans`` — same composite score, sub-scores, signals, risk
+    plan, and reasoning. ~3–8 s per call (price + fundamentals fetch
+    dominate; both are cached).
+    """
+    tu = ticker.strip().upper()
+    if not tu:
+        raise HTTPException(status_code=400, detail="empty ticker")
+    try:
+        rec = await asyncio.to_thread(
+            _analyze_single_ticker, tu, config, strategy
+        )
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"unknown strategy {strategy!r}")
+    if rec is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no price/fundamental data available for ticker {tu!r}",
+        )
+    return ScanResultItem.model_validate(rec)

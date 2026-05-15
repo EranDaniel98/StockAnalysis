@@ -104,6 +104,13 @@ class SimPortfolio:
     slippage_bps: float = 0.0             # each side
     # Volatility-targeted sizing (Tier 4.5)
     vol_target_risk_pct: float = 0.0      # 0 = use max_position_pct sizing; e.g. 0.01 = risk 1%/trade
+    # Tier-2 audit #17 (Q#5 / Q#6): when True, BOTH position_budget AND
+    # vol-target risk_dollars stay locked to starting_cash regardless of
+    # the `compound` flag. Use this when reproducibility across sweep
+    # runs matters more than apples-to-apples SPY comparison. Default
+    # False so the bug fix (risk_dollars compounding with equity in
+    # compound=True mode) is the natural behavior.
+    fixed_size: bool = False
     cash: float = field(init=False)
     positions: dict[str, Position] = field(default_factory=dict)
     closed_trades: list[ClosedTrade] = field(default_factory=list)
@@ -115,18 +122,55 @@ class SimPortfolio:
     def __post_init__(self):
         self.cash = self.starting_cash
 
+    def current_equity(self) -> float:
+        """Book-value equity: cash + open positions at COST BASIS.
+
+        Not mark-to-market on purpose — sizing on cost basis avoids
+        letting a runaway winner inflate later position budgets. This
+        is the sizing basis when compound=True.
+
+        Reviewer I1: previously summed ``shares * entry_price`` which
+        omitted the per-trade commission. ``cash`` drops by
+        ``gross_cost + commission`` on open, so equity silently
+        shrank by exactly the commission on every entry. With Alpaca
+        paper ($0 commission) the bug was invisible; with $1-$5/trade
+        and N open positions per day, the sizing basis pre-emptively
+        dropped by $N-$5N each entry day — a small but systematic
+        coupling between fee model and sizing. ``cost_basis`` is the
+        actual cash spent at entry, so cash + Σ(cost_basis) is now
+        conserved across the open transition.
+        """
+        return self.cash + sum(
+            p.cost_basis for p in self.positions.values()
+        )
+
+    def _sizing_basis(self) -> float:
+        """Account size used for position_budget AND vol-target risk_dollars.
+
+        Tier-2 audit #17. The previous code computed each of these from
+        a different base — position_budget honored `compound`, but
+        risk_dollars in the vol-target branch always used starting_cash.
+        So a compound=True backtest with vol_target_risk_pct=0.01 kept
+        per-trade risk frozen as the account grew, which silently caps
+        compounding for vol-targeted strategies.
+
+        Single source of truth now:
+          fixed_size=True   -> starting_cash (full reproducibility)
+          compound=True     -> current_equity (compounds with the account)
+          compound=False    -> starting_cash (legacy default)
+        """
+        if self.fixed_size or not self.compound:
+            return self.starting_cash
+        return self.current_equity()
+
     def position_budget(self) -> float:
+        """Dollar amount allocated per new position.
+
+        Goes through ``_sizing_basis()`` so position_budget and vol-target
+        risk_dollars share the same account-size view. See _sizing_basis
+        for the compound / fixed_size matrix.
         """
-        Dollar amount allocated per new position.
-        Default (compound=False): fixed at starting_cash * max_position_pct so
-        comparisons across runs aren't muddied by path-dependent sizing.
-        compound=True: uses cash + book value of open positions, growing the
-        budget as winners close into cash.
-        """
-        if not self.compound:
-            return self.starting_cash * self.max_position_pct
-        book_value = self.cash + sum(p.shares * p.entry_price for p in self.positions.values())
-        return book_value * self.max_position_pct
+        return self._sizing_basis() * self.max_position_pct
 
     def can_open(self, ticker: str) -> bool:
         if ticker in self.positions:
@@ -168,7 +212,11 @@ class SimPortfolio:
             risk_per_share = fill_price - stop_price
             if risk_per_share <= 0:
                 return None
-            risk_dollars = self.starting_cash * self.vol_target_risk_pct
+            # Tier-2 audit #17: was `starting_cash * vol_target_risk_pct`
+            # which froze risk dollars even in compound=True mode. Goes
+            # through _sizing_basis() now so it compounds with the
+            # account when the operator asked for compounding.
+            risk_dollars = self._sizing_basis() * self.vol_target_risk_pct
             shares_by_risk = int(risk_dollars / risk_per_share)
             shares_by_budget = int(budget // fill_price)
             shares = min(shares_by_risk, shares_by_budget)  # cap so we never overspend

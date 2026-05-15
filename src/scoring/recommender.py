@@ -5,9 +5,21 @@ stop-loss/take-profit levels, and diversification checks.
 """
 
 import logging
+from datetime import date, timedelta
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# Time-stop fallback when a strategy config doesn't declare one.
+# Reverted from 90 -> 365 on 2026-05-15 (see config/strategies.yaml comment
+# on swing_trading.time_stop_days). The Stage-1 sweep that motivated a
+# tighter default ran on a contaminated scoring engine; the post-silent-50
+# clean-pipeline sweep shows no-time-stop outperforms. Keep the
+# infrastructure live so re-enabling is a single-value edit when fresh
+# evidence supports it.
+_DEFAULT_TIME_STOP_DAYS = 365
 
 
 def generate_recommendation(ticker, score_result, price_data, fundamentals, config, strategy=None):
@@ -31,8 +43,19 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
     if strategy:
         thresholds.update(strategy.get("thresholds", {}) or {})
 
-    # --- Determine Action ---
-    action, confidence = _determine_action(composite, thresholds)
+    # --- Validity gate (Tier-1 B1 reviewer finding) ---
+    # When the engine returned score_valid=False, composite is the 50.0
+    # placeholder over a broken analyzer chain. Force HOLD/Low so the
+    # threshold pyramid can't classify the placeholder as BUY/STRONG BUY
+    # via PEAD/consensus lift (those are now also gated in the engine).
+    # Downstream gates in paper_trade_service / backtest also refuse on
+    # score_valid=False — this is the second line of defence.
+    score_valid = bool(score_result.get("score_valid", True))
+    if not score_valid:
+        action, confidence = "HOLD", "Low"
+    else:
+        # --- Determine Action ---
+        action, confidence = _determine_action(composite, thresholds)
 
     # --- Collect Key Reasoning ---
     reasoning = _build_reasoning(score_result, fundamentals)
@@ -41,7 +64,7 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
     risk = {}
     if price_data is not None and not price_data.empty:
         risk = _calculate_risk_management(
-            ticker, price_data, fundamentals, config, action
+            ticker, price_data, fundamentals, config, action, strategy
         )
 
     return {
@@ -60,6 +83,12 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
         "sector": fundamentals.get("sector", "Unknown") if fundamentals else "Unknown",
         "industry": fundamentals.get("industry", "Unknown") if fundamentals else "Unknown",
         "market_cap": fundamentals.get("market_cap") if fundamentals else None,
+        # Engine-level validity surfaced for downstream gates (paper-trade,
+        # backtest, web UI). Default True if caller passed a pre-typed
+        # CompositeScore (which already validated). Reviewer B1.
+        "score_valid": score_valid,
+        "error_count": int(score_result.get("error_count", 0) or 0),
+        "error_slots": list(score_result.get("error_slots", []) or []),
     }
 
 
@@ -107,8 +136,10 @@ def _build_reasoning(score_result, fundamentals):
     return reasons
 
 
-def _calculate_risk_management(ticker, price_data, fundamentals, config, action):
-    """Calculate position sizing, stop-loss, and take-profit."""
+def _calculate_risk_management(
+    ticker, price_data, fundamentals, config, action, strategy=None
+):
+    """Calculate position sizing, stop-loss, take-profit, and time-stop."""
     close = price_data["Close"]
     current_price = float(close.iloc[-1])
     risk_config = config.get("risk_management", default={})
@@ -125,6 +156,9 @@ def _calculate_risk_management(ticker, price_data, fundamentals, config, action)
         price_data, current_price, result["stop_loss"],
         risk_config.get("take_profit", {})
     )
+
+    # --- Time stop (triple-barrier upper bound on hold duration) ---
+    result["time_stop"] = _calculate_time_stop(strategy)
 
     # --- Position Sizing ---
     result["position"] = _calculate_position_size(
@@ -144,8 +178,42 @@ def _calculate_risk_management(ticker, price_data, fundamentals, config, action)
     return result
 
 
+def _calculate_time_stop(strategy: dict | None, as_of: date | None = None) -> dict:
+    """Triple-barrier time stop: forced exit after N calendar days from entry.
+
+    Sourced from ``strategy['time_stop_days']`` so each strategy can match
+    its alpha half-life (literature: PEAD ≈60d, Numerai/Alpha158 ≈20d,
+    swing ≈10d, long-term/value/dividend ≈180d). Falls back to the legacy
+    90-day default if the strategy config doesn't declare one.
+
+    The returned dict ships the absolute `exit_date` so the UI doesn't
+    have to know the analysis time. `as_of` is a parameter for testability;
+    callers should leave it unset to use `date.today()`.
+    """
+    days = _DEFAULT_TIME_STOP_DAYS
+    if strategy and isinstance(strategy, dict):
+        v = strategy.get("time_stop_days")
+        if isinstance(v, (int, float)) and v > 0:
+            days = int(v)
+    today = as_of or date.today()
+    exit_date = today + timedelta(days=days)
+    return {
+        "method": "calendar",
+        "days": days,
+        "exit_date": exit_date.isoformat(),
+        "detail": f"Force exit by {exit_date.isoformat()} ({days} calendar days)",
+    }
+
+
 def _calculate_stop_loss(price_data, current_price, sl_config):
-    """Calculate stop-loss price using configured method."""
+    """Calculate stop-loss price using configured method.
+
+    Tier-1 audit X#7: every fallback path must rewrite `method` and
+    `detail` to reflect what was actually computed. The previous code
+    left `method="support"` even when it fell back to a flat percentage,
+    so the UI showed "below support $X.XX" when the stop was actually
+    at a flat -5%. Mirror the take_profit fallback convention here.
+    """
     method = sl_config.get("method", "atr")
     result = {"method": method}
 
@@ -158,10 +226,16 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
             result["pct_from_current"] = round((sl_price / current_price - 1) * 100, 2)
             result["detail"] = f"ATR({multiplier}x): ${sl_price:.2f}"
         else:
-            # Fallback to percentage
+            # Fallback to percentage — record the override, otherwise the
+            # UI claims an ATR-based level when ATR was actually 0.
             pct = sl_config.get("percentage", 5.0) / 100
-            result["price"] = round(current_price * (1 - pct), 2)
+            sl_price = current_price * (1 - pct)
+            result["method"] = "percentage"
+            result["price"] = round(sl_price, 2)
             result["pct_from_current"] = round(-pct * 100, 2)
+            result["detail"] = (
+                f"Fallback flat {pct*100:.1f}% (ATR was 0): ${sl_price:.2f}"
+            )
 
     elif method == "percentage":
         pct = sl_config.get("percentage", 5.0) / 100
@@ -184,9 +258,16 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
             result["pct_from_current"] = round((sl_price / current_price - 1) * 100, 2)
             result["detail"] = f"Below support ${supports[0]:.2f}: ${sl_price:.2f}"
         else:
+            # Fallback to percentage — same override pattern as the ATR
+            # branch above (audit X#7).
             pct = sl_config.get("percentage", 5.0) / 100
-            result["price"] = round(current_price * (1 - pct), 2)
+            sl_price = current_price * (1 - pct)
+            result["method"] = "percentage"
+            result["price"] = round(sl_price, 2)
             result["pct_from_current"] = round(-pct * 100, 2)
+            result["detail"] = (
+                f"Fallback flat {pct*100:.1f}% (no support found): ${sl_price:.2f}"
+            )
 
     return result
 
@@ -220,25 +301,69 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
             price_data["High"], price_data["Low"], price_data["Close"]
         )
         resistances = sr.get("resistance", [])
-        if resistances:
-            tp_price = resistances[0]
-            result["price"] = round(tp_price, 2)
-            result["pct_from_current"] = round((tp_price / current_price - 1) * 100, 2)
-            result["detail"] = f"Resistance: ${tp_price:.2f}"
+        # Pick the nearest resistance ABOVE current that gives at least
+        # `min_risk_reward_ratio` payoff. The raw nearest resistance can
+        # be 1-2% above current — useless when the stop sits 5-7% below
+        # because the R/R math goes negative.
+        min_rr = tp_config.get("min_risk_reward_ratio", 1.5)
+        chosen = None
+        if risk > 0:
+            for r in resistances:
+                if (r - current_price) / risk >= min_rr:
+                    chosen = r
+                    break
+
+        if chosen is not None:
+            result["price"] = round(chosen, 2)
+            result["pct_from_current"] = round((chosen / current_price - 1) * 100, 2)
+            result["detail"] = f"Resistance: ${chosen:.2f}"
         else:
+            # Fall back to a flat R/R multiple. Record what actually
+            # happened in `method` so the UI doesn't claim a chart-
+            # derived level when it isn't one.
             ratio = tp_config.get("risk_reward_ratio", 3.0)
             tp_price = current_price + (risk * ratio)
+            result["method"] = "risk_reward"
             result["price"] = round(tp_price, 2)
             result["pct_from_current"] = round((tp_price / current_price - 1) * 100, 2)
+            result["detail"] = (
+                f"R:R {ratio}:1 (no resistance ≥ {min_rr}:1) -> ${tp_price:.2f}"
+            )
 
     return result
 
 
 def _calculate_position_size(current_price, stop_loss, sizing_config, action):
-    """Calculate recommended position size."""
+    """Calculate recommended position size.
+
+    Tier-2 audit #19: the per-trade risk budget used to be hardcoded at
+    1% of portfolio, while the backtest engine reads ``vol_target_risk_pct``
+    from strategy config (0 = pure fixed-fractional). Different code paths
+    sizing real-money vs sizing the backtest that validates it. After:
+    both layers read ``risk_per_trade_pct`` from sizing_config (default
+    1.0 preserves prior behavior). Strategy yaml's existing
+    ``vol_target_risk_pct`` is accepted as an alias so legacy configs
+    don't need migration.
+
+    Tier-2 audit #26: the "kelly" branch was degenerate
+    (``win_prob=0.55`` hardcoded, ``avg_win=avg_loss=stop_pct`` so b=1,
+    yielding f=0.10 → half-Kelly to 5%, identical regardless of strategy).
+    It advertised ``method=kelly`` to the user. Now: any caller asking
+    for "kelly" falls back to fixed_fractional with a warning. The
+    branch is preserved for posterity (commented out) so future-us
+    remembers what NOT to ship without per-strategy win-rate calibration.
+    """
     method = sizing_config.get("method", "fixed_fractional")
     portfolio = sizing_config.get("default_portfolio_value", 100000)
     max_pct = sizing_config.get("max_portfolio_pct", 10) / 100
+    # risk_per_trade_pct = ``vol_target_risk_pct`` alias, default 1%.
+    # The double-fallback exists so strategy yaml authored before #19
+    # (``vol_target_risk_pct`` only) continues to work unchanged.
+    risk_pct = (
+        sizing_config.get("risk_per_trade_pct")
+        or sizing_config.get("vol_target_risk_pct")
+        or 1.0
+    ) / 100
     result = {"method": method, "portfolio_value": portfolio}
 
     if action in ("SELL", "STRONG SELL", "HOLD"):
@@ -247,15 +372,37 @@ def _calculate_position_size(current_price, stop_loss, sizing_config, action):
         result["pct_of_portfolio"] = 0
         return result
 
+    if method == "kelly":
+        # Tier-2 audit #26: refused. The historical implementation read
+        # ``win_prob=0.55`` and used the stop pct as both avg_win and
+        # avg_loss, so kelly_fraction was a constant 0.05 regardless of
+        # strategy. Fall back to fixed_fractional and warn loudly — if
+        # the operator wants real Kelly sizing, wire it to a per-strategy
+        # historical win rate + payoff ratio from the latest backtest.
+        logger.warning(
+            "Position sizing method='kelly' refused: the historical "
+            "implementation was degenerate (always returned ~5%%). "
+            "Falling back to fixed_fractional. To re-enable, wire "
+            "win_prob and avg_win/avg_loss to the latest backtest "
+            "calibration table per strategy."
+        )
+        method = "fixed_fractional"
+        result["method"] = "fixed_fractional"
+        result["original_method"] = "kelly"
+        result["kelly_refused_reason"] = "degenerate hardcoded inputs"
+
     sl_price = stop_loss.get("price", current_price * 0.95)
     risk_per_share = abs(current_price - sl_price)
 
     if method == "fixed_fractional":
-        # Risk a fixed % of portfolio per trade
+        # Combine fixed-position cap with vol-target risk budget. The
+        # two-cap design is intentional: max_position keeps any single
+        # trade from blowing up the portfolio if the stop is wide, and
+        # risk_budget keeps risk-per-trade proportional to account size
+        # regardless of the stop distance.
         max_position = portfolio * max_pct
         if risk_per_share > 0:
-            # Risk at most 1% of portfolio on this trade
-            risk_budget = portfolio * 0.01
+            risk_budget = portfolio * risk_pct
             shares_by_risk = int(risk_budget / risk_per_share)
             shares_by_max = int(max_position / current_price)
             shares = min(shares_by_risk, shares_by_max)
@@ -268,30 +415,7 @@ def _calculate_position_size(current_price, stop_loss, sizing_config, action):
         result["pct_of_portfolio"] = round(dollar_amount / portfolio * 100, 2)
         result["risk_per_trade"] = round(shares * risk_per_share, 2)
         result["risk_pct"] = round(shares * risk_per_share / portfolio * 100, 2)
-
-    elif method == "kelly":
-        # Kelly Criterion: f = (bp - q) / b
-        # Simplified: use win rate from signals as probability
-        # This is a rough approximation
-        win_prob = 0.55  # default assumption
-        avg_win = abs(stop_loss.get("pct_from_current", 5))  # approximate
-        avg_loss = abs(stop_loss.get("pct_from_current", 5))
-        if avg_loss > 0:
-            b = avg_win / avg_loss
-            kelly_fraction = (b * win_prob - (1 - win_prob)) / b
-            kelly_fraction = max(0, min(kelly_fraction, max_pct))
-        else:
-            kelly_fraction = max_pct * 0.5
-
-        # Half-Kelly for safety
-        kelly_fraction *= 0.5
-        dollar_amount = portfolio * kelly_fraction
-        shares = int(dollar_amount / current_price)
-
-        result["recommended_shares"] = max(1, shares)
-        result["dollar_amount"] = round(dollar_amount, 2)
-        result["pct_of_portfolio"] = round(kelly_fraction * 100, 2)
-        result["kelly_fraction"] = round(kelly_fraction, 4)
+        result["risk_budget_pct"] = round(risk_pct * 100, 4)
 
     return result
 

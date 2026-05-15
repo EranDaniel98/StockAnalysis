@@ -17,7 +17,12 @@ import logging
 from rich.table import Table
 from rich import box
 
-from src.execution.alpaca import AlpacaClient, AlpacaClientError
+from src.execution.alpaca import (
+    AlpacaClient,
+    AlpacaClientError,
+    AlpacaDuplicateOrderError,
+    make_client_order_id,
+)
 from src.portfolio import Portfolio
 from src.data.fetcher import DataFetcher
 from src.data.cache import DataCache
@@ -161,14 +166,24 @@ def _submit_orders(client, plan):
             table.add_row(ticker, f"{p['shares']:.4g}", "[red]no price — skipped[/red]")
             skipped += 1
             continue
+        client_order_id = make_client_order_id("bootstrap", ticker)
         try:
-            order = client.submit_market_order(ticker, p["shares"], side="buy")
+            order = client.submit_market_order(
+                ticker, p["shares"], side="buy", client_order_id=client_order_id,
+            )
             table.add_row(
                 ticker,
                 f"{p['shares']:.4g}",
                 f"[green]submitted ({order['order_id'][:8]}, status={order['status']})[/green]",
             )
             submitted += 1
+        except AlpacaDuplicateOrderError:
+            table.add_row(
+                ticker,
+                f"{p['shares']:.4g}",
+                "[yellow]skipped (already bootstrapped today)[/yellow]",
+            )
+            skipped += 1
         except Exception as e:
             table.add_row(ticker, f"{p['shares']:.4g}", f"[red]failed: {e}[/red]")
             failed += 1

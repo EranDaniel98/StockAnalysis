@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, ExternalLink, Pencil, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -317,9 +317,21 @@ export default function JournalPage() {
                         {fmtDate(t.exit_at)}
                       </TableCell>
                       <TableCell className="py-2 px-3">
-                        <span className="font-mono text-sm font-semibold">
-                          {t.ticker}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-sm font-semibold">
+                            {t.ticker}
+                          </span>
+                          <a
+                            href={`https://www.tradingview.com/symbols/${encodeURIComponent(t.ticker)}/`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground/60 hover:text-primary transition-colors"
+                            title={`Open ${t.ticker} chart on TradingView`}
+                            aria-label={`Open ${t.ticker} chart on TradingView (new tab)`}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
                       </TableCell>
                       <TableCell className="font-mono tabular-nums text-right py-2 px-3">
                         {fmtNumber(t.qty, 0)}

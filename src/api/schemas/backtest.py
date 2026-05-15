@@ -22,7 +22,14 @@ class BacktestRequest(BaseModel):
     max_positions: int = Field(default=20, gt=0, le=100)
     position_pct: float = Field(default=0.10, gt=0, le=1.0)
     cash: float = Field(default=10_000.0, gt=0)
-    hold_days: int = Field(default=90, gt=0, le=400)
+    hold_days: int | None = Field(
+        default=None, gt=0, le=400,
+        description=(
+            "Calendar days a position can hold before forced exit "
+            "(triple-barrier time stop). None → resolve from the "
+            "strategy's `time_stop_days` field, falling back to 90."
+        ),
+    )
     earnings_blackout: int = Field(default=3, ge=0, le=30)
     accept_lookahead: bool = Field(default=False)
     oos_split: float = Field(default=0.30, ge=0, le=0.6)
