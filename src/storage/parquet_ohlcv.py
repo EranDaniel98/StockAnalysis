@@ -234,12 +234,29 @@ class ParquetPriceRepository:
 
 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure DataFrame conforms to the OHLCV contract."""
+    """Ensure DataFrame conforms to the OHLCV contract.
+
+    Tier-2 audit #15: tz handling. Pre-fix this stripped tz info via
+    ``tz_localize(None)`` directly, which keeps the WALL-CLOCK hour
+    intact and discards the offset. An ``America/New_York`` bar at
+    09:30 EDT and a ``UTC`` bar at 13:30 UTC are the SAME moment, but
+    after the naive strip they had different naive timestamps
+    (09:30 vs 13:30) — ``_merge_with_existing``'s "keep latest by
+    index" logic then either dropped overlapping bars silently or
+    kept rows that were actually hours apart.
+
+    Convert to UTC FIRST, then strip the tz info. After this:
+      * NY 09:30 EDT -> 13:30 UTC -> naive 13:30
+      * UTC 13:30 -> 13:30 UTC -> naive 13:30
+      * Both bars share the same naive index → dedup works correctly.
+
+    Storage convention: every partition's index is naive-UTC.
+    """
     df = df.copy()
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
     if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
+        df.index = df.index.tz_convert("UTC").tz_localize(None)
     df.index.name = "Date"
     # Only keep canonical columns (yfinance sometimes adds 'Adj Close', 'Dividends', etc.)
     keep = [c for c in OHLCV_COLUMNS if c in df.columns]
