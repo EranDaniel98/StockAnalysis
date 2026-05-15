@@ -260,6 +260,9 @@ def main() -> int:
         # full window — engine picks OOS if oos_trades >= 20.
         "bootstrap": result.get("bootstrap"),
         "bootstrap_label": result.get("bootstrap_label"),
+        # Top-N-removed concentration sensitivity (review #7 auto-check).
+        # MVTP gate fires FAIL if Sharpe drop > 0.4.
+        "concentration_sensitivity": result.get("concentration_sensitivity"),
     }
     out.write_text(json.dumps(slim, indent=2, default=str), encoding="utf-8")
     logger.info("Wrote %s", out)

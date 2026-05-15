@@ -186,15 +186,40 @@ def _evaluate(result: dict) -> list[dict]:
         f"opted out of the guard.",
     ))
 
-    # --- Manual review reminders (not auto-checked) ---
-    checks.append({
-        "label": "MANUAL: top-5 trades removed drops Sharpe by <= 0.4",
-        "pass": None,
-        "detail": (
-            "Eyeball the trades list — if removing the 5 largest winners "
-            "tanks Sharpe, your edge is concentrated. Auto-check pending."
-        ),
-    })
+    # --- Top-5-removed concentration sensitivity (auto-check) ---
+    # The review's MVTP template required this as a manual eyeball; the
+    # engine now computes it deterministically (drop top-5 by P&L,
+    # reconstruct equity curve, recompute Sharpe). Gate threshold 0.4.
+    sens = result.get("concentration_sensitivity") or {}
+    if not sens.get("applicable"):
+        # Engine couldn't compute — usually too-few trades. We flag this
+        # as a soft FAIL (not silent skip) so an operator notices.
+        reason = sens.get("reason") or "concentration_sensitivity unavailable"
+        checks.append(_check(
+            "Top-5 trades removed: Sharpe drop <= 0.4",
+            False,
+            f"Cannot evaluate: {reason}. With <{2*5} trades the metric is "
+            f"noise; extend the window or accept that this gate cannot pass.",
+        ))
+    else:
+        drop = sens.get("sharpe_drop")
+        head_s = sens.get("headline_ann_sharpe")
+        strip_s = sens.get("stripped_ann_sharpe")
+        conc = sens.get("concentration_pct")
+        passes = drop is not None and drop <= 0.4
+        detail = (
+            f"Headline OOS Sharpe = {head_s}, stripped (top-5 winners "
+            f"removed) = {strip_s}, drop = {drop}. Top-5 trades accounted "
+            f"for {conc}% of total P&L. Threshold: drop <= 0.4."
+        )
+        if not passes and drop is not None and drop > 0.4:
+            detail += (
+                " Drop > 0.4 = edge is concentrated in a few lucky trades; "
+                "live performance is unlikely to replicate."
+            )
+        checks.append(_check(
+            "Top-5 trades removed: Sharpe drop <= 0.4", passes, detail,
+        ))
     checks.append({
         "label": "MANUAL: Sharpe stability across ±10% on min_score / atr_stop",
         "pass": None,
@@ -306,6 +331,44 @@ def _render(result: dict, checks: list[dict]) -> str:
             )
     else:
         lines.append("_No walk-forward report (walk_forward_folds=0 in config?)_")
+    lines.append("")
+
+    # Concentration sensitivity (auto-check; gate threshold 0.4 Sharpe drop)
+    sens = result.get("concentration_sensitivity") or {}
+    lines.append("## Concentration sensitivity (top-5 winners removed)")
+    lines.append("")
+    if not sens.get("applicable"):
+        lines.append(f"_Not applicable: {sens.get('reason', 'unknown')}._")
+    else:
+        lines.append(
+            f"- **Window:** {sens.get('window_label')} "
+            f"({sens.get('n_trades')} trades)"
+        )
+        lines.append(
+            f"- **Headline Sharpe:** {sens.get('headline_ann_sharpe')}  "
+            f"→ **Stripped Sharpe:** {sens.get('stripped_ann_sharpe')}  "
+            f"= **drop {sens.get('sharpe_drop')}**"
+        )
+        lines.append(
+            f"- **Top-5 contribution:** {sens.get('concentration_pct')}% of "
+            f"total P&L (${sens.get('top_pnl_sum'):,.0f} of "
+            f"${sens.get('total_pnl'):,.0f})"
+        )
+        drop_val = sens.get("sharpe_drop")
+        if drop_val is not None:
+            gate_mark = "PASS" if drop_val <= 0.4 else "FAIL"
+            lines.append(f"- **Gate (drop <= 0.4):** **{gate_mark}**")
+        lines.append("")
+        top_summary = sens.get("top_trade_summary") or []
+        if top_summary:
+            lines.append("| # | Ticker | Entry | Exit | P&L | P&L % |")
+            lines.append("|---|---|---|---|---|---|")
+            for i, t in enumerate(top_summary, 1):
+                lines.append(
+                    f"| {i} | {t['ticker']} | {t['entry_date'][:10]} "
+                    f"| {t['exit_date'][:10]} | ${t['pnl']:,.2f} "
+                    f"| {t['pnl_pct']:+.2f}% |"
+                )
     lines.append("")
 
     lines.append("## Acceptance gates (review item #7)")

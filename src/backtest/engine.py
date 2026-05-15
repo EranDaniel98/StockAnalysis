@@ -1070,6 +1070,22 @@ def _finalize_result(
             min_mean_sharpe=bt_cfg.walk_forward_min_mean_sharpe,
         )
 
+    # Top-N concentration sensitivity. Strip the top 5 winners from the
+    # OOS trade set, reconstruct the equity curve, recompute Sharpe.
+    # The gate in produce_mvtp_report.py fails the MVTP run if the
+    # Sharpe drop > 0.4 — i.e. the edge is concentrated in a handful
+    # of lucky names. Computed on OOS trades preferentially; falls back
+    # to the full window when OOS has too few.
+    from src.backtest.sensitivity import top_n_removed_sensitivity
+
+    sens_trades = oos_trades if len(oos_trades) >= 10 else portfolio.closed_trades
+    sens_equity = oos_equity if len(oos_trades) >= 10 else equity_curve
+    sens_label = "OOS" if len(oos_trades) >= 10 else "full window"
+    sensitivity = top_n_removed_sensitivity(
+        sens_trades, sens_equity, bt_cfg.starting_cash, n=5,
+    )
+    sensitivity["window_label"] = sens_label
+
     return {
         "full": full_section,
         "in_sample": is_section,
@@ -1088,6 +1104,7 @@ def _finalize_result(
         "monthly_returns": monthly,
         "monte_carlo": mc_shuffle,
         "walk_forward": walk_forward,
+        "concentration_sensitivity": sensitivity,
         "live_recommendation": live_rec,
         "sector_relative_scoring": {
             "enabled": sector_stats is not None,
