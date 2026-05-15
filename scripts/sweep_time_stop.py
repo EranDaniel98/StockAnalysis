@@ -49,7 +49,6 @@ from src.db.repositories import PostgresFundamentalsRepository
 from src.db.session import dispose_engine, get_sessionmaker
 from src.backtest.engine import (
     BacktestConfig,
-    fetch_earnings_dates,
     fetch_earnings_history,
     run_backtest,
 )
@@ -191,31 +190,43 @@ def main() -> int:
     fetch_period_years = max(args.years + 2, 5)
 
     # Heavy I/O once — price data, fundamentals, earnings, SPY/VIX.
-    cache = DataCache()
-    fetcher = DataFetcher(cache=cache)
-    f_fetcher = FundamentalsFetcher(cache=cache)
+    cache = DataCache(
+        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+        market_hours_expiry_minutes=config.get(
+            "data", "market_hours_cache_minutes", default=5
+        ),
+        force_fresh=False,
+    )
+    fetcher = DataFetcher(config, cache)
+    f_fetcher = FundamentalsFetcher(config, cache)
+    fetch_period = f"{int(fetch_period_years)}y"
 
     console.print(f"Fetching prices for {len(tickers)} tickers …")
     t0 = time.time()
-    price_data = fetcher.get_historical_data_batch(
-        tickers, period=f"{int(fetch_period_years)}y", workers=8
-    )
+    price_data = fetcher.fetch_batch(tickers, period=fetch_period)
     console.print(f"  prices done in {time.time()-t0:.1f}s "
                   f"({len(price_data)}/{len(tickers)} tickers loaded)")
 
     console.print("Fetching fundamentals snapshot …")
     t0 = time.time()
-    fundamentals = f_fetcher.get_fundamentals_batch(tickers, workers=8)
-    console.print(f"  fundamentals done in {time.time()-t0:.1f}s")
+    fundamentals = f_fetcher.fetch_batch(tickers)
+    console.print(f"  fundamentals done in {time.time()-t0:.1f}s "
+                  f"({len(fundamentals)}/{len(tickers)} tickers loaded)")
 
     console.print("Fetching SPY + VIX history …")
-    spy_df = fetcher.get_historical_data("SPY", period=f"{int(fetch_period_years)}y")
-    vix_df = fetcher.get_historical_data("^VIX", period=f"{int(fetch_period_years)}y")
+    bench_map = fetcher.fetch_batch(["SPY", "^VIX"], period=fetch_period)
+    spy_df = bench_map.get("SPY")
+    vix_df = bench_map.get("^VIX")
 
-    console.print("Fetching earnings dates / history …")
+    console.print("Fetching earnings history …")
     t0 = time.time()
-    earnings_dates = fetch_earnings_dates(list(price_data.keys()), workers=8)
-    earnings_history = fetch_earnings_history(list(price_data.keys()), workers=8)
+    earnings_history = fetch_earnings_history(list(price_data.keys()))
+    # Derive earnings_dates from earnings_history rather than a second
+    # network round trip — same data, no extra latency.
+    earnings_dates = {
+        t: (sorted(df_h.index.tolist()) if df_h is not None and not df_h.empty else [])
+        for t, df_h in earnings_history.items()
+    }
     console.print(f"  earnings done in {time.time()-t0:.1f}s")
 
     pit_loader = None
@@ -284,7 +295,7 @@ def main() -> int:
         json.dumps(summary_rows, indent=2),
         encoding="utf-8",
     )
-    console.print(f"Summary written → {save_path}")
+    console.print(f"Summary written -> {save_path}")
 
     if args.save_full:
         full_path = Path(args.save_full)
