@@ -910,6 +910,8 @@ def _finalize_result(
 
     def _compute_section(trades, equity_subset, section_start, section_end,
                          starting_capital, ending_equity):
+        # Pass bt_cfg.compound through so summary_stats / equity_curve_stats
+        # choose the right annualization formula. Tier-2 audit #18.
         return {
             "summary": summary_stats(
                 trades,
@@ -922,8 +924,9 @@ def _finalize_result(
                     equity_subset, spy_df, section_start, section_end
                 ),
                 total_costs=None,
+                compound=bt_cfg.compound,
             ),
-            "equity_stats": equity_curve_stats(equity_subset),
+            "equity_stats": equity_curve_stats(equity_subset, compound=bt_cfg.compound),
             "calibration": calibration_table(trades),
         }
 
