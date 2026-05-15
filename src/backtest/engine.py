@@ -41,6 +41,49 @@ from src.market_data.regime import (
 logger = logging.getLogger(__name__)
 
 
+# Bumps whenever a scoring-engine change makes prior backtest results
+# non-comparable. Stamped onto every BacktestResult so downstream consumers
+# (sweep history, dashboards, memory notes) can tell which pipeline
+# version a number came from. Previous "OOS Sharpe 1.61" findings sat on
+# pre-9345a74 pipelines and are not directly comparable to post-9345a74.
+PIPELINE_VERSION = "2026-05-15-post-silent50-and-time-stop-revert"
+
+
+def _build_data_quality_block(*, n_tickers_traded: int) -> dict:
+    """Structured data-quality flags that every backtest result inherits.
+
+    Tier-1 audit #5 (Q#3 / Q-cross): the survivorship-bias warning used to
+    live only in a free-text `warnings` list, which dashboards and sweep
+    history quietly dropped. Surface it as a structured field so the bias
+    is impossible to ignore visually.
+
+    Adopt point-in-time index membership (CRSP / Norgate / Sharadar) to
+    fully correct the bias; until then this flag is the trust signal.
+    """
+    return {
+        "pipeline_version": PIPELINE_VERSION,
+        "survivorship_bias": {
+            "applies": True,
+            "severity": "uncorrected",
+            "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+            "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+            "details": (
+                "Universe is built from a present-day ticker snapshot, so "
+                "stocks that delisted / went bankrupt / were acquired before "
+                "today are excluded entirely. Headline Sharpe / CAGR are "
+                "biased upward by an unknown amount."
+            ),
+            "remediation": (
+                "Adopt point-in-time index membership (CRSP / Norgate / "
+                "Sharadar) or apply Bessembinder-style synthetic delisted "
+                "returns. Until then, treat all headline numbers as upper "
+                "bounds."
+            ),
+        },
+        "n_tickers_traded": int(n_tickers_traded),
+    }
+
+
 @dataclass
 class BacktestConfig:
     start_date: pd.Timestamp
@@ -773,6 +816,12 @@ def _finalize_result(
     spy_match_ret = deployment_matched_spy_return(equity_curve, spy_df, start, end)
     exits = exit_reason_breakdown(portfolio.closed_trades)
 
+    # Tier-1 audit #5 (Q#3 / Q-cross): every result currently inherits this
+    # bias because universe membership is sourced from a present-day snapshot.
+    # The string warning is preserved for back-compat (any CLI/script that
+    # iterates `result["warnings"]` keeps showing it), but the structured
+    # `data_quality.survivorship_bias` block below is the one dashboards and
+    # sweep history should render so this can't be visually ignored.
     warnings.append(
         "Survivorship bias: universe is built from current-snapshot ticker lists. "
         "Stocks that delisted, went bankrupt, or were acquired before today are "
@@ -911,6 +960,9 @@ def _finalize_result(
             ) if regime_enabled else 0,
             "history": regime_history,
         },
+        "data_quality": _build_data_quality_block(
+            n_tickers_traded=len({t.ticker for t in portfolio.closed_trades}),
+        ),
         "warnings": warnings,
     }
 

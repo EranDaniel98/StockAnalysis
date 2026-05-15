@@ -50,6 +50,20 @@ type Regimes = {
   vix_high?: Record<string, number>;
 };
 
+type SurvivorshipBias = {
+  applies?: boolean;
+  severity?: string;
+  magnitude_hint_annual_pct?: string;
+  source?: string;
+  details?: string;
+  remediation?: string;
+};
+type DataQuality = {
+  pipeline_version?: string;
+  survivorship_bias?: SurvivorshipBias;
+  n_tickers_traded?: number;
+};
+
 function toneClass(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return "text-foreground";
   if (n > 0) return "text-bullish";
@@ -133,6 +147,7 @@ function BacktestDetail({ result }: { result: Record<string, unknown> }) {
   const regimes = (result.regimes ?? {}) as Regimes;
   const splitDate = (result.split_date ?? null) as string | null;
   const verdict = (result.verdict_oos ?? null) as string | null;
+  const dataQuality = (result.data_quality ?? null) as DataQuality | null;
 
   const fullSummary = full.summary ?? {};
   const fullEq = full.equity_stats ?? {};
@@ -146,6 +161,7 @@ function BacktestDetail({ result }: { result: Record<string, unknown> }) {
 
   return (
     <div className="space-y-4">
+      <DataQualityBanner quality={dataQuality} />
       {/* ── Scoreboard strip: 6 dense tiles ─────────────────────────────── */}
       <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
         <ScoreboardTile
@@ -316,6 +332,43 @@ function BacktestDetail({ result }: { result: Record<string, unknown> }) {
             <TradeTable trades={trades} />
           </CardContent>
         </Card>
+      ) : null}
+    </div>
+  );
+}
+
+function DataQualityBanner({ quality }: { quality: DataQuality | null }) {
+  if (!quality || !quality.survivorship_bias?.applies) return null;
+  const sb = quality.survivorship_bias;
+  return (
+    <div
+      role="note"
+      aria-label="Data quality warning"
+      className="border-l-4 border-amber-500 bg-amber-500/10 px-4 py-3 text-sm"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="font-semibold text-amber-700 dark:text-amber-300">
+          Survivorship bias: {sb.severity ?? "uncorrected"}
+        </div>
+        {quality.pipeline_version ? (
+          <div className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
+            {quality.pipeline_version}
+          </div>
+        ) : null}
+      </div>
+      <p className="text-muted-foreground mt-1 leading-snug">
+        {sb.details ?? "Universe excludes delisted tickers; headline numbers biased upward."}
+        {sb.magnitude_hint_annual_pct ? (
+          <>
+            {" "}
+            Magnitude hint: <span className="font-mono">{sb.magnitude_hint_annual_pct}%/yr</span>.
+          </>
+        ) : null}
+      </p>
+      {sb.remediation ? (
+        <p className="text-muted-foreground mt-1 text-xs italic leading-snug">
+          {sb.remediation}
+        </p>
       ) : null}
     </div>
   );
