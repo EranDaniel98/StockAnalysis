@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play, X } from "lucide-react";
+import { ExternalLink, Loader2, Play, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -595,13 +595,25 @@ function ResultsTable({ results }: { results: ScanResultItem[] }) {
         {results.map((r) => (
           <TableRow key={r.ticker} mono>
             <TableCell>
-              <Link
-                href={`/stocks/${r.ticker}`}
-                className="font-mono text-primary hover:underline underline-offset-2"
-                title="View trade plan"
-              >
-                {r.ticker}
-              </Link>
+              <div className="flex items-center gap-1.5">
+                <Link
+                  href={`/stocks/${r.ticker}`}
+                  className="font-mono text-primary hover:underline underline-offset-2"
+                  title="View trade plan"
+                >
+                  {r.ticker}
+                </Link>
+                <a
+                  href={`https://www.tradingview.com/symbols/${encodeURIComponent(r.ticker)}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground/60 hover:text-primary transition-colors"
+                  title={`Open ${r.ticker} chart on TradingView`}
+                  aria-label={`Open ${r.ticker} chart on TradingView (new tab)`}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
             </TableCell>
             <TableCell>
               <Badge variant={actionVariant(r.action)}>{r.action}</Badge>
