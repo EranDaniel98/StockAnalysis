@@ -116,6 +116,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--pit-fundamentals", action="store_true",
                    help="Use EDGAR PIT loader for fundamentals "
                         "(strongly recommended).")
+    p.add_argument("--panel-cache",
+                   help="If provided, write the score panel to this CSV "
+                        "path after building (or read it back instead of "
+                        "rebuilding when the file already exists). Lets "
+                        "the correlation matrix script reuse the same "
+                        "panel without re-scoring the universe.")
     return p.parse_args()
 
 
@@ -365,27 +371,45 @@ def main() -> int:
     fetcher = DataFetcher(config, cache)
     fund_fetcher = FundamentalsFetcher(config, cache)
 
-    logger.info("Fetching %d ticker price histories...", len(tickers))
-    price_data = fetcher.fetch_batch(tickers)
-    fundamentals = fund_fetcher.fetch_batch(tickers)
-    logger.info("Fetching earnings history...")
-    earnings_history = fetch_earnings_history(list(price_data.keys()), workers=8)
-
-    logger.info("Building score panel %s -> %s...", start.date(), end.date())
-    panel = build_score_panel(
-        price_data=price_data,
-        fundamentals=fundamentals,
-        earnings_history=earnings_history,
-        config=config,
-        strategy=strategy,
-        start=start,
-        end=end,
-        rebalance_weekday=args.rebalance_weekday,
-        workers=args.workers,
-    )
-    if panel.empty:
-        logger.error("Empty score panel; aborting.")
-        return 4
+    panel_cache_path = Path(args.panel_cache) if args.panel_cache else None
+    panel: pd.DataFrame | None = None
+    if panel_cache_path is not None and panel_cache_path.exists():
+        logger.info("Reading cached score panel from %s", panel_cache_path)
+        panel = pd.read_csv(panel_cache_path, parse_dates=["date"])
+        if panel.empty:
+            logger.warning("Cached panel is empty; rebuilding.")
+            panel = None
+    # Price matrix always needs to be rebuilt — it's small and cheap
+    # compared to scoring, and the cached panel doesn't carry it.
+    if panel is None:
+        logger.info("Fetching %d ticker price histories...", len(tickers))
+        price_data = fetcher.fetch_batch(tickers)
+        fundamentals = fund_fetcher.fetch_batch(tickers)
+        logger.info("Fetching earnings history...")
+        earnings_history = fetch_earnings_history(list(price_data.keys()), workers=8)
+        logger.info("Building score panel %s -> %s...", start.date(), end.date())
+        panel = build_score_panel(
+            price_data=price_data,
+            fundamentals=fundamentals,
+            earnings_history=earnings_history,
+            config=config,
+            strategy=strategy,
+            start=start,
+            end=end,
+            rebalance_weekday=args.rebalance_weekday,
+            workers=args.workers,
+        )
+        if panel.empty:
+            logger.error("Empty score panel; aborting.")
+            return 4
+        if panel_cache_path is not None:
+            panel_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            panel.to_csv(panel_cache_path, index=False)
+            logger.info("Wrote panel cache to %s", panel_cache_path)
+    else:
+        # Re-fetch price_data anyway for the price matrix (cache hits).
+        logger.info("Fetching ticker price histories (for price matrix)...")
+        price_data = fetcher.fetch_batch(tickers)
     logger.info("Score panel rows: %d", len(panel))
 
     logger.info("Building price matrix...")
