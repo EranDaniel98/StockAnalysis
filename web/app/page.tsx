@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, TrendingUp, X, Zap } from "lucide-react";
+import { ExternalLink, RefreshCw, Sparkles, TrendingUp, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -97,15 +97,31 @@ function scanStaleness(
 // ─── Pick row (shared between hero card + per-strategy cards) ────────────────
 
 function PickRow({ pick, showStrategy }: { pick: DashboardPick; showStrategy?: boolean }) {
+  // TradingView's /symbols/ route auto-routes to the primary US listing for
+  // ambiguous tickers (no exchange prefix needed). New-tab + noopener so the
+  // dashboard doesn't lose state and the popup can't reach back via window.opener.
+  const tvHref = `https://www.tradingview.com/symbols/${encodeURIComponent(pick.ticker)}/`;
   return (
     <TableRow mono>
       <TableCell>
-        <Link
-          href={`/stocks/${encodeURIComponent(pick.ticker)}`}
-          className="font-mono text-foreground hover:text-primary transition-colors"
-        >
-          {pick.ticker}
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href={`/stocks/${encodeURIComponent(pick.ticker)}`}
+            className="font-mono text-foreground hover:text-primary transition-colors"
+          >
+            {pick.ticker}
+          </Link>
+          <a
+            href={tvHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground/60 hover:text-primary transition-colors"
+            title={`Open ${pick.ticker} chart on TradingView`}
+            aria-label={`Open ${pick.ticker} chart on TradingView (new tab)`}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground truncate max-w-[160px]">
         {pick.name || "—"}
