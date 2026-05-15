@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
+import portalocker
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
@@ -31,6 +32,19 @@ from src.storage.partition import DEFAULT_ROOT, partition_path, year_partitions
 logger = logging.getLogger(__name__)
 
 OHLCV_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+
+
+class CorruptPartitionError(DataError):
+    """Raised when an existing Parquet partition can't be read for merge.
+
+    Tier-1 audit #7 (X#21 / X#20 / D#8): the previous behavior was to
+    swallow the read exception and overwrite the file with whatever the
+    new write happened to carry. A transient read error or a half-written
+    partition then silently destroyed up to a year of OHLCV history. Now
+    we rename the bad file to ``.corrupt.bak`` and raise so the operator
+    notices, rather than letting the next backtest run against truncated
+    history.
+    """
 
 
 def get_ohlcv_root() -> Path:
@@ -66,6 +80,14 @@ class ParquetPriceRepository:
         and written to a temp file then renamed. Returns total bars written
         across all year partitions.
 
+        The whole read-merge-write sequence runs under a per-partition
+        portalocker lock so a second writer can't observe a half-written
+        ``.parquet.tmp`` or race the ``tmp.replace(path)`` call on Windows
+        NTFS where ``replace`` is "near-atomic" rather than atomic (Tier-1
+        audit #7 / D#8). On a read failure mid-merge we rename the existing
+        file to ``.corrupt.bak`` and raise — the previous behavior swallowed
+        the exception and silently destroyed up to a year of OHLCV.
+
         Sync method — Parquet I/O is CPU-bound, not async-friendly. Callers
         from async contexts should wrap in asyncio.to_thread().
         """
@@ -77,12 +99,20 @@ class ParquetPriceRepository:
         for year, year_slice in df.groupby(df.index.year):
             path = partition_path(self._root, ticker, int(year))
             path.parent.mkdir(parents=True, exist_ok=True)
-            merged = _merge_with_existing(path, year_slice)
-            tmp = path.with_suffix(".parquet.tmp")
-            table = pa.Table.from_pandas(merged, preserve_index=True)
-            pq.write_table(table, tmp, compression="snappy")
-            tmp.replace(path)  # atomic on POSIX; near-atomic on Windows NTFS
-            total += len(merged)
+            lock_path = path.with_suffix(".parquet.lock")
+            with portalocker.Lock(
+                str(lock_path),
+                mode="a",
+                # Block until we can grab the lock, but don't wait forever
+                # — a stuck writer should surface, not deadlock the caller.
+                timeout=30,
+            ):
+                merged = _merge_with_existing(path, year_slice)
+                tmp = path.with_suffix(".parquet.tmp")
+                table = pa.Table.from_pandas(merged, preserve_index=True)
+                pq.write_table(table, tmp, compression="snappy")
+                tmp.replace(path)  # near-atomic on Windows NTFS, atomic under the lock
+                total += len(merged)
         return total
 
     # ---- async reads (Protocol surface) -------------------------------
@@ -194,7 +224,16 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
     """Read existing partition (if any), concat new bars, drop duplicates
-    by index (new bars win), sort."""
+    by index (new bars win), sort.
+
+    Tier-1 audit #7 (X#21 / X#20): a transient read failure used to fall
+    through to ``return new_df``, which the caller then wrote on top of
+    the existing file — destroying up to a year of OHLCV silently. The
+    new behavior preserves the bad file as ``.corrupt.bak`` and raises
+    so the operator notices BEFORE the next backtest reads truncated
+    history. Recovery: inspect the .corrupt.bak file, decide whether to
+    re-fetch, then delete the backup.
+    """
     if not path.exists():
         return new_df
     try:
@@ -202,8 +241,31 @@ def _merge_with_existing(path: Path, new_df: pd.DataFrame) -> pd.DataFrame:
         # Strip Hive-inferred partition columns (see _read_sync for context)
         existing = existing.drop(columns=["year", "ticker"], errors="ignore")
     except Exception as e:
-        logger.warning("Could not read existing %s, overwriting: %s", path, e)
-        return new_df
+        # Preserve the bad file (with timestamp suffix so repeated failures
+        # don't clobber each other) and raise. Operator MUST review before
+        # any further writes proceed.
+        backup = path.with_suffix(
+            f".parquet.corrupt-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}.bak"
+        )
+        try:
+            path.replace(backup)
+        except OSError as rename_err:
+            logger.error(
+                "Failed to rename corrupt partition %s to %s: %s",
+                path, backup, rename_err,
+            )
+            # Re-raise the ORIGINAL read error with the rename failure
+            # chained — the read error is the actual cause; the rename
+            # failure is a follow-on diagnostic.
+            raise CorruptPartitionError(
+                f"Existing partition {path} is unreadable AND backup rename failed: "
+                f"read error: {e!r}; rename error: {rename_err!r}"
+            ) from e
+        raise CorruptPartitionError(
+            f"Existing partition {path} was unreadable ({e!r}); renamed to "
+            f"{backup.name} pending operator review. Re-run the write after "
+            f"deciding whether to re-fetch the year or restore from the backup."
+        ) from e
     combined = pd.concat([existing, new_df])
     # Keep last on duplicates so the new write wins for same-index bars
     combined = combined[~combined.index.duplicated(keep="last")]
