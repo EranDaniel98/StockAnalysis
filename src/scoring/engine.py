@@ -156,16 +156,31 @@ def calculate_composite_score(
 
     # Collect signals only from "ok" slots — a broken analyzer's stale
     # signals would skew the bullish/bearish consensus adjustment.
+    # Tag each signal with the analyzer slot it came from so the
+    # per-source normalization in the consensus step (#21) knows which
+    # analyzer to dedupe against. Tag is a private ``_analyzer_slot``
+    # key so downstream display code that iterates ``signals`` keeps
+    # working unchanged.
     all_signals: list[dict] = []
     for slot in sub_scores:
         result = raw_results[slot]
         if isinstance(result, dict):
-            all_signals.extend(result.get("signals", []) or [])
+            for sig in (result.get("signals", []) or []):
+                # Don't mutate the analyzer's signal dict in place — it
+                # may be the same list the analyzer returned and other
+                # code may iterate it after us. Shallow copy + tag.
+                tagged = dict(sig)
+                tagged.setdefault("_analyzer_slot", slot)
+                all_signals.append(tagged)
 
     # PEAD is handled separately as an additive bonus; collect its signals
-    # too (when not None and structurally valid).
+    # too (when not None and structurally valid). Tag as "pead" so the
+    # consensus normalization treats PEAD as one analyzer.
     if pead_result is not None and isinstance(pead_result, dict):
-        all_signals.extend(pead_result.get("signals", []) or [])
+        for sig in (pead_result.get("signals", []) or []):
+            tagged = dict(sig)
+            tagged.setdefault("_analyzer_slot", "pead")
+            all_signals.append(tagged)
 
     # Calculate weighted composite over ok slots only. Renormalize so the
     # denominator reflects what actually contributed; otherwise weights
@@ -191,8 +206,29 @@ def calculate_composite_score(
     # downstream score_valid gate refuses cleanly. Always compute the
     # signal counts (callers display them) and the consensus diag (so
     # operators see "scaling skipped: score_valid=False").
+    # DISPLAY counts — raw, every sub-indicator gets a vote (so the UI
+    # surfaces "12 bullish / 3 bearish" honestly even if the technical
+    # analyzer is responsible for 7 of those 12).
     bullish_count = sum(1 for s in all_signals if s.get("type") == "bullish")
     bearish_count = sum(1 for s in all_signals if s.get("type") == "bearish")
+
+    # CONSENSUS counts — normalized per analyzer source (Tier-2 #21).
+    # Pre-fix: SMA20 / SMA50 / SMA200 all emit bullish signals from the
+    # technical analyzer = three votes for the ±5 nudge. Analyzers with
+    # more sub-indicators dominated the consensus adjustment regardless
+    # of strategy weighting. After: each analyzer contributes at most
+    # one bullish + one bearish vote to the consensus calculation, so
+    # the ±5 nudge reflects analyzer-level agreement, not indicator
+    # count.
+    per_analyzer_votes: dict[str, set[str]] = {}
+    for s in all_signals:
+        sig_type = s.get("type")
+        if sig_type not in ("bullish", "bearish"):
+            continue
+        slot = s.get("_analyzer_slot", "unknown")
+        per_analyzer_votes.setdefault(slot, set()).add(sig_type)
+    consensus_bullish = sum(1 for votes in per_analyzer_votes.values() if "bullish" in votes)
+    consensus_bearish = sum(1 for votes in per_analyzer_votes.values() if "bearish" in votes)
     consensus_diag: dict = {}
 
     if score_valid:
@@ -210,9 +246,9 @@ def calculate_composite_score(
             from src.scoring.diversification import apply_consensus_scaling
             composite, consensus_diag = apply_consensus_scaling(composite, sub_scores)
 
-        total_signals = bullish_count + bearish_count
-        if total_signals > 0:
-            consensus_ratio = (bullish_count - bearish_count) / total_signals
+        total_consensus_votes = consensus_bullish + consensus_bearish
+        if total_consensus_votes > 0:
+            consensus_ratio = (consensus_bullish - consensus_bearish) / total_consensus_votes
             # Slight adjustment based on signal consensus (max +/- 5 points).
             composite += consensus_ratio * 5
 

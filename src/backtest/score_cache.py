@@ -97,18 +97,27 @@ def recompose_composite(
     """
     if enabled_sources is None:
         active_subs = dict(cached.sub_scores)
-        bull_total = sum(cached.bullish_by_source.values())
-        bear_total = sum(cached.bearish_by_source.values())
+        active_bull_by_src = cached.bullish_by_source
+        active_bear_by_src = cached.bearish_by_source
     else:
         active_subs = {
             k: v for k, v in cached.sub_scores.items() if k in enabled_sources
         }
-        bull_total = sum(
-            v for k, v in cached.bullish_by_source.items() if k in enabled_sources
-        )
-        bear_total = sum(
-            v for k, v in cached.bearish_by_source.items() if k in enabled_sources
-        )
+        active_bull_by_src = {
+            k: v for k, v in cached.bullish_by_source.items() if k in enabled_sources
+        }
+        active_bear_by_src = {
+            k: v for k, v in cached.bearish_by_source.items() if k in enabled_sources
+        }
+
+    # Tier-2 #21: count one bullish/bearish vote per ANALYZER source for
+    # the ±5 consensus nudge, not one per indicator. Pre-fix the technical
+    # analyzer's 3 moving-average signals counted as 3 bullish votes,
+    # drowning out the fundamental analyzer's 1. Now each analyzer
+    # contributes at most one bullish + one bearish vote — the nudge
+    # reflects cross-analyzer agreement, not indicator count.
+    bull_total = sum(1 for v in active_bull_by_src.values() if v > 0)
+    bear_total = sum(1 for v in active_bear_by_src.values() if v > 0)
 
     total_weight = sum(weights.get(k, 0) for k in active_subs)
     if total_weight > 0:
