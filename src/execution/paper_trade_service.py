@@ -20,7 +20,12 @@ import yfinance as yf
 from rich.table import Table
 from rich import box
 
-from src.execution.alpaca import AlpacaClient, AlpacaClientError
+from src.execution.alpaca import (
+    AlpacaClient,
+    AlpacaClientError,
+    AlpacaDuplicateOrderError,
+    make_client_order_id,
+)
 from src.execution.paper_db import PaperDB
 from src.presentation.cli.cli_output import console
 from src.data.cache import DataCache
@@ -205,6 +210,7 @@ def _process_recommendation(rec, strategy_name, client, db,
         outcome["skip_reason"] = "dry_run"
         return outcome
 
+    client_order_id = make_client_order_id(strategy_name, ticker)
     try:
         order = client.submit_bracket_order(
             ticker=ticker,
@@ -212,11 +218,20 @@ def _process_recommendation(rec, strategy_name, client, db,
             take_profit_price=take_profit,
             stop_loss_price=stop_loss,
             side="buy",
+            client_order_id=client_order_id,
         )
         db.insert_order(rec_id, order, take_profit, stop_loss)
         db.mark_recommendation_submitted(rec_id)
         outcome["submitted"] = True
         outcome["order_id"] = order["order_id"]
+    except AlpacaDuplicateOrderError:
+        logger.warning(
+            "Duplicate client_order_id rejected by Alpaca for %s (%s) — "
+            "already submitted today; skipping to prevent double-fill.",
+            ticker,
+            client_order_id,
+        )
+        outcome["skip_reason"] = "already_submitted_today"
     except Exception as e:
         logger.error(f"Failed to submit {ticker}: {e}")
         outcome["skip_reason"] = f"submit_failed: {e}"

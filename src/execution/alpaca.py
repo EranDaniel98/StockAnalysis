@@ -7,8 +7,9 @@ and order history for reconciliation.
 
 import os
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 
+from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     MarketOrderRequest,
@@ -22,9 +23,65 @@ from alpaca.trading.enums import OrderSide, OrderClass, TimeInForce, QueryOrderS
 
 logger = logging.getLogger(__name__)
 
+# Alpaca client_order_id constraints:
+#   - max 128 chars
+#   - charset is permissive; alphanumerics + `-_.` are universally accepted
+#   - duplicate-detection window is ~24h across open and recent orders
+_COID_MAX_LEN = 128
+
 
 class AlpacaClientError(Exception):
     pass
+
+
+class AlpacaDuplicateOrderError(AlpacaClientError):
+    """Raised when Alpaca rejects a submission because client_order_id is
+    already in use. Idempotent retry path: caller should treat as 'already
+    submitted' rather than re-attempting with a new id."""
+
+
+def make_client_order_id(strategy: str, ticker: str, as_of: date | None = None) -> str:
+    """Build the deterministic client_order_id used for idempotent submits.
+
+    Same (strategy, ticker, date) -> same id, so a sweep re-run or RPC
+    retry within the day collides on Alpaca's duplicate-id check and is
+    rejected rather than double-filling. If we ever need to allow same-day
+    re-entry (e.g. after a stop-out), add an explicit retry suffix at the
+    caller; do not loosen the default.
+    """
+    if as_of is None:
+        as_of = datetime.now(timezone.utc).date()
+    coid = f"sn-{strategy}-{ticker}-{as_of.isoformat()}"
+    if len(coid) > _COID_MAX_LEN:
+        # Truncate strategy first to preserve ticker + date which carry the
+        # uniqueness signal we care about.
+        budget = _COID_MAX_LEN - len(f"sn--{ticker}-{as_of.isoformat()}")
+        coid = f"sn-{strategy[:budget]}-{ticker}-{as_of.isoformat()}"
+    return coid
+
+
+def _is_duplicate_coid_error(err: APIError) -> bool:
+    """Best-effort detection of duplicate client_order_id rejection.
+
+    Alpaca returns 422 with a message that mentions 'client_order_id' on
+    duplicate; older endpoints have used 409. Match both rather than rely
+    on a single shape.
+    """
+    try:
+        status = err.status_code
+    except Exception:
+        status = None
+    if status not in (409, 422):
+        return False
+    msg = ""
+    try:
+        msg = (err.message or "").lower()
+    except Exception:
+        try:
+            msg = str(err).lower()
+        except Exception:
+            pass
+    return "client_order_id" in msg or "already exists" in msg or "duplicate" in msg
 
 
 class AlpacaClient:
@@ -113,12 +170,25 @@ class AlpacaClient:
 
     # -- Orders ----------------------------------------------------------
 
-    def submit_bracket_order(self, ticker, qty, take_profit_price, stop_loss_price, side="buy"):
+    def submit_bracket_order(
+        self,
+        ticker,
+        qty,
+        take_profit_price,
+        stop_loss_price,
+        side="buy",
+        client_order_id: str | None = None,
+    ):
         """
         Submit a bracket market order. Returns the parent order ID.
 
         Bracket orders on Alpaca require whole-share qty (no fractional).
         Caller should int() qty before passing.
+
+        `client_order_id` is required for real-money idempotency: pass a
+        deterministic id (see `make_client_order_id`) so retries collide
+        on Alpaca's duplicate check instead of double-filling. Duplicates
+        raise `AlpacaDuplicateOrderError`.
         """
         if qty < 1:
             raise AlpacaClientError(
@@ -132,8 +202,16 @@ class AlpacaClient:
             order_class=OrderClass.BRACKET,
             take_profit=TakeProfitRequest(limit_price=round(take_profit_price, 2)),
             stop_loss=StopLossRequest(stop_price=round(stop_loss_price, 2)),
+            client_order_id=client_order_id,
         )
-        order = self._client.submit_order(req)
+        try:
+            order = self._client.submit_order(req)
+        except APIError as e:
+            if _is_duplicate_coid_error(e):
+                raise AlpacaDuplicateOrderError(
+                    f"duplicate client_order_id for {ticker}: {client_order_id}"
+                ) from e
+            raise
         return {
             "order_id": str(order.id),
             "client_order_id": order.client_order_id,
@@ -145,17 +223,35 @@ class AlpacaClient:
             "stop_loss": round(stop_loss_price, 2),
         }
 
-    def submit_market_order(self, ticker, qty, side="buy"):
-        """Plain market order — used for fractional close-outs and SELL recommendations."""
+    def submit_market_order(
+        self,
+        ticker,
+        qty,
+        side="buy",
+        client_order_id: str | None = None,
+    ):
+        """Plain market order — used for fractional close-outs and SELL recommendations.
+
+        See `submit_bracket_order` for idempotency semantics; same rules apply.
+        """
         req = MarketOrderRequest(
             symbol=ticker,
             qty=qty,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
+            client_order_id=client_order_id,
         )
-        order = self._client.submit_order(req)
+        try:
+            order = self._client.submit_order(req)
+        except APIError as e:
+            if _is_duplicate_coid_error(e):
+                raise AlpacaDuplicateOrderError(
+                    f"duplicate client_order_id for {ticker}: {client_order_id}"
+                ) from e
+            raise
         return {
             "order_id": str(order.id),
+            "client_order_id": order.client_order_id,
             "status": str(order.status),
             "qty": qty,
             "ticker": ticker,
