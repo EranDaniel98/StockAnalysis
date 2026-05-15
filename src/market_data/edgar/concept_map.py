@@ -6,9 +6,14 @@ so we try multiple concept names per field and take the first one that has
 data. This list is seeded from the most-common us-gaap tags and will need
 curation as we add more tickers.
 
-The unit fields ("USD", "USD/shares", "pure") tell the parser how to
-interpret the value. EDGAR returns multiple unit groups per concept; we
-prefer USD over USD/shares over pure.
+Tier-2 audit #14: EXPECTED_UNIT_BY_FIELD pins which XBRL unit bucket
+the parser may read for each field. Pre-fix the parser did
+``units.get("USD") or units.get("USD/shares") or units.get("shares")``
+which silently accepted any non-empty bucket. For EPS that meant a
+filer whose USD/shares bucket was empty would have its raw share-count
+read as EPS — producing a "diluted EPS = 1,000,000,000" row in the
+fundamentals timeline. Per-field expected unit makes the parser refuse
+the wrong bucket.
 """
 
 from __future__ import annotations
@@ -87,4 +92,16 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
     ],
+}
+
+
+# Tier-2 #14: which XBRL unit bucket the parser may read per field.
+# A field missing from this map defaults to "USD" (most common). Any
+# field listed here REQUIRES the named bucket — facts in other buckets
+# are skipped with a debug log, NOT silently re-typed.
+EXPECTED_UNIT_BY_FIELD: dict[str, str] = {
+    # EPS is per-share, so the unit is USD per share.
+    "eps_diluted": "USD/shares",
+    # All other fields in CONCEPT_MAP + DERIVED_CONCEPTS are USD-denominated
+    # quantities (revenue, debt, cash flow, equity, ...). Default applies.
 }

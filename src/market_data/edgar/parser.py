@@ -50,7 +50,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.contracts.entities.fundamentals import FundamentalSnapshot, FundamentalsSource
-from src.market_data.edgar.concept_map import CONCEPT_MAP, DERIVED_CONCEPTS
+from src.market_data.edgar.concept_map import (
+    CONCEPT_MAP,
+    DERIVED_CONCEPTS,
+    EXPECTED_UNIT_BY_FIELD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +79,8 @@ def _form_to_source(form: str) -> FundamentalsSource | None:
 
 
 def _pick_concept_facts(
-    us_gaap: dict[str, Any], concepts: list[str]
+    us_gaap: dict[str, Any], concepts: list[str], *,
+    expected_unit: str = "USD",
 ) -> list[dict[str, Any]]:
     """Merge facts across all matching concepts in priority order.
 
@@ -85,6 +90,16 @@ def _pick_concept_facts(
     Both need to contribute to the merged timeline, so we walk EVERY
     concept in the list, dedupe by `filed` date with higher-priority
     concepts winning ties.
+
+    Tier-2 #14: ``expected_unit`` pins which XBRL unit bucket we may
+    read. Pre-fix this function did
+    ``units.get("USD") or units.get("USD/shares") or units.get("shares")``
+    which silently accepted the first non-empty bucket. For EPS that
+    meant a filer whose USD/shares bucket was empty (rare but real)
+    would have its raw share count read as EPS — producing a nonsense
+    "diluted EPS = 1,000,000,000" row in the fundamentals timeline.
+    Now the function reads ONLY the expected bucket; if it's empty,
+    the field stays None (honest "no data").
     """
     merged_by_filed: dict[str, dict[str, Any]] = {}
     # Walk in REVERSE priority order so high-priority concepts overwrite
@@ -94,8 +109,17 @@ def _pick_concept_facts(
         if not block:
             continue
         units = block.get("units", {})
-        usd = units.get("USD") or units.get("USD/shares") or units.get("shares") or []
-        for fact in usd:
+        bucket = units.get(expected_unit) or []
+        if not bucket and units:
+            # Diagnostic: an unexpected unit bucket is present but the
+            # expected one isn't. Pre-fix we'd have grabbed the wrong
+            # bucket; now we just skip. Debug-level — operators chasing
+            # missing data can grep for this.
+            logger.debug(
+                "EDGAR concept %s has units %s but expected '%s' — skipped",
+                c, list(units.keys()), expected_unit,
+            )
+        for fact in bucket:
             filed = fact.get("filed")
             if filed:
                 merged_by_filed[filed] = fact
@@ -140,7 +164,8 @@ def parse_company_facts(
     field_values: dict[str, dict[str, tuple[Any, str]]] = defaultdict(dict)
 
     def _absorb(field: str, concepts: list[str]) -> None:
-        facts = _pick_concept_facts(us_gaap, concepts)
+        expected_unit = EXPECTED_UNIT_BY_FIELD.get(field, "USD")
+        facts = _pick_concept_facts(us_gaap, concepts, expected_unit=expected_unit)
         for filed, fact in _facts_by_filing(facts).items():
             val = fact.get("val")
             form = fact.get("form", "")
