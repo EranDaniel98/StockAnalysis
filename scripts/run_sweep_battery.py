@@ -23,6 +23,7 @@ import logging
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -140,8 +141,25 @@ def main() -> int:
         help="Which preset to run: light (no PIT) / heavy (PIT) / all (both)",
     )
     parser.add_argument(
-        "--bootstrap-resamples", type=int, default=2000,
-        help="Bootstrap iterations per mode (0 disables; default 2000)",
+        "--bootstrap-resamples", type=int, default=500,
+        help="Bootstrap iterations per mode (0 disables; default 500). "
+             "Was 2000; dropped because the headline metrics are point "
+             "estimates and only the CIs widen modestly. Trade ~5%% of "
+             "wall time for tighter CI precision if you need it.",
+    )
+    parser.add_argument(
+        "--parallelism", type=int, default=1,
+        help="How many sweeps to run concurrently (default 1 = sequential). "
+             "Each sweep already spawns 8 worker threads internally, so a "
+             "machine with 12-16 cores comfortably runs --parallelism 2-3. "
+             "Sweeps have no shared state — output files, score caches, "
+             "and DB connections are all per-process.",
+    )
+    parser.add_argument(
+        "--skip-existing", action="store_true",
+        help="Skip strategies whose JSON output already exists in --out-dir. "
+             "Useful to resume a battery after a kill or crash without "
+             "redoing completed work.",
     )
     parser.add_argument(
         "--out-dir", default="data/sweep_battery",
@@ -152,25 +170,92 @@ def main() -> int:
     battery = BATTERIES[args.battery]
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("battery '%s' starting — %d sweeps, output to %s",
-                args.battery, len(battery), out_dir)
+
+    if args.skip_existing:
+        before = len(battery)
+        battery = [
+            (u, s, y, pit) for (u, s, y, pit) in battery
+            if not (out_dir / f"sweep_{_slug(u, s, y)}.json").exists()
+        ]
+        skipped = before - len(battery)
+        if skipped:
+            logger.info("--skip-existing: skipping %d already-complete sweep(s)", skipped)
+
+    logger.info(
+        "battery '%s' starting — %d sweeps, parallelism=%d, "
+        "bootstrap_resamples=%d, output to %s",
+        args.battery, len(battery), args.parallelism,
+        args.bootstrap_resamples, out_dir,
+    )
 
     results: list[dict] = []
     t_total = time.time()
-    for universe, strategy, years, pit in battery:
-        slug, rc, elapsed, save_path = run_one(
-            universe, strategy, years, pit, args.bootstrap_resamples, out_dir
-        )
-        rows = _read_summary(save_path)
-        results.append({
-            "slug": slug,
-            "universe": universe,
-            "strategy": strategy,
-            "years": years,
-            "exit": rc,
-            "elapsed_sec": elapsed,
-            "rows": rows,
-        })
+
+    if args.parallelism <= 1:
+        # Sequential path — preserved for back-compat and easy log-reading.
+        for universe, strategy, years, pit in battery:
+            slug, rc, elapsed, save_path = run_one(
+                universe, strategy, years, pit, args.bootstrap_resamples, out_dir
+            )
+            rows = _read_summary(save_path)
+            results.append({
+                "slug": slug,
+                "universe": universe,
+                "strategy": strategy,
+                "years": years,
+                "exit": rc,
+                "elapsed_sec": elapsed,
+                "rows": rows,
+            })
+    else:
+        # Parallel path — submit all sweeps to a pool sized at --parallelism.
+        # Subprocesses are independent (each writes a distinct slug.json
+        # under out_dir; the score cache is per-process so no shared
+        # state to coordinate). Each worker thread blocks on its child
+        # subprocess via subprocess.run, so the thread count just gates
+        # how many child processes run concurrently.
+        params_by_slug = {
+            _slug(u, s, y): (u, s, y, pit) for (u, s, y, pit) in battery
+        }
+        with ThreadPoolExecutor(max_workers=args.parallelism) as ex:
+            futures = {
+                ex.submit(
+                    run_one, u, s, y, pit, args.bootstrap_resamples, out_dir,
+                ): _slug(u, s, y)
+                for (u, s, y, pit) in battery
+            }
+            for fut in as_completed(futures):
+                expected_slug = futures[fut]
+                try:
+                    slug, rc, elapsed, save_path = fut.result()
+                except Exception as e:
+                    logger.error(
+                        "SWEEP %s crashed in worker: %s: %s",
+                        expected_slug, type(e).__name__, e,
+                    )
+                    universe, strategy, years, _pit = params_by_slug[expected_slug]
+                    results.append({
+                        "slug": expected_slug,
+                        "universe": universe,
+                        "strategy": strategy,
+                        "years": years,
+                        "exit": -1,
+                        "elapsed_sec": 0.0,
+                        "rows": None,
+                        "worker_error": f"{type(e).__name__}: {e}",
+                    })
+                    continue
+                rows = _read_summary(save_path)
+                universe, strategy, years, _pit = params_by_slug[slug]
+                results.append({
+                    "slug": slug,
+                    "universe": universe,
+                    "strategy": strategy,
+                    "years": years,
+                    "exit": rc,
+                    "elapsed_sec": elapsed,
+                    "rows": rows,
+                })
 
     total_elapsed = time.time() - t_total
     logger.info("battery done in %.1fs (%.1fm)", total_elapsed, total_elapsed / 60)
