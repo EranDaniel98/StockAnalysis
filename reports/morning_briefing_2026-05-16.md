@@ -7,40 +7,59 @@ meaningful change committed.
 
 ## TL;DR
 
-**Headline finding: the backtest engine is NOT deterministic across
-yfinance pulls.** Two runs of 2024-2026 minimal_baseline hours apart
-returned full Sharpe 2.08 → 1.60 (-0.48), OOS Sharpe 2.89 → 2.51
-(-0.38), walk-forward fold 0 Sharpe 1.57 → 0.49 (-1.08). Same code,
-same pipeline version, same window. Cause is almost certainly yfinance
-drift — Yahoo back-applies dividend/split adjustments for several days
-after the event, so two pulls of "the same" history return slightly
-different bars. **Every prior point estimate in the audit chain needs
-±~0.4 Sharpe error bars around it that include this noise.**
+Two findings of the night, in priority order:
+
+**1. The backtest engine is NOT deterministic across yfinance pulls.**
+Two runs of 2024-2026 minimal_baseline hours apart returned full
+Sharpe 2.08 → 1.60 (-0.48), OOS Sharpe 2.89 → 2.51 (-0.38),
+walk-forward fold 0 Sharpe 1.57 → 0.49 (-1.08). Same code, same
+pipeline version, same window. Cause is almost certainly yfinance
+drift — Yahoo back-applies dividend/split adjustments for several
+days after the event. Every prior point estimate in the audit chain
+needs ±~0.4 Sharpe error bars around it that include this noise.
+
+**2. Of the six analyzers, only `fundamental` carries
+Bonferroni-significant 5D predictive signal.** `trend` and `alpha158`
+are flat noise (IC -0.001 and +0.002 respectively). `technical` and
+`statistical` are 0.73 correlated duplicates that voted together for
+70% of the strategy's weight while neither one is significant alone.
+The composite's top quintile actually UNDERPERFORMS the bottom
+quintile at 5D (-0.067% spread). The strategy currently allocates
+30% to its only proven signal and 70% to a duplicated weak/noise pair.
 
 The 2022-2024 minimal_baseline result is still the first credible
 signal we have, but the strategy is regime-dependent — it lost money
 for ~10 months in the 2022 bear before recovering. Walk-forward strict
 gate fails on those two folds. Tooling shipped to investigate WHY:
-per-analyzer IC report (which analyzers actually predict?), regime-
-filter hypothesis flag (does skip_bear neutralize 2022?), and analyzer
-correlation matrix (which scoring sources are redundant?). Pending the
-runs that need fresh compute, the next ranked decisions are:
+per-analyzer IC report (DONE, see above), regime-filter hypothesis
+(running now), and analyzer correlation matrix (DONE). The next
+ranked decisions are:
 
 1. **Freeze price data into Parquet snapshots per backtest run.**
    Until this lands, every Sharpe in the audit chain has ~0.4 of
    irreducible yfinance noise on top of bootstrap noise. Without it
    you cannot compare any two backtest runs cleanly.
-2. **Drop the entire "edge exists" claim until walk-forward passes
+2. **Re-weight minimal_baseline_v2 toward fundamental + drop the
+   technical/statistical duplicate.** Hypothesis: 0.60 fundamental +
+   0.40 statistical (drop technical because they're 0.73 correlated;
+   statistical has slightly stronger raw IC + IR). Test on 2022-2024
+   OOS Sharpe + alpha-vs-SPY-matched. If alpha is preserved or
+   improved on a smaller, cleaner weight set, we've found the
+   load-bearing signal. If alpha collapses, the prior alpha was
+   carried by the technical/statistical correlation noise after all.
+3. **Drop the entire "edge exists" claim until walk-forward passes
    without survivorship + with the bear folds + averaged over ≥3
    independent yfinance pulls.** That is the load-bearing question,
    not point-estimate Sharpe magnitude.
-3. **Run the IC report; any analyzer in the NOISE bucket should have
-   its weight zeroed in minimal_baseline_v2** — currently we silently
-   weight noise into the composite.
-4. **Run the skip_bear regime gate on 2022-2024 and compare folds
-   head-to-head.** If folds 0/1 turn neutral without killing 2-4, the
-   strategy is salvageable behind a regime filter; if it kills 2-4 too,
-   the "edge" was just being long in 2023.
+4. **Wait for regime A/B (task `bkm9clcat`) result.** If skip_bear
+   neutralizes folds 0/1 without killing folds 2-4, the strategy is
+   salvageable behind a regime gate; if it kills 2-4 too, the "edge"
+   was just being long in 2023.
+5. **Per-analyzer IC at 21D + 42D horizons.** The strategy's actual
+   avg hold is 35.9 days. Current 5D IC misses the timescale the
+   strategy actually trades on. Rerun with prices extended to
+   end_date + 90 calendar days so alphalens can compute 21D/42D
+   forward returns without truncating.
 
 ## What was true at sleep time
 
@@ -97,11 +116,27 @@ runs that need fresh compute, the next ranked decisions are:
   shifted ~1.1-1.4 Sharpe each. Diff against the original is in
   commit message `234fe17`.
 
-### Runs queued
-- Per-analyzer IC report on 2022-2024 (1000 tickers × 100 weeks).
-  Will run on cached prices now that verify1 freed yfinance.
-- Analyzer correlation matrix on 2022-2024 (reuses IC's panel cache).
-- Regime-filter A/B (`--regime-mode skip_bear` vs `off`) on 2022-2024.
+- **IC report (2022-2024, task `bxw50bdxk`)** —
+  `reports/analyzer_ic_2022_2024.md`. Bonferroni k=6, panel 97k rows.
+  **Only `fundamental` is significant (Bonferroni-p < 0.0001).**
+  `trend` IC -0.001 NOISE, `alpha158` IC +0.002 NOISE,
+  `technical` and `statistical` carry IC 0.014/0.020 (not significant
+  after Bonferroni). `pattern` was refused by alphalens (>80% NaN —
+  too sparse as a quintile factor). Composite IC +0.024 but top
+  quintile UNDERPERFORMS bottom at 5D (-0.067% spread).
+  See commit `fc1cb43` for full table.
+
+- **Correlation matrix (2022-2024)** — `reports/analyzer_correlation_2022_2024.md`.
+  Exactly one flagged pair: `technical ↔ statistical = +0.73`. Pearson
+  and Spearman agree. minimal_baseline weights 0.40 + 0.30 = 0.70 on
+  this duplicated pair; effectively the strategy is voting one column
+  twice. Implications detailed in commit `f469d02`.
+
+### Runs queued / in-flight
+- **Regime A/B `skip_bear` vs `off` on 2022-2024** (task `bkm9clcat`).
+  Tests whether refusing entries when SPY < 200d-SMA AND VIX > 25
+  neutralizes folds 0 and 1 (the 2022 bear drag) without killing
+  folds 2-4. Output: `data/baseline/minimal_baseline_2022_2024_skip_bear.json`.
 
 ## What you should look at first
 
@@ -154,6 +189,27 @@ the same way and inflating their joint weight.
   (with ^VIX fetch + config monkey-patch). Defaults to `off` so prior
   runs stay reproducible.
 - **01:55** — Shipped analyzer correlation matrix script.
+- **02:15** — Verify1 (task `bx1m5fp0j`) completed. Compared against
+  original 2024-2026 — engine non-deterministic; full Sharpe shift
+  -0.48 across pulls. Briefing v2 elevates Parquet-snapshot work
+  to #1 next step. Commit `234fe17`.
+- **02:20** — Kicked off IC report on 2022-2024 in background
+  (task `bxw50bdxk`). Cache-hot from verify1, so panel build is
+  the only slow step.
+- **02:43** — IC report completed in ~28 min. Reading: only
+  `fundamental` carries Bonferroni-significant signal at 5D.
+  `trend` and `alpha158` are flat noise. `pattern` too sparse for
+  alphalens. Composite top-Q UNDERPERFORMS bottom-Q at 5D.
+  Commit `fc1cb43`.
+- **02:45** — Correlation matrix ran in seconds off the cached
+  panel CSV. Result: `technical ↔ statistical = +0.73` — the
+  strategy's 70% combined weight on these two is voting one
+  column twice. Commit `f469d02`.
+- **02:47** — Memory entries saved for both findings. Briefing v3
+  rewrites TL;DR with both findings in priority order.
+- **02:50** — Kicked off regime A/B (`skip_bear` vs `off`) on
+  2022-2024 in background (task `bkm9clcat`). Final research run
+  of the night.
 
-<!-- Results section appended once the IC + correlation + regime
-runs complete. Verification result fills in the second TL;DR bullet. -->
+<!-- Briefing closes after regime A/B notification fires. -->
+
