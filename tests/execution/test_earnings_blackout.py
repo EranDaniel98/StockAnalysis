@@ -166,6 +166,7 @@ def test_unknown_earnings_blocks_submission():
     process step must set skip_reason and never call the broker."""
     client = MagicMock()
     db = MagicMock()
+    db.get_order_by_client_order_id.return_value = None
     with patch.object(
         paper_trade_service, "_check_next_earnings",
         return_value=EarningsLookup(status="unknown"),
@@ -194,6 +195,12 @@ def test_scheduled_outside_blackout_window_submits():
     }
     db = MagicMock()
     db.insert_recommendation.return_value = 1
+    # Idempotency hardening (review M1) consults the DB for a prior row
+    # keyed by client_order_id before submitting. None = no prior row,
+    # take the fresh-submit path. The default MagicMock would return a
+    # truthy mock that the new code mis-reads as "already submitted".
+    db.get_order_by_client_order_id.return_value = None
+    db.finalize_pending_order.return_value = True
     with patch.object(
         paper_trade_service, "_check_next_earnings",
         return_value=EarningsLookup(status="scheduled", days_until=30),
@@ -215,6 +222,12 @@ def test_scheduled_within_blackout_window_blocks():
     client = MagicMock()
     db = MagicMock()
     db.insert_recommendation.return_value = 1
+    # Idempotency hardening (review M1) consults the DB for a prior row
+    # keyed by client_order_id before submitting. None = no prior row,
+    # take the fresh-submit path. The default MagicMock would return a
+    # truthy mock that the new code mis-reads as "already submitted".
+    db.get_order_by_client_order_id.return_value = None
+    db.finalize_pending_order.return_value = True
     with patch.object(
         paper_trade_service, "_check_next_earnings",
         return_value=EarningsLookup(status="scheduled", days_until=3),

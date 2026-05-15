@@ -178,6 +178,128 @@ class PaperDB:
 
     # -- Orders ----------------------------------------------------------
 
+    # -- Idempotency: pending → submitted lifecycle (review M1) ---------
+    #
+    # The bulletproof variant. Pre-fix the only protection against a
+    # crash between Alpaca-ack and the local INSERT was Alpaca's 24h
+    # duplicate-id check on retry. That works for the simple "process
+    # died right before INSERT" case but doesn't tell us WHETHER the
+    # original submission actually landed at Alpaca. Now:
+    #   1. Before calling Alpaca, insert a PENDING row keyed by COID
+    #      (sentinel alpaca_order_id="PENDING:<coid>" preserves the
+    #      NOT NULL UNIQUE constraints).
+    #   2. Call Alpaca. On success, finalize_pending_order swaps the
+    #      sentinel for the real alpaca_order_id.
+    #   3. On retry (next paper_trade run with the same COID):
+    #        - If status='submitted'+: skip immediately
+    #        - If status='pending_submit': query Alpaca by COID
+    #            * present at Alpaca -> finalize, no resubmit
+    #            * absent at Alpaca -> discard pending, resubmit fresh
+    #
+    # This eliminates the orphan-at-Alpaca-but-no-DB-row failure mode.
+
+    _PENDING_STATUS = "pending_submit"
+
+    @staticmethod
+    def _pending_alpaca_sentinel(coid: str) -> str:
+        """Build the sentinel alpaca_order_id used for a pending row.
+        Keeps the NOT NULL UNIQUE constraint on alpaca_order_id satisfied
+        without inventing nulls."""
+        return f"PENDING:{coid}"
+
+    def get_order_by_client_order_id(self, client_order_id: str):
+        """Look up an order row by its deterministic COID. Returns the
+        full row dict (including status) or None."""
+        row = self._conn.execute(
+            "SELECT * FROM paper_orders WHERE client_order_id = ?",
+            (client_order_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def insert_pending_order(
+        self,
+        *,
+        recommendation_id: int,
+        client_order_id: str,
+        ticker: str,
+        qty: float,
+        take_profit: float,
+        stop_loss: float,
+    ) -> int:
+        """Insert a pending row BEFORE the Alpaca call. The UNIQUE on
+        client_order_id (partial index) catches racing retries: a second
+        insert with the same COID raises IntegrityError, which the caller
+        treats as 'someone else is already submitting this'."""
+        cur = self._conn.execute(
+            """
+            INSERT INTO paper_orders (
+                recommendation_id, alpaca_order_id, client_order_id,
+                ticker, side, qty, submitted_at, status,
+                take_profit, stop_loss
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                recommendation_id,
+                self._pending_alpaca_sentinel(client_order_id),
+                client_order_id,
+                ticker,
+                "buy",
+                qty,
+                datetime.now(timezone.utc).isoformat(),
+                self._PENDING_STATUS,
+                take_profit,
+                stop_loss,
+            ),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def finalize_pending_order(
+        self,
+        *,
+        client_order_id: str,
+        alpaca_order_id: str,
+        status: str,
+        submitted_at: str | None = None,
+    ) -> bool:
+        """Promote a pending row to fully-submitted by stamping the real
+        alpaca_order_id. Returns True iff the row was updated (i.e. a
+        pending row with this COID actually existed)."""
+        cur = self._conn.execute(
+            """
+            UPDATE paper_orders
+            SET alpaca_order_id = ?,
+                status = ?,
+                submitted_at = COALESCE(?, submitted_at)
+            WHERE client_order_id = ?
+              AND status = ?
+            """,
+            (
+                alpaca_order_id,
+                status,
+                submitted_at,
+                client_order_id,
+                self._PENDING_STATUS,
+            ),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def discard_pending_order(self, client_order_id: str) -> bool:
+        """Delete a pending row when Alpaca confirms the original
+        submission never landed. Only deletes rows still in the pending
+        status — won't accidentally remove a submitted/filled order."""
+        cur = self._conn.execute(
+            """
+            DELETE FROM paper_orders
+            WHERE client_order_id = ?
+              AND status = ?
+            """,
+            (client_order_id, self._PENDING_STATUS),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     def insert_order(self, recommendation_id, order_dict, take_profit, stop_loss):
         cur = self._conn.execute(
             """

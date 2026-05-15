@@ -400,6 +400,42 @@ class AlpacaClient:
         after = datetime.now(timezone.utc) - timedelta(days=days)
         return self.get_orders(status="closed", after=after)
 
+    def get_order_by_coid(self, client_order_id: str):
+        """Look up an Alpaca order by its client_order_id.
+
+        Returns a dict mirroring `get_orders` shape, or None if Alpaca
+        has no record of that COID. Used by the idempotent submit path
+        (review M1): on retry, we ask Alpaca whether the original
+        submission actually landed before deciding whether to resubmit.
+
+        Alpaca's REST endpoint is GET /v2/orders:by_client_order_id; in
+        alpaca-py it's `TradingClient.get_order_by_client_id`. A 404
+        means "Alpaca never received this order" and the caller can
+        safely resubmit; any other API error propagates.
+        """
+        try:
+            o = self._client.get_order_by_client_id(client_order_id)
+        except APIError as e:
+            # 404 path — alpaca-py raises APIError with status 404 when
+            # the COID is unknown. Treat as "not at Alpaca".
+            status = getattr(e, "status_code", None)
+            if status == 404:
+                return None
+            raise
+        if o is None:
+            return None
+        return {
+            "order_id": str(o.id),
+            "client_order_id": o.client_order_id,
+            "ticker": o.symbol,
+            "qty": float(o.qty) if o.qty else 0,
+            "filled_qty": float(o.filled_qty) if o.filled_qty else 0,
+            "filled_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+            "side": str(o.side),
+            "status": str(o.status),
+            "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
+        }
+
     def get_clock(self):
         clock = self._client.get_clock()
         return {

@@ -14,6 +14,7 @@ order so that (qty * current_price) <= max_per_order_usd, with qty >= 1. If even
 """
 
 import logging
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
@@ -295,6 +296,88 @@ def _process_recommendation(rec, strategy_name, client, db,
         return outcome
 
     client_order_id = make_client_order_id(strategy_name, ticker)
+
+    # --- Idempotency: pending → submit → finalize (review M1) ---
+    # Check if a row already exists for this COID before doing anything.
+    # Three states matter:
+    #   (a) row exists, status='submitted'/'filled'/etc.: skip — already
+    #       done in a prior run. Don't double-fill.
+    #   (b) row exists, status='pending_submit': previous run crashed
+    #       between insert_pending and finalize. Ask Alpaca whether the
+    #       submission actually landed; finalize if yes, discard + fresh
+    #       submit if no.
+    #   (c) no row: fresh submission. Insert pending, submit, finalize.
+    prior = db.get_order_by_client_order_id(client_order_id)
+    if prior and prior["status"] != PaperDB._PENDING_STATUS:
+        # State (a): already done. Mark recommendation submitted to keep
+        # display consistent and skip.
+        db.mark_recommendation_submitted(rec_id)
+        outcome["submitted"] = True
+        outcome["order_id"] = prior["alpaca_order_id"]
+        outcome["skip_reason"] = "already_submitted_prior_run"
+        return outcome
+
+    if prior and prior["status"] == PaperDB._PENDING_STATUS:
+        # State (b): recover. Did the original submit actually reach Alpaca?
+        try:
+            confirmed = client.get_order_by_coid(client_order_id)
+        except Exception as e:  # noqa: BLE001 — Alpaca lookup must not crash flow
+            logger.error(
+                "Recovery: failed to query Alpaca for pending COID %s on %s "
+                "(%s) — leaving pending row in place; will retry next run.",
+                client_order_id, ticker, e,
+            )
+            outcome["skip_reason"] = f"recovery_query_failed: {e}"
+            return outcome
+        if confirmed is not None:
+            # Original submission DID land. Finalize the pending row.
+            db.finalize_pending_order(
+                client_order_id=client_order_id,
+                alpaca_order_id=confirmed["order_id"],
+                status=confirmed.get("status", "submitted"),
+                submitted_at=confirmed.get("submitted_at"),
+            )
+            db.mark_recommendation_submitted(rec_id)
+            outcome["submitted"] = True
+            outcome["order_id"] = confirmed["order_id"]
+            outcome["skip_reason"] = "recovered_pending_via_alpaca_lookup"
+            logger.info(
+                "Recovered pending submission for %s — Alpaca had the "
+                "order (id=%s, status=%s). No duplicate sent.",
+                ticker, confirmed["order_id"], confirmed.get("status"),
+            )
+            return outcome
+        else:
+            # Original submission never reached Alpaca. Safe to retry.
+            db.discard_pending_order(client_order_id)
+            logger.info(
+                "Pending submission for %s was never received by Alpaca "
+                "(COID %s) — discarded and resubmitting.",
+                ticker, client_order_id,
+            )
+            # Fall through to fresh submit below.
+
+    # State (c) — or (b) with discarded pending. Fresh insert + submit.
+    try:
+        db.insert_pending_order(
+            recommendation_id=rec_id,
+            client_order_id=client_order_id,
+            ticker=ticker,
+            qty=qty,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+        )
+    except sqlite3.IntegrityError as e:
+        # Raced against a concurrent paper_trade run. Refuse rather than
+        # silently double-submit.
+        logger.warning(
+            "Concurrent paper_trade detected on %s (COID %s collision): %s "
+            "— refusing to double-submit.",
+            ticker, client_order_id, e,
+        )
+        outcome["skip_reason"] = "concurrent_submit_collision"
+        return outcome
+
     try:
         order = client.submit_bracket_order(
             ticker=ticker,
@@ -305,25 +388,62 @@ def _process_recommendation(rec, strategy_name, client, db,
             client_order_id=client_order_id,
             score_valid=rec.get("score_valid", True),
         )
-        db.insert_order(rec_id, order, take_profit, stop_loss)
+        db.finalize_pending_order(
+            client_order_id=client_order_id,
+            alpaca_order_id=order["order_id"],
+            status=order.get("status", "submitted"),
+            submitted_at=order.get("submitted_at"),
+        )
         db.mark_recommendation_submitted(rec_id)
         outcome["submitted"] = True
         outcome["order_id"] = order["order_id"]
     except AlpacaDuplicateOrderError:
+        # Alpaca already saw this COID. The pending row we inserted is
+        # the recovery anchor for the next run — leave it, query
+        # Alpaca to fill in the real id.
         logger.warning(
-            "Duplicate client_order_id rejected by Alpaca for %s (%s) — "
-            "already submitted today; skipping to prevent double-fill.",
-            ticker,
-            client_order_id,
+            "Duplicate COID at Alpaca for %s (%s) — checking whether the "
+            "earlier submission landed.", ticker, client_order_id,
         )
-        outcome["skip_reason"] = "already_submitted_today"
+        try:
+            confirmed = client.get_order_by_coid(client_order_id)
+        except Exception as q:  # noqa: BLE001
+            logger.error(
+                "Could not query Alpaca for duplicate %s: %s — pending row "
+                "kept for next-run recovery.", ticker, q,
+            )
+            outcome["skip_reason"] = "duplicate_but_lookup_failed"
+            return outcome
+        if confirmed is not None:
+            db.finalize_pending_order(
+                client_order_id=client_order_id,
+                alpaca_order_id=confirmed["order_id"],
+                status=confirmed.get("status", "submitted"),
+                submitted_at=confirmed.get("submitted_at"),
+            )
+            db.mark_recommendation_submitted(rec_id)
+            outcome["submitted"] = True
+            outcome["order_id"] = confirmed["order_id"]
+            outcome["skip_reason"] = "already_submitted_today"
+        else:
+            # Duplicate-error but Alpaca doesn't have it now — discard
+            # pending so next run can retry. Should be rare.
+            db.discard_pending_order(client_order_id)
+            outcome["skip_reason"] = "duplicate_then_missing"
     except TradingHaltedError as e:
-        # Safety gate refused — log at WARNING with the full reason so
-        # an operator sees exactly which breaker tripped. Do NOT retry.
+        # Safety gate refused — Alpaca was never called, so no real
+        # order exists. Discard the pending row.
+        db.discard_pending_order(client_order_id)
         logger.warning("Safety gate refused %s: %s", ticker, e)
         outcome["skip_reason"] = f"safety_gate: {e}"
     except Exception as e:
-        logger.error(f"Failed to submit {ticker}: {e}")
+        # Unknown failure. We DON'T discard pending here — the original
+        # submission may have reached Alpaca even though we got an error.
+        # Next run's recovery path will sort it out.
+        logger.error(
+            "Failed to submit %s: %s — pending row kept for next-run recovery.",
+            ticker, e,
+        )
         outcome["skip_reason"] = f"submit_failed: {e}"
     return outcome
 
