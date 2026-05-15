@@ -55,6 +55,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--end-date",
                    help="ISO date; defaults to min(today, universe-captured). "
                         "Pass explicitly to test a custom window.")
+    p.add_argument(
+        "--regime-mode",
+        default="off",
+        choices=("off", "skip_bear", "skip_bear_and_chop"),
+        help="Override risk_management.regime_filter.mode for this run. "
+             "'off' = no gate (default). 'skip_bear' refuses new entries "
+             "when SPY < 200d SMA AND VIX > 25. 'skip_bear_and_chop' is "
+             "stricter (only enters in confirmed bull). Used to test the "
+             "hypothesis that 2022-bear folds drag minimal_baseline's "
+             "walk-forward result.",
+    )
     return p.parse_args()
 
 
@@ -148,6 +159,33 @@ def main() -> int:
     logger.info("Fetching SPY benchmark...")
     spy_df = fetcher.fetch_price_data("SPY", period=f"{int(args.years)+1}y")
 
+    # VIX — required for the regime gate's bear-classification when
+    # --regime-mode is non-off. Cheap to fetch even when unused; pull
+    # it conditionally to keep the no-regime path identical to today's.
+    vix_df = None
+    if args.regime_mode != "off":
+        logger.info("Fetching ^VIX history for regime gate (%s)...",
+                    args.regime_mode)
+        vix_df = fetcher.fetch_price_data("^VIX",
+                                          period=f"{int(args.years)+1}y")
+        if vix_df is None or vix_df.empty:
+            logger.error(
+                "Regime gate requested but ^VIX fetch returned empty; "
+                "refusing to run silently with gate=off. Re-run with "
+                "--regime-mode off if the gate isn't needed."
+            )
+            return 2
+
+        # Monkey-patch the config getter so the engine's gate reads our
+        # override without us having to touch settings.yaml on disk.
+        _orig_get_regime_filter = config.get_regime_filter
+
+        def _patched_get_regime_filter():
+            base = _orig_get_regime_filter() or {}
+            return {**base, "enabled": True, "mode": args.regime_mode}
+
+        config.get_regime_filter = _patched_get_regime_filter  # type: ignore[assignment]
+
     # PIT loader (recommended for fundamental-weighted strategies).
     # Async API: pull all EDGAR rows for the universe in one query, then
     # the engine resolves (ticker, as_of) lookups in-memory. Same shape
@@ -211,6 +249,7 @@ def main() -> int:
             strategy=strategy,
             bt_cfg=bt_cfg,
             spy_df=spy_df,
+            vix_df=vix_df,
             earnings_history=earnings_history,
             fundamentals_pit_loader=pit_loader,
         )
@@ -239,6 +278,7 @@ def main() -> int:
         },
         "starting_cash": args.starting_cash,
         "pit_fundamentals": args.pit_fundamentals,
+        "regime_mode": args.regime_mode,
         "full": result.get("full"),
         "in_sample": result.get("in_sample"),
         "out_of_sample": result.get("out_of_sample"),
