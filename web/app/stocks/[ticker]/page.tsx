@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect } from "react";
 import {
@@ -321,6 +322,17 @@ function StockDetail({
                   {timeStop.days != null ? ` · ${timeStop.days}d` : ""}
                 </Badge>
               ) : null}
+              <a
+                href={`https://www.tradingview.com/symbols/${encodeURIComponent(ticker)}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider border border-border rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                title={`Open ${ticker} chart on TradingView`}
+                aria-label={`Open ${ticker} chart on TradingView (new tab)`}
+              >
+                <ExternalLink className="h-3 w-3" />
+                TradingView
+              </a>
               <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
                 {data.onDemand ? (
                   <>On-demand analysis · swing_trading</>
