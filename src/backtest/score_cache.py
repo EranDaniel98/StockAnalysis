@@ -99,6 +99,7 @@ def recompose_composite(
         active_subs = dict(cached.sub_scores)
         active_bull_by_src = cached.bullish_by_source
         active_bear_by_src = cached.bearish_by_source
+        pead_enabled = True
     else:
         active_subs = {
             k: v for k, v in cached.sub_scores.items() if k in enabled_sources
@@ -109,6 +110,16 @@ def recompose_composite(
         active_bear_by_src = {
             k: v for k, v in cached.bearish_by_source.items() if k in enabled_sources
         }
+        # Tier-2 #22: pead_bonus must also honor enabled_sources. Pre-fix
+        # the cache replay added the cached PEAD bonus UNCONDITIONALLY,
+        # so a sweep mode that excluded "pead" still got the lift.
+        # Symptom: A/B comparisons of insider-flow modes showed byte-
+        # identical results across configs because the dominant PEAD
+        # bonus was leaking through unfiltered (memory:
+        # project_insider_r1000_finding from 2026-05-14 is the suspect
+        # failure surface). Now PEAD is gated symmetrically with
+        # everything else.
+        pead_enabled = "pead" in enabled_sources
 
     # Tier-2 #21: count one bullish/bearish vote per ANALYZER source for
     # the ±5 consensus nudge, not one per indicator. Pre-fix the technical
@@ -127,7 +138,8 @@ def recompose_composite(
     else:
         composite = 50.0
 
-    composite += cached.pead_bonus
+    if pead_enabled:
+        composite += cached.pead_bonus
 
     consensus_diag: dict = {}
     if use_consensus_scaling:
