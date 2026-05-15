@@ -189,7 +189,14 @@ def _calculate_time_stop(strategy: dict | None, as_of: date | None = None) -> di
 
 
 def _calculate_stop_loss(price_data, current_price, sl_config):
-    """Calculate stop-loss price using configured method."""
+    """Calculate stop-loss price using configured method.
+
+    Tier-1 audit X#7: every fallback path must rewrite `method` and
+    `detail` to reflect what was actually computed. The previous code
+    left `method="support"` even when it fell back to a flat percentage,
+    so the UI showed "below support $X.XX" when the stop was actually
+    at a flat -5%. Mirror the take_profit fallback convention here.
+    """
     method = sl_config.get("method", "atr")
     result = {"method": method}
 
@@ -202,10 +209,16 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
             result["pct_from_current"] = round((sl_price / current_price - 1) * 100, 2)
             result["detail"] = f"ATR({multiplier}x): ${sl_price:.2f}"
         else:
-            # Fallback to percentage
+            # Fallback to percentage — record the override, otherwise the
+            # UI claims an ATR-based level when ATR was actually 0.
             pct = sl_config.get("percentage", 5.0) / 100
-            result["price"] = round(current_price * (1 - pct), 2)
+            sl_price = current_price * (1 - pct)
+            result["method"] = "percentage"
+            result["price"] = round(sl_price, 2)
             result["pct_from_current"] = round(-pct * 100, 2)
+            result["detail"] = (
+                f"Fallback flat {pct*100:.1f}% (ATR was 0): ${sl_price:.2f}"
+            )
 
     elif method == "percentage":
         pct = sl_config.get("percentage", 5.0) / 100
@@ -228,9 +241,16 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
             result["pct_from_current"] = round((sl_price / current_price - 1) * 100, 2)
             result["detail"] = f"Below support ${supports[0]:.2f}: ${sl_price:.2f}"
         else:
+            # Fallback to percentage — same override pattern as the ATR
+            # branch above (audit X#7).
             pct = sl_config.get("percentage", 5.0) / 100
-            result["price"] = round(current_price * (1 - pct), 2)
+            sl_price = current_price * (1 - pct)
+            result["method"] = "percentage"
+            result["price"] = round(sl_price, 2)
             result["pct_from_current"] = round(-pct * 100, 2)
+            result["detail"] = (
+                f"Fallback flat {pct*100:.1f}% (no support found): ${sl_price:.2f}"
+            )
 
     return result
 

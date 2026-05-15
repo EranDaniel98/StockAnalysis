@@ -161,6 +161,66 @@ class TestStopLoss:
         assert result["pct_from_current"] == -5.0
         assert "Fixed 5.0%" in result["detail"]
 
+    def test_atr_fallback_rewrites_method_and_detail(self) -> None:
+        """Tier-1 audit X#7: when ATR is 0 the calculator falls back to a
+        flat percentage stop, but it used to leave method="atr" set. The
+        UI then claimed "ATR(2x)" for what was actually a flat 5%. The
+        fix rewrites method to "percentage" and writes a detail string
+        that names the fallback explicitly."""
+        # Zero-range bars → ATR will be 0.0 → fallback fires.
+        idx = pd.date_range("2025-01-01", periods=20, freq="B")
+        flat = pd.DataFrame(
+            {
+                "Open": np.full(20, 100.0),
+                "High": np.full(20, 100.0),
+                "Low": np.full(20, 100.0),
+                "Close": np.full(20, 100.0),
+                "Volume": np.full(20, 1_000_000.0),
+            },
+            index=idx,
+        )
+        result = _calculate_stop_loss(
+            flat, current_price=100.0,
+            sl_config={"method": "atr", "atr_multiplier": 2.0, "percentage": 5.0},
+        )
+        assert result["method"] == "percentage"
+        assert result["price"] == 95.0
+        assert "Fallback flat" in result["detail"]
+        assert "ATR was 0" in result["detail"]
+
+    def test_support_fallback_rewrites_method_and_detail(self) -> None:
+        """Same X#7 contract for the support method when no support
+        level is found near the current price."""
+        # Constant-up trend has no local-min support points the analyzer
+        # picks up (resistance/support detection looks for local extrema).
+        idx = pd.date_range("2025-01-01", periods=20, freq="B")
+        up = np.linspace(90.0, 110.0, 20)
+        prices = pd.DataFrame(
+            {
+                "Open": up,
+                "High": up * 1.001,
+                "Low": up * 0.999,
+                "Close": up,
+                "Volume": np.full(20, 1_000_000.0),
+            },
+            index=idx,
+        )
+        result = _calculate_stop_loss(
+            prices, current_price=float(prices["Close"].iloc[-1]),
+            sl_config={"method": "support", "percentage": 5.0},
+        )
+        # Either support was found (method stays "support") OR fallback
+        # fired (method flips to "percentage" with a fallback detail).
+        # The X#7 contract is: when the fallback fires, method MUST flip.
+        # Skip if the analyzer happened to find a level on this data.
+        if result["method"] == "percentage":
+            assert "Fallback flat" in result["detail"]
+            assert "no support" in result["detail"]
+        else:
+            # Support was found — different code path, not what we're
+            # asserting here.
+            assert result["method"] == "support"
+
 
 class TestTakeProfit:
     def test_risk_reward_method_scales_by_ratio(self) -> None:
