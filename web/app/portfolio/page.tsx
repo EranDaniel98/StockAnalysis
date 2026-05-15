@@ -149,7 +149,28 @@ export default function PortfolioPage() {
     (sum, p) => sum + p.avg_price * p.shares,
     0,
   );
-  const liveUnrealizedPnl = liveLongMarketValue - liveCostBasis;
+
+  // Tier-2 #23: the Unrealized P&L TILE must show Alpaca's authoritative
+  // number, not a client-side recompute. Per-position ``unrealized_pnl``
+  // in ``data.positions`` is sourced from Alpaca's ``Position.unrealized_pl``
+  // — that's what the broker reports. Recomputing as
+  // ``tick.price * shares - cost_basis`` drops fees / accruals / dividend
+  // receivables and drifts visibly from the Alpaca dashboard.
+  //
+  // Live ticks modulate the tile via a per-position price-delta sum,
+  // marked as an estimate. When the next 60s snapshot arrives the delta
+  // resets to zero and the tile re-anchors to Alpaca's truth.
+  const snapshotUnrealizedPnl = (data?.positions ?? []).reduce(
+    (sum, p) => sum + p.unrealized_pnl,
+    0,
+  );
+  const liveTickDelta = (data?.positions ?? []).reduce((sum, p) => {
+    const tick = prices[p.ticker];
+    if (!tick || !p.shares || p.current_price == null) return sum;
+    return sum + (tick.price - p.current_price) * p.shares;
+  }, 0);
+  const liveUnrealizedPnl = snapshotUnrealizedPnl + liveTickDelta;
+  // Cost basis is the same in both views — use it for the % denominator.
   const liveUnrealizedPnlPct =
     liveCostBasis > 0 ? (liveUnrealizedPnl / liveCostBasis) * 100 : 0;
   // Total Equity must mirror Alpaca's dashboard exactly — `equity` is the
@@ -211,6 +232,10 @@ export default function PortfolioPage() {
         />
         <ScoreboardTile
           label="Unrealized P&L"
+          tooltip={
+            "Sum of Alpaca's authoritative per-position unrealized P&L from the last snapshot. " +
+            "Live ticks modulate the displayed number as an estimate; re-anchors to Alpaca's number on the next 60s snapshot."
+          }
           value={
             <span className={cn(toneClass(liveUnrealizedPnl))}>
               {fmtUSD(liveUnrealizedPnl)}
@@ -218,7 +243,7 @@ export default function PortfolioPage() {
           }
           sub={
             data
-              ? `${liveUnrealizedPnlPct >= 0 ? "+" : ""}${liveUnrealizedPnlPct.toFixed(2)}% on ${fmtUSD(liveCostBasis)} cost`
+              ? `${liveUnrealizedPnlPct >= 0 ? "+" : ""}${liveUnrealizedPnlPct.toFixed(2)}% on ${fmtUSD(liveCostBasis)} cost${liveTickDelta !== 0 ? " · live tick est." : ""}`
               : undefined
           }
           subTone={toneFor(liveUnrealizedPnl)}
