@@ -144,10 +144,31 @@ class BacktestConfig:
     # adjusted block still ships, using a conservative fallback haircut.
     universe_label: str | None = None
     apply_survivorship_haircut: bool = True
+    # Review item #4: refuse a backtest whose end_date is AFTER the
+    # universe-capture date when this is True (default). The universe
+    # file only contains names that survived to the capture date, so
+    # backtests beyond that point are structurally survivor-biased on a
+    # tighter cohort than even the headline survivorship-haircut model
+    # accounts for. Override per-run with --accept-survivorship if you
+    # explicitly want to look at survivor-only post-capture performance.
+    refuse_survivor_only_window: bool = True
 
 
 class LookaheadGuardError(RuntimeError):
     """Raised when a strategy's fundamental weight would silently leak future knowledge."""
+
+
+class SurvivorshipGuardError(RuntimeError):
+    """Raised when the backtest window extends past the universe-capture
+    date and the operator hasn't passed an explicit override.
+
+    Review item #4. A universe captured on 2026-05-13 used for a window
+    ending 2026-05-15 contains ONLY names that survived from then to now;
+    every delisted/acquired name from 2024-2026 is silently absent. The
+    flat survivorship haircut model can't fully correct this — it
+    estimates index-level bias, not the additional bias of a 'survivor-
+    only' window. Caller must opt in.
+    """
 
 
 def fetch_earnings_dates(tickers: list[str], workers: int = 8) -> dict[str, list[pd.Timestamp]]:
@@ -569,6 +590,41 @@ def run_backtest(
     Walk-forward backtest. Returns dict with:
       summary, calibration, trades, exit_reasons, equity_curve, warnings
     """
+    # Review item #4: refuse a window that extends past the universe's
+    # capture date. The ticker list is a survivor-only snapshot — windows
+    # beyond that point are biased on a *tighter* cohort than even the
+    # haircut model accounts for. Run this FIRST so we fail before any
+    # expensive setup (sector stats, regime classification, schedule build)
+    # and before reading any other config field. Operator opts out by
+    # setting refuse_survivor_only_window=False explicitly.
+    if bt_cfg.refuse_survivor_only_window and bt_cfg.universe_label:
+        end_for_guard = pd.Timestamp(bt_cfg.end_date)
+        if end_for_guard.tz is not None:
+            end_for_guard = end_for_guard.tz_localize(None)
+        try:
+            captured = (
+                config.get_universe_captured_date(bt_cfg.universe_label)
+                if hasattr(config, "get_universe_captured_date") else None
+            )
+        except ValueError as exc:
+            raise SurvivorshipGuardError(
+                f"Universe {bt_cfg.universe_label!r} has no captured-date "
+                f"header. {exc} Set refuse_survivor_only_window=False to "
+                f"override, but understand that you are then trading on "
+                f"unbounded survivorship bias."
+            ) from exc
+        if captured is not None and end_for_guard.date() > captured:
+            raise SurvivorshipGuardError(
+                f"Backtest end_date {end_for_guard.date().isoformat()} is "
+                f"AFTER universe {bt_cfg.universe_label!r} capture date "
+                f"{captured.isoformat()}. Every name in the universe "
+                f"survived from then to now — the window is structurally "
+                f"survivor-biased on a tighter cohort than the haircut "
+                f"model corrects for. Either trim end_date to "
+                f"{captured.isoformat()}, refresh the universe file, or "
+                f"set refuse_survivor_only_window=False to override."
+            )
+
     warnings: list[str] = []
     earnings_dates = earnings_dates or {}
     earnings_history = earnings_history or {}

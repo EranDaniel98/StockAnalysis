@@ -23,6 +23,7 @@ from src.execution.alpaca import (
     AlpacaDuplicateOrderError,
     make_client_order_id,
 )
+from src.execution.safety_gates import TradingHaltedError, TradingSafetyGate
 from src.portfolio import Portfolio
 from src.data.fetcher import DataFetcher
 from src.data.cache import DataCache
@@ -41,8 +42,15 @@ def run_paper_bootstrap(config, args):
         console.print("[red]No holdings in config/portfolio.yaml — nothing to bootstrap.[/red]")
         return
 
+    safety_gate = TradingSafetyGate.from_config(config)
+    if not safety_gate.trading_enabled:
+        console.print(
+            "[yellow]trading_enabled is False — bootstrap orders will be "
+            "refused at the broker boundary. Set STOCKNEW_TRADING_ENABLED=1 "
+            "or trading.trading_enabled: true in settings.yaml.[/yellow]"
+        )
     try:
-        client = AlpacaClient()
+        client = AlpacaClient(safety_gate=safety_gate)
     except AlpacaClientError as e:
         console.print(f"[red]Alpaca: {e}[/red]")
         return
@@ -169,7 +177,9 @@ def _submit_orders(client, plan):
         client_order_id = make_client_order_id("bootstrap", ticker)
         try:
             order = client.submit_market_order(
-                ticker, p["shares"], side="buy", client_order_id=client_order_id,
+                ticker, p["shares"], side="buy",
+                client_order_id=client_order_id,
+                reference_price=p.get("current_price"),
             )
             table.add_row(
                 ticker,
@@ -182,6 +192,13 @@ def _submit_orders(client, plan):
                 ticker,
                 f"{p['shares']:.4g}",
                 "[yellow]skipped (already bootstrapped today)[/yellow]",
+            )
+            skipped += 1
+        except TradingHaltedError as e:
+            table.add_row(
+                ticker,
+                f"{p['shares']:.4g}",
+                f"[red]safety gate refused: {e}[/red]",
             )
             skipped += 1
         except Exception as e:

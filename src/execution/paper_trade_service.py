@@ -29,6 +29,7 @@ from src.execution.alpaca import (
     AlpacaDuplicateOrderError,
     make_client_order_id,
 )
+from src.execution.safety_gates import TradingHaltedError, TradingSafetyGate
 from src.execution.paper_db import PaperDB
 from src.presentation.cli.cli_output import console
 from src.data.cache import DataCache
@@ -86,8 +87,19 @@ def run_paper_trade(config, args):
     console.print()
 
     # --- Connect Alpaca first so we fail fast on bad keys ---
+    # Build the safety gate from config + env override. trading_enabled
+    # defaults to False; an operator must opt in (env var STOCKNEW_TRADING_ENABLED=1
+    # or settings.yaml trading.trading_enabled: true) for any order to go
+    # through (review items #1-#3).
+    safety_gate = TradingSafetyGate.from_config(config)
+    if not safety_gate.trading_enabled:
+        console.print(
+            "[yellow]trading_enabled is False — orders will be refused at the "
+            "broker boundary. Set STOCKNEW_TRADING_ENABLED=1 or "
+            "trading.trading_enabled: true in settings.yaml to enable.[/yellow]"
+        )
     try:
-        client = AlpacaClient()
+        client = AlpacaClient(safety_gate=safety_gate)
     except AlpacaClientError as e:
         console.print(f"[red]Alpaca: {e}[/red]")
         return
@@ -268,6 +280,7 @@ def _process_recommendation(rec, strategy_name, client, db,
             stop_loss_price=stop_loss,
             side="buy",
             client_order_id=client_order_id,
+            score_valid=rec.get("score_valid", True),
         )
         db.insert_order(rec_id, order, take_profit, stop_loss)
         db.mark_recommendation_submitted(rec_id)
@@ -281,6 +294,11 @@ def _process_recommendation(rec, strategy_name, client, db,
             client_order_id,
         )
         outcome["skip_reason"] = "already_submitted_today"
+    except TradingHaltedError as e:
+        # Safety gate refused — log at WARNING with the full reason so
+        # an operator sees exactly which breaker tripped. Do NOT retry.
+        logger.warning("Safety gate refused %s: %s", ticker, e)
+        outcome["skip_reason"] = f"safety_gate: {e}"
     except Exception as e:
         logger.error(f"Failed to submit {ticker}: {e}")
         outcome["skip_reason"] = f"submit_failed: {e}"

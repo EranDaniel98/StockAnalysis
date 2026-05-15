@@ -21,6 +21,12 @@ from alpaca.trading.requests import (
 )
 from alpaca.trading.enums import OrderSide, OrderClass, TimeInForce, QueryOrderStatus
 
+from src.execution.safety_gates import (
+    SessionState,
+    TradingHaltedError,
+    TradingSafetyGate,
+)
+
 logger = logging.getLogger(__name__)
 
 # Alpaca client_order_id constraints:
@@ -85,9 +91,22 @@ def _is_duplicate_coid_error(err: APIError) -> bool:
 
 
 class AlpacaClient:
-    """Paper-only Alpaca trading client."""
+    """Paper-only Alpaca trading client.
 
-    def __init__(self, api_key=None, api_secret=None):
+    Holds a ``TradingSafetyGate`` instance that every order submission
+    consults before the broker call (review items #1, #2, #3). Build the
+    client with ``safety_gate=TradingSafetyGate.from_config(config)`` to
+    enforce the kill switch + circuit breakers; the default gate refuses
+    every submission (fail-closed).
+    """
+
+    def __init__(
+        self,
+        api_key=None,
+        api_secret=None,
+        *,
+        safety_gate: TradingSafetyGate | None = None,
+    ):
         api_key = api_key or os.getenv("ALPACA_API_KEY")
         api_secret = api_secret or os.getenv("ALPACA_API_SECRET")
         if not api_key or not api_secret:
@@ -96,6 +115,48 @@ class AlpacaClient:
                 "(get them from https://app.alpaca.markets/paper/dashboard/overview)"
             )
         self._client = TradingClient(api_key, api_secret, paper=True)
+        # Fail-closed default: a client built without an explicit gate
+        # refuses every submission. The caller MUST build a gate from the
+        # project config (or pass an explicit `trading_enabled=True` one
+        # for tests) for any order to go through. This keeps a script
+        # that forgot to wire the gate from accidentally trading.
+        if safety_gate is None:
+            from src.execution.safety_gates import CircuitBreakerThresholds
+
+            safety_gate = TradingSafetyGate(
+                trading_enabled=False,
+                thresholds=CircuitBreakerThresholds(),
+            )
+            logger.warning(
+                "AlpacaClient built without a safety gate — defaulting to "
+                "fail-closed (trading_enabled=False). Pass safety_gate="
+                "TradingSafetyGate.from_config(config) to enable trading."
+            )
+        self._safety_gate = safety_gate
+
+    @property
+    def safety_gate(self) -> TradingSafetyGate:
+        return self._safety_gate
+
+    def _build_session_state(self) -> SessionState:
+        """Snapshot the live account for the safety gate.
+
+        Called on every submission so the circuit breakers always see
+        fresh equity + position-count numbers from Alpaca, not a stale
+        cache. Kept private — callers go through ``submit_*``.
+        """
+        acct = self.get_account()
+        equity = float(acct.get("equity") or 0.0)
+        positions = self.get_positions()
+        # Starting / peak default to current on a fresh session; an
+        # operator wrapper (paper_trade_service) can refine peak across
+        # a multi-submission batch by passing its own SessionState.
+        return SessionState(
+            starting_equity=equity,
+            current_equity=equity,
+            peak_equity=equity,
+            open_position_count=len(positions),
+        )
 
     # -- Account ---------------------------------------------------------
 
@@ -178,6 +239,9 @@ class AlpacaClient:
         stop_loss_price,
         side="buy",
         client_order_id: str | None = None,
+        *,
+        score_valid: bool = True,
+        session_state: SessionState | None = None,
     ):
         """
         Submit a bracket market order. Returns the parent order ID.
@@ -189,11 +253,32 @@ class AlpacaClient:
         deterministic id (see `make_client_order_id`) so retries collide
         on Alpaca's duplicate check instead of double-filling. Duplicates
         raise `AlpacaDuplicateOrderError`.
+
+        Safety gates run BEFORE the broker call:
+          * ``score_valid=False`` refuses outright (review item #3).
+          * ``session_state`` (or a fresh broker snapshot if omitted) is
+            checked against the configured circuit breakers (review #2).
+          * The trading_enabled kill switch is consulted (review #1).
+        Any failure raises ``TradingHaltedError``.
         """
         if qty < 1:
             raise AlpacaClientError(
                 f"Bracket orders require qty >= 1 whole share (got {qty} for {ticker})"
             )
+
+        # Estimate notional for the order-value gate. Bracket entries
+        # are market orders so we don't have a limit price; use the TP
+        # leg as a *minimum* notional estimate. Real fill notional may
+        # be a few percent off but max_order_value_usd is a coarse cap.
+        notional = float(qty) * float(take_profit_price)
+        session = session_state or self._build_session_state()
+        self._safety_gate.check_pre_submit(
+            ticker=ticker,
+            notional_usd=notional,
+            session=session,
+            score_valid=score_valid,
+        )
+
         req = MarketOrderRequest(
             symbol=ticker,
             qty=int(qty),
@@ -229,11 +314,31 @@ class AlpacaClient:
         qty,
         side="buy",
         client_order_id: str | None = None,
+        *,
+        score_valid: bool = True,
+        session_state: SessionState | None = None,
+        reference_price: float | None = None,
     ):
         """Plain market order — used for fractional close-outs and SELL recommendations.
 
         See `submit_bracket_order` for idempotency semantics; same rules apply.
+
+        Safety gates apply equally to BUY and SELL (review item #3): a
+        broken-analyzer SELL must not close a real position any more than
+        a broken-analyzer BUY should open one. ``reference_price`` lets
+        the order-value gate compute notional for a market order (which
+        has no limit price); pass last known close. If omitted, the
+        order-value gate is skipped for this submission.
         """
+        notional = float(qty) * float(reference_price) if reference_price else 0.0
+        session = session_state or self._build_session_state()
+        self._safety_gate.check_pre_submit(
+            ticker=ticker,
+            notional_usd=notional,
+            session=session,
+            score_valid=score_valid,
+        )
+
         req = MarketOrderRequest(
             symbol=ticker,
             qty=qty,
