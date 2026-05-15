@@ -52,6 +52,9 @@ def _parse_args() -> argparse.Namespace:
                    help="N-fold walk-forward CV (review #5)")
     p.add_argument("--min-mean-sharpe", type=float, default=0.5,
                    help="Walk-forward gate threshold")
+    p.add_argument("--end-date",
+                   help="ISO date; defaults to min(today, universe-captured). "
+                        "Pass explicitly to test a custom window.")
     return p.parse_args()
 
 
@@ -109,7 +112,27 @@ def main() -> int:
     fetcher = DataFetcher(config, cache)
     fund_fetcher = FundamentalsFetcher(config, cache)
 
-    end = pd.Timestamp.utcnow().normalize().tz_localize(None)
+    # Default end_date: min(today, universe-captured). The survivorship
+    # guard refuses end > captured, so picking the smaller automatically
+    # keeps the run within the safe window. Explicit --end-date wins.
+    today = pd.Timestamp.utcnow().normalize().tz_localize(None)
+    try:
+        captured = config.get_universe_captured_date(args.universe)
+    except ValueError as exc:
+        logger.error("Universe captured-date header malformed: %s", exc)
+        return 2
+    if args.end_date:
+        end = pd.Timestamp(args.end_date)
+    elif captured is not None:
+        end = min(today, pd.Timestamp(captured))
+        if end < today:
+            logger.info(
+                "End_date trimmed to universe-capture date %s (today=%s) "
+                "to satisfy the survivorship guard.",
+                end.date(), today.date(),
+            )
+    else:
+        end = today
     start = end - pd.DateOffset(years=int(args.years))
 
     logger.info("Fetching %d ticker price histories (this can take a while)...",
@@ -125,21 +148,42 @@ def main() -> int:
     logger.info("Fetching SPY benchmark...")
     spy_df = fetcher.fetch_price_data("SPY", period=f"{int(args.years)+1}y")
 
-    # PIT loader (recommended for fundamental-weighted strategies)
+    # PIT loader (recommended for fundamental-weighted strategies).
+    # Async API: pull all EDGAR rows for the universe in one query, then
+    # the engine resolves (ticker, as_of) lookups in-memory. Same shape
+    # as scripts/sweep_insider_flow.py and sweep_pit_fundamentals.py.
     pit_loader = None
     if args.pit_fundamentals:
+        import asyncio
+        from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+        from src.db.repositories import PostgresFundamentalsRepository
+        from src.db.session import get_sessionmaker, dispose_engine
+
+        async def _build_loader() -> FundamentalsPITLoader:
+            SL = get_sessionmaker()
+            async with SL() as session:
+                repo = PostgresFundamentalsRepository(session)
+                loader = await FundamentalsPITLoader.from_repository(
+                    repo, list(price_data.keys()),
+                )
+            # Dispose so subsequent asyncio.run() calls don't inherit a
+            # connection pool bound to this closed loop (Windows asyncpg
+            # proactor crash, audit fix 4199d8a).
+            await dispose_engine()
+            return loader
+
         try:
-            from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
-            pit_loader = FundamentalsPITLoader.from_db()
+            pit_loader = asyncio.run(_build_loader())
             logger.info(
-                "PIT loader active — fundamentals scored against EDGAR rows."
+                "PIT loader active — %d tickers indexed from EDGAR.",
+                len(pit_loader._by_ticker),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "PIT loader unavailable (%s); proceeding without. "
+                "PIT loader build failed (%s); proceeding without. "
                 "Fundamental weight in minimal_baseline is 0.30 so this WILL "
-                "raise LookaheadGuardError unless --pit-fundamentals is "
-                "supplied with a populated EDGAR DB.", exc,
+                "raise LookaheadGuardError unless EDGAR coverage is healthy. "
+                "Re-run with EDGAR DB populated to fix.", exc,
             )
 
     bt_cfg = BacktestConfig(
@@ -204,7 +248,13 @@ def main() -> int:
         "data_quality": result.get("data_quality"),
         "n_trades": len(result.get("trades") or []),
         "warnings": result.get("warnings") or [],
-        "pipeline_version": result.get("pipeline_version"),
+        # PIPELINE_VERSION lives under data_quality.pipeline_version in the
+        # engine result (see engine.py:106). Earlier slim build pulled it
+        # from top-level and got None; the MVTP report's freshness gate then
+        # failed against an unknown pipeline.
+        "pipeline_version": (
+            (result.get("data_quality") or {}).get("pipeline_version")
+        ),
     }
     out.write_text(json.dumps(slim, indent=2, default=str), encoding="utf-8")
     logger.info("Wrote %s", out)
