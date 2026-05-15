@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Radio, RefreshCw } from "lucide-react";
+import { ExternalLink, Radio, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import {
   Area,
@@ -288,9 +288,21 @@ export default function PortfolioPage() {
                   return (
                     <TableRow key={p.ticker} mono>
                       <TableCell>
-                        <span className="font-mono text-foreground">
-                          {p.ticker}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-foreground">
+                            {p.ticker}
+                          </span>
+                          <a
+                            href={`https://www.tradingview.com/symbols/${encodeURIComponent(p.ticker)}/`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground/60 hover:text-primary transition-colors"
+                            title={`Open ${p.ticker} chart on TradingView`}
+                            aria-label={`Open ${p.ticker} chart on TradingView (new tab)`}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         {fmtNumber(p.shares, 0)}

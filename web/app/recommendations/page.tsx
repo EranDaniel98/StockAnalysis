@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -534,13 +535,25 @@ export default function RecommendationsPage() {
                       {fmtDate(r.scan_timestamp)}
                     </TableCell>
                     <TableCell className="py-2 px-3">
-                      <Link
-                        href={`/stocks/${r.ticker}`}
-                        className="font-mono text-sm font-semibold text-primary hover:underline underline-offset-2"
-                        title="View trade plan"
-                      >
-                        {r.ticker}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          href={`/stocks/${r.ticker}`}
+                          className="font-mono text-sm font-semibold text-primary hover:underline underline-offset-2"
+                          title="View trade plan"
+                        >
+                          {r.ticker}
+                        </Link>
+                        <a
+                          href={`https://www.tradingview.com/symbols/${encodeURIComponent(r.ticker)}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground/60 hover:text-primary transition-colors"
+                          title={`Open ${r.ticker} chart on TradingView`}
+                          aria-label={`Open ${r.ticker} chart on TradingView (new tab)`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs py-2 px-3">
                       {r.strategy}
