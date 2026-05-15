@@ -172,13 +172,27 @@ def parse_company_facts(
         net_income = fields.get("net_income", (None, ""))[0]
         equity = fields.get("stockholders_equity", (None, ""))[0]
         assets = fields.get("total_assets", (None, ""))[0]
-        long_term_debt = fields.get("total_debt", (None, ""))[0]
+        long_term_debt = fields.get("long_term_debt", (None, ""))[0]
+        current_debt = fields.get("current_debt", (None, ""))[0]
         cash = fields.get("total_cash", (None, ""))[0]
-        ocf = fields.get("free_cash_flow", (None, ""))[0]
+        ocf = fields.get("operating_cash_flow", (None, ""))[0]
+        capex = fields.get("capex", (None, ""))[0]
         eps_diluted = fields.get("eps_diluted", (None, ""))[0]
         operating_income = fields.get("operating_income", (None, ""))[0]
         current_assets = fields.get("current_assets", (None, ""))[0]
         current_liabilities = fields.get("current_liabilities", (None, ""))[0]
+
+        # Tier-1 audit #9: total_debt sums LT + current when at least one is
+        # present. None means "we genuinely don't know"; previously a filer
+        # who only reported DebtCurrent had that under-reported value
+        # emitted as total_debt.
+        total_debt = _sum_optional_components(long_term_debt, current_debt)
+
+        # Tier-1 audit #9: free_cash_flow = OCF - CapEx when capex is known.
+        # When capex is missing we fall back to OCF as a proxy but log a
+        # warning so the downstream analyzer's "FCF > 0" branch doesn't
+        # silently include CapEx-heavy filers as cash-generative.
+        free_cash_flow = _compute_fcf(ocf, capex, ticker=ticker, filed=filed_str)
 
         # Derived ratios — each guards on a non-zero divisor to avoid blowing up on
         # filings where the numerator is reported but the divisor is missing/zero.
@@ -187,7 +201,7 @@ def parse_company_facts(
         operating_margin_pct = _safe_ratio(operating_income, revenue)
         roe = _safe_ratio(net_income, equity)
         roa = _safe_ratio(net_income, assets)
-        debt_to_equity = _safe_ratio(long_term_debt, equity)
+        debt_to_equity = _safe_ratio(total_debt, equity)
         current_ratio = _safe_ratio(current_assets, current_liabilities)
 
         snapshots.append(
@@ -205,9 +219,9 @@ def parse_company_facts(
                 roa=roa,
                 debt_to_equity=debt_to_equity,
                 current_ratio=current_ratio,
-                free_cash_flow=float(ocf) if ocf is not None else None,
+                free_cash_flow=free_cash_flow,
                 total_cash=float(cash) if cash is not None else None,
-                total_debt=float(long_term_debt) if long_term_debt is not None else None,
+                total_debt=total_debt,
             )
         )
 
@@ -243,6 +257,66 @@ def _safe_ratio(num: object, denom: object) -> float | None:
         return float(num) / float(denom)
     except (TypeError, ZeroDivisionError):
         return None
+
+
+def _sum_optional_components(*values: object) -> float | None:
+    """Sum components that may be None. Returns None only when EVERY
+    component is None (i.e. nothing was reported); a single non-None
+    value yields itself. Used by total_debt = LT + current_debt where a
+    bank/REIT may report only one side (Tier-1 audit #9 / D#5)."""
+    floats: list[float] = []
+    for v in values:
+        if v is None:
+            continue
+        try:
+            floats.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if not floats:
+        return None
+    return sum(floats)
+
+
+def _compute_fcf(
+    ocf: object, capex: object, *, ticker: str = "", filed: str = ""
+) -> float | None:
+    """True free cash flow = OCF - CapEx.
+
+    CapEx is reported as a positive cash outflow on the EDGAR statement
+    of cash flows (the negative sign is implicit — paying for assets is
+    a cash outflow). We subtract it from OCF to yield FCF: positive
+    means cash generated after reinvestment.
+
+    Falls back to OCF as a proxy when capex is missing, with a logged
+    warning so the downstream analyzer's "FCF > 0" path doesn't silently
+    misclassify CapEx-heavy filers. Tier-1 audit #9 / D#6.
+    """
+    if ocf is None:
+        return None
+    try:
+        ocf_f = float(ocf)
+    except (TypeError, ValueError):
+        return None
+    if capex is None:
+        logger.warning(
+            "CapEx missing for %s (filed %s); falling back to OCF as FCF proxy",
+            ticker, filed,
+        )
+        return ocf_f
+    try:
+        capex_f = float(capex)
+    except (TypeError, ValueError):
+        logger.warning(
+            "CapEx unparseable for %s (filed %s): %r; falling back to OCF",
+            ticker, filed, capex,
+        )
+        return ocf_f
+    # CapEx on the cash-flow statement: EDGAR conventionally reports the
+    # outflow as a POSITIVE number (the negative sign is implicit in the
+    # statement section). Subtract to get FCF. Some filers report capex
+    # as negative — accept both signs by taking the absolute value, since
+    # FCF should never count capex as a cash inflow.
+    return ocf_f - abs(capex_f)
 
 
 def _compute_yoy(

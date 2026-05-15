@@ -209,20 +209,32 @@ def _build_snapshot(
     net_income = fields.get("net_income")
     equity = fields.get("stockholders_equity")
     assets = fields.get("total_assets")
-    long_term_debt = fields.get("total_debt")
+    long_term_debt = fields.get("long_term_debt")
+    current_debt = fields.get("current_debt")
     cash = fields.get("total_cash")
-    ocf = fields.get("free_cash_flow")
+    ocf = fields.get("operating_cash_flow")
+    capex = fields.get("capex")
     eps_diluted = fields.get("eps_diluted")
     operating_income = fields.get("operating_income")
     current_assets = fields.get("current_assets")
     current_liabilities = fields.get("current_liabilities")
+
+    # Tier-1 audit #9 (D#5 + D#6): mirrors the companyfacts parser so the
+    # two ingest paths produce identical FundamentalSnapshot rows. See
+    # src/market_data/edgar/parser.py for the why.
+    from src.market_data.edgar.parser import _compute_fcf, _sum_optional_components
+
+    total_debt = _sum_optional_components(long_term_debt, current_debt)
+    free_cash_flow = _compute_fcf(
+        ocf, capex, ticker=ticker, filed=str(filed_int),
+    )
 
     gross_margin_pct = _safe_ratio(gross, revenue)
     profit_margin_pct = _safe_ratio(net_income, revenue)
     operating_margin_pct = _safe_ratio(operating_income, revenue)
     roe = _safe_ratio(net_income, equity)
     roa = _safe_ratio(net_income, assets)
-    debt_to_equity = _safe_ratio(long_term_debt, equity)
+    debt_to_equity = _safe_ratio(total_debt, equity)
     current_ratio = _safe_ratio(current_assets, current_liabilities)
 
     return FundamentalSnapshot(
@@ -239,9 +251,9 @@ def _build_snapshot(
         roa=roa,
         debt_to_equity=debt_to_equity,
         current_ratio=current_ratio,
-        free_cash_flow=float(ocf) if ocf is not None else None,
+        free_cash_flow=free_cash_flow,
         total_cash=float(cash) if cash is not None else None,
-        total_debt=float(long_term_debt) if long_term_debt is not None else None,
+        total_debt=total_debt,
     )
 
 
