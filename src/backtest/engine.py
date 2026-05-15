@@ -1031,10 +1031,16 @@ def _finalize_result(
 
     boot_target = oos_trades if len(oos_trades) >= 20 else portfolio.closed_trades
     boot_label = "OOS" if len(oos_trades) >= 20 else "full window"
+    # Pair the trade-target with its matching equity slice so the Sharpe CI
+    # the bootstrap computes is on the same window as the trades that
+    # populated it. Without this the headline Sharpe and the CI sit on
+    # different denominators.
+    boot_equity = oos_equity if len(oos_trades) >= 20 else equity_curve
     bootstrap = bootstrap_cis(
         boot_target,
         starting_cash=bt_cfg.starting_cash,
         n_resamples=bt_cfg.bootstrap_resamples,
+        equity_curve=boot_equity,
     ) if bt_cfg.bootstrap_resamples > 0 else None
 
     excursion = excursion_stats(portfolio.closed_trades)

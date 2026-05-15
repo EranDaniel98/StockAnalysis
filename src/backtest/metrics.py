@@ -380,11 +380,19 @@ def bootstrap_cis(
     n_resamples: int = 2000,
     block_size: int = 5,
     seed: int = 42,
+    equity_curve: list[dict] | None = None,
 ) -> dict:
     """
     Stationary block bootstrap on trade returns. Returns 95% CIs for total
     return, win rate, and per-trade expectancy. Uses block resampling to
     preserve mild serial dependence between consecutive trades.
+
+    When ``equity_curve`` is supplied, also bootstraps the weekly-return
+    series to produce a Sharpe CI. Sharpe is path-dependent so we resample
+    weekly returns directly (block bootstrap with the same block_size) and
+    annualize with the empirical periods/year derived from the equity-curve
+    dates — matches ``equity_curve_stats`` semantics, so the headline
+    Sharpe sits inside its own CI.
     """
     if len(closed_trades) < 5:
         return {
@@ -392,6 +400,7 @@ def bootstrap_cis(
             "total_return_ci_pct": None,
             "win_rate_ci_pct": None,
             "expectancy_ci_pct": None,
+            "ann_sharpe_ci": None,
             "note": "Too few trades for bootstrap (need >=5).",
         }
     rng = np.random.default_rng(seed)
@@ -422,12 +431,45 @@ def bootstrap_cis(
         return [round(float(np.percentile(arr, 2.5)), 2),
                 round(float(np.percentile(arr, 97.5)), 2)]
 
+    sharpe_ci = None
+    if equity_curve and len(equity_curve) >= 3:
+        equities = np.array([e["equity"] for e in equity_curve], dtype=float)
+        weekly = equities[1:] / equities[:-1] - 1
+        weekly = weekly[np.isfinite(weekly)]
+        if len(weekly) >= 3:
+            # Empirical periods/year from elapsed days — matches
+            # equity_curve_stats annualizer, so the bootstrap Sharpe is in
+            # the same units as the headline number.
+            first_date = pd.Timestamp(equity_curve[0]["date"])
+            last_date = pd.Timestamp(equity_curve[-1]["date"])
+            elapsed_days = max(1, (last_date - first_date).days)
+            years_elapsed = elapsed_days / 365.25
+            periods_per_year = (
+                len(weekly) / years_elapsed if years_elapsed > 0 else 52.0
+            )
+            ann_factor = math.sqrt(periods_per_year)
+            w_n = len(weekly)
+            w_block = max(1, min(block_size, w_n))
+            sharpe_samples = np.empty(n_resamples)
+            for i in range(n_resamples):
+                idx = []
+                while len(idx) < w_n:
+                    start = rng.integers(0, w_n)
+                    idx.extend(range(start, start + w_block))
+                idx = np.array([j % w_n for j in idx[:w_n]])
+                sample = weekly[idx]
+                mean = float(sample.mean())
+                std = float(sample.std(ddof=1)) if w_n > 1 else 0.0
+                sharpe_samples[i] = (mean / std * ann_factor) if std > 0 else 0.0
+            sharpe_ci = _ci(sharpe_samples)
+
     return {
         "n_resamples": n_resamples,
         "block_size": block,
         "total_return_ci_pct": _ci(total_returns),
         "win_rate_ci_pct": _ci(win_rates),
         "expectancy_ci_pct": _ci(expectancies),
+        "ann_sharpe_ci": sharpe_ci,
     }
 
 

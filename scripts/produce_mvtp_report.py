@@ -84,14 +84,35 @@ def _evaluate(result: dict) -> list[dict]:
     oos_summary = oos.get("summary") or {}
     oos_equity = oos.get("equity_stats") or {}
 
-    # --- Sharpe ---
+    # --- Sharpe + CI ---
     sharpe = _safe_get(oos_equity, "ann_sharpe")
-    checks.append(_check(
-        "OOS Sharpe within [0.7, 1.5]",
-        sharpe is not None and SHARPE_LOWER <= sharpe <= SHARPE_UPPER,
-        f"Sharpe = {sharpe!r}. Below {SHARPE_LOWER} = no edge; above "
-        f"{SHARPE_UPPER} = suspect (likely leakage on retail long-only US).",
-    ))
+    boot = result.get("bootstrap") or {}
+    sharpe_ci = boot.get("ann_sharpe_ci")  # [lo, hi] or None
+    ci_blurb = (
+        f" [95% CI {sharpe_ci[0]:.2f}, {sharpe_ci[1]:.2f}]"
+        if sharpe_ci and len(sharpe_ci) == 2 else " [CI: n/a]"
+    )
+    # When a CI exists, the gate uses the LOWER bound, not the point
+    # estimate — a Sharpe of 1.84 with CI [0.9, 2.8] is genuinely
+    # uncertain. The point estimate would pass-or-fail blindly; the
+    # lower-bound gate is what the operator actually needs to act on.
+    if sharpe_ci and len(sharpe_ci) == 2:
+        passes_sharpe = sharpe_ci[0] >= SHARPE_LOWER and sharpe_ci[1] <= SHARPE_UPPER
+        detail = (
+            f"Sharpe = {sharpe!r}{ci_blurb}. Gate now uses the CI: both "
+            f"bounds must lie in [{SHARPE_LOWER}, {SHARPE_UPPER}]. "
+            f"Lower bound < {SHARPE_LOWER} = no edge; upper bound > "
+            f"{SHARPE_UPPER} = suspect (likely leakage)."
+        )
+    else:
+        passes_sharpe = (
+            sharpe is not None and SHARPE_LOWER <= sharpe <= SHARPE_UPPER
+        )
+        detail = (
+            f"Sharpe = {sharpe!r}{ci_blurb}. Re-run backtest with the "
+            f"bootstrap-CI-emitting engine to get the CI gate."
+        )
+    checks.append(_check("OOS Sharpe within [0.7, 1.5]", passes_sharpe, detail))
 
     # --- Alpha vs SPY (annualized) ---
     alpha_matched = _safe_get(oos_summary, "alpha_vs_spy_matched_pct")
@@ -233,17 +254,33 @@ def _render(result: dict, checks: list[dict]) -> str:
 
     lines.append("## OOS headline numbers")
     lines.append("")
-    lines.append("| Metric | Value |")
-    lines.append("|---|---|")
-    lines.append(f"| OOS Sharpe | {oos_equity.get('ann_sharpe')} |")
-    lines.append(f"| OOS Sortino | {oos_equity.get('ann_sortino')} |")
-    lines.append(f"| OOS total return | {oos_summary.get('total_return_pct')}% |")
-    lines.append(f"| SPY return (matched) | {oos_summary.get('spy_deployment_matched_pct')}% |")
-    lines.append(f"| Alpha vs SPY (matched) | {oos_summary.get('alpha_vs_spy_matched_pct')}% |")
-    lines.append(f"| OOS max drawdown | {oos_equity.get('max_drawdown_pct')}% |")
-    lines.append(f"| OOS Calmar | {oos_equity.get('calmar')} |")
-    lines.append(f"| OOS win rate | {oos_summary.get('win_rate_pct')}% |")
-    lines.append(f"| OOS trades | {oos_summary.get('n_trades')} |")
+    boot = result.get("bootstrap") or {}
+    boot_label = result.get("bootstrap_label") or "OOS"
+    def _ci_str(ci):
+        if not ci or len(ci) != 2:
+            return ""
+        return f" [{ci[0]:.2f}, {ci[1]:.2f}]"
+    sharpe_ci_str = _ci_str(boot.get("ann_sharpe_ci"))
+    ret_ci_str = _ci_str(boot.get("total_return_ci_pct"))
+    wr_ci_str = _ci_str(boot.get("win_rate_ci_pct"))
+    lines.append(f"| Metric | Value (point estimate) | 95% CI |")
+    lines.append("|---|---|---|")
+    lines.append(f"| OOS Sharpe | {oos_equity.get('ann_sharpe')} | {sharpe_ci_str.strip() or '—'} |")
+    lines.append(f"| OOS Sortino | {oos_equity.get('ann_sortino')} | — |")
+    lines.append(f"| OOS total return | {oos_summary.get('total_return_pct')}% | {ret_ci_str.strip() or '—'} |")
+    lines.append(f"| SPY return (matched) | {oos_summary.get('spy_deployment_matched_pct')}% | — |")
+    lines.append(f"| Alpha vs SPY (matched) | {oos_summary.get('alpha_vs_spy_matched_pct')}% | — |")
+    lines.append(f"| OOS max drawdown | {oos_equity.get('max_drawdown_pct')}% | — |")
+    lines.append(f"| OOS Calmar | {oos_equity.get('calmar')} | — |")
+    lines.append(f"| OOS win rate | {oos_summary.get('win_rate_pct')}% | {wr_ci_str.strip() or '—'} |")
+    lines.append(f"| OOS trades | {oos_summary.get('n_trades')} | — |")
+    if boot:
+        lines.append("")
+        lines.append(
+            f"_CIs from {boot.get('n_resamples', '?')} block-bootstrap resamples "
+            f"on the {boot_label} window (block_size={boot.get('block_size', '?')}). "
+            f"The Sharpe gate now uses both CI bounds, not the point estimate._"
+        )
     lines.append("")
 
     lines.append("## Walk-forward CV (review #5)")
