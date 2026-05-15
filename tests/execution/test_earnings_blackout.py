@@ -172,7 +172,7 @@ def test_unknown_earnings_blocks_submission():
     ):
         outcome = _process_recommendation(
             _stub_rec(), "swing_trading", client, db,
-            open_tickers=set(),
+            open_tickers=set(), orphan_tickers=set(),
             max_per_order=1000,
             blackout_days=5,
             dry_run=False,
@@ -200,7 +200,7 @@ def test_scheduled_outside_blackout_window_submits():
     ):
         outcome = _process_recommendation(
             _stub_rec(), "swing_trading", client, db,
-            open_tickers=set(),
+            open_tickers=set(), orphan_tickers=set(),
             max_per_order=1000,
             blackout_days=5,
             dry_run=False,
@@ -221,7 +221,7 @@ def test_scheduled_within_blackout_window_blocks():
     ):
         outcome = _process_recommendation(
             _stub_rec(), "swing_trading", client, db,
-            open_tickers=set(),
+            open_tickers=set(), orphan_tickers=set(),
             max_per_order=1000,
             blackout_days=5,
             dry_run=False,

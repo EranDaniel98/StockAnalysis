@@ -85,6 +85,32 @@ CREATE TABLE IF NOT EXISTS paper_trades (
 );
 CREATE INDEX IF NOT EXISTS idx_trades_ticker ON paper_trades(ticker);
 CREATE INDEX IF NOT EXISTS idx_trades_score ON paper_trades(composite_score);
+
+-- review M2: orphan fills. paper_evaluate finds an Alpaca order that
+-- our DB doesn't know about (entry submitted somewhere we don't track,
+-- or a crash between Alpaca-ack and local INSERT). Pre-fix we silently
+-- continue; the position is unrecorded P&L. Post-fix we insert an
+-- orphan row, WARN-log, and paper_trade refuses new entries on the
+-- same ticker until the orphan is manually resolved.
+CREATE TABLE IF NOT EXISTS orphan_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alpaca_order_id TEXT NOT NULL UNIQUE,
+    client_order_id TEXT,
+    ticker TEXT NOT NULL,
+    side TEXT,
+    qty REAL,
+    filled_qty REAL,
+    filled_price REAL,
+    filled_at TEXT,
+    status TEXT,
+    detected_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolution_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_orphans_ticker ON orphan_fills(ticker);
+CREATE INDEX IF NOT EXISTS idx_orphans_unresolved
+    ON orphan_fills(ticker)
+    WHERE resolved_at IS NULL;
 """
 
 
@@ -253,9 +279,94 @@ class PaperDB:
         ).fetchone()[0]
         orders = self._conn.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
         trades = self._conn.execute("SELECT COUNT(*) FROM paper_trades").fetchone()[0]
+        orphans = self._conn.execute(
+            "SELECT COUNT(*) FROM orphan_fills WHERE resolved_at IS NULL"
+        ).fetchone()[0]
         return {
             "recommendations": recs,
             "submitted": submitted,
             "orders": orders,
             "closed_trades": trades,
+            "unresolved_orphans": orphans,
         }
+
+    # -- Orphan fills (review M2) ----------------------------------------
+    #
+    # An "orphan" is an Alpaca order our local DB doesn't know about.
+    # paper_evaluate.reconcile inserts orphans when it walks Alpaca's
+    # fill list and hits an order that get_order_by_alpaca_id returns
+    # None for. paper_trade.run then refuses to submit ANY new entry
+    # for a ticker that has unresolved orphans — better to skip a
+    # trade than to stack on top of an unrecorded position.
+
+    def insert_orphan_fill(
+        self,
+        *,
+        alpaca_order_id: str,
+        client_order_id: str | None,
+        ticker: str,
+        side: str | None,
+        qty: float | None,
+        filled_qty: float | None,
+        filled_price: float | None,
+        filled_at: str | None,
+        status: str | None,
+    ) -> int | None:
+        """Insert an orphan. Idempotent on alpaca_order_id — re-detecting
+        the same orphan returns None (the DB UNIQUE constraint enforces
+        single-row-per-broker-order)."""
+        try:
+            cur = self._conn.execute(
+                """
+                INSERT INTO orphan_fills (
+                    alpaca_order_id, client_order_id, ticker, side, qty,
+                    filled_qty, filled_price, filled_at, status, detected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    alpaca_order_id, client_order_id, ticker, side, qty,
+                    filled_qty, filled_price, filled_at, status,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            # already recorded — keep the original detected_at intact
+            return None
+
+    def get_orphan_tickers(self) -> set[str]:
+        """Tickers with at least one unresolved orphan. paper_trade reads
+        this once per run and refuses entries for any ticker in the set."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT ticker FROM orphan_fills WHERE resolved_at IS NULL"
+        ).fetchall()
+        return {r["ticker"] for r in rows}
+
+    def list_orphans(self, *, include_resolved: bool = False) -> list[dict]:
+        """List orphan rows for CLI / dashboard surfaces. Unresolved
+        first by default."""
+        if include_resolved:
+            sql = "SELECT * FROM orphan_fills ORDER BY resolved_at IS NULL DESC, detected_at DESC"
+        else:
+            sql = "SELECT * FROM orphan_fills WHERE resolved_at IS NULL ORDER BY detected_at DESC"
+        return [dict(r) for r in self._conn.execute(sql).fetchall()]
+
+    def resolve_orphan(
+        self, alpaca_order_id: str, note: str = "manually resolved"
+    ) -> bool:
+        """Operator-driven clear. Returns True iff a row was updated."""
+        cur = self._conn.execute(
+            """
+            UPDATE orphan_fills
+            SET resolved_at = ?, resolution_note = ?
+            WHERE alpaca_order_id = ? AND resolved_at IS NULL
+            """,
+            (
+                datetime.now(timezone.utc).isoformat(),
+                note,
+                alpaca_order_id,
+            ),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0

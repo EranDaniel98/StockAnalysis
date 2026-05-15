@@ -176,6 +176,23 @@ def run_paper_trade(config, args):
     # --- Open positions to avoid double-buying ---
     open_tickers = {p["ticker"] for p in client.get_positions()}
 
+    # Review M2: refuse entries on tickers with unresolved orphan fills.
+    # An orphan = Alpaca has a recorded fill our DB doesn't know about,
+    # so stacking a new entry on top would compound an already-unknown
+    # position size. paper_evaluate flags orphans on every reconcile run;
+    # this gate refuses until the operator resolves them via `paper
+    # orphans --resolve <alpaca_id>`.
+    with PaperDB() as _orphan_check_db:
+        orphan_tickers = _orphan_check_db.get_orphan_tickers()
+    if orphan_tickers:
+        logger.warning(
+            "paper_trade: %d ticker(s) have unresolved orphan fills and "
+            "will be refused: %s. Run `paper evaluate` to refresh, then "
+            "`paper orphans` to inspect; resolve before re-trading these.",
+            len(orphan_tickers),
+            ", ".join(sorted(orphan_tickers)),
+        )
+
     # --- Submit / log ---
     db = PaperDB()
     try:
@@ -183,7 +200,8 @@ def run_paper_trade(config, args):
         for rec in qualified:
             outcome = _process_recommendation(
                 rec, strategy_name, client, db,
-                open_tickers, max_per_order, blackout_days, dry_run,
+                open_tickers, orphan_tickers,
+                max_per_order, blackout_days, dry_run,
             )
             results.append(outcome)
     finally:
@@ -193,7 +211,8 @@ def run_paper_trade(config, args):
 
 
 def _process_recommendation(rec, strategy_name, client, db,
-                            open_tickers, max_per_order, blackout_days, dry_run):
+                            open_tickers, orphan_tickers,
+                            max_per_order, blackout_days, dry_run):
     """Decide + submit (or skip) a single recommendation. Returns outcome dict."""
     ticker = rec["ticker"]
     score = rec["composite_score"]
@@ -205,7 +224,11 @@ def _process_recommendation(rec, strategy_name, client, db,
     sector = rec.get("sector", "Unknown")
 
     skip_reason = None
-    if ticker in open_tickers:
+    if ticker in orphan_tickers:
+        # Review M2: refuse before any other check so the orphan is
+        # surfaced in the per-row outcome table, not buried.
+        skip_reason = "orphan_unresolved"
+    elif ticker in open_tickers:
         skip_reason = "already_open_in_alpaca"
     elif current_price is None or current_price <= 0:
         skip_reason = "missing_price"

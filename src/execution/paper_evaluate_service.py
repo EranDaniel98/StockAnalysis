@@ -48,8 +48,16 @@ def run_paper_evaluate(config, args):
 
     db = PaperDB()
     try:
-        new_trades = _reconcile_closed_trades(client, db, days)
-        console.print(f"  Reconciled [bold]{new_trades}[/bold] newly-closed trades\n")
+        new_trades, new_orphans = _reconcile_closed_trades(client, db, days)
+        console.print(f"  Reconciled [bold]{new_trades}[/bold] newly-closed trades")
+        if new_orphans:
+            console.print(
+                f"  [bold red]Detected {new_orphans} new orphan fill(s)[/bold red] "
+                f"— Alpaca has fills our DB doesn't. paper_trade will refuse "
+                f"entries on these tickers until resolved. "
+                f"Run `paper orphans` to inspect."
+            )
+        console.print()
 
         trades = db.get_all_trades()
         counts = db.get_summary_counts()
@@ -95,15 +103,74 @@ def _reconcile_closed_trades(client, db, days):
         lst.sort(key=lambda x: x["filled_at"])
 
     # Match BUYs (with a tracked recommendation) to their first subsequent SELL.
+    # Review M2: BUYs whose alpaca_order_id is missing from our DB are
+    # ORPHANS — fills we never recorded. Pre-fix we silently skipped them
+    # (the original `continue` below). Now we record + WARN + flag the
+    # ticker so paper_trade refuses new entries on it until the operator
+    # manually resolves. Same logic applies to orphan SELLs (closing a
+    # position we never opened) — flag the ticker too.
     new_trade_count = 0
+    new_orphan_count = 0
     for ticker, fills_list in by_ticker.items():
         buys = [f for f in fills_list if f["side"] == "buy"]
         sells = [f for f in fills_list if f["side"] == "sell"]
         sell_idx = 0
 
+        # Detect orphan SELLs (a SELL on a ticker we have no tracked BUY for
+        # in this window is the most dangerous shape — it's closing a real
+        # position we don't know exists).
+        for sell in sells:
+            if db.get_order_by_alpaca_id(sell["order_id"]) is None:
+                inserted = db.insert_orphan_fill(
+                    alpaca_order_id=sell["order_id"],
+                    client_order_id=sell.get("client_order_id"),
+                    ticker=ticker,
+                    side="sell",
+                    qty=sell.get("qty"),
+                    filled_qty=sell.get("filled_qty"),
+                    filled_price=sell.get("filled_price"),
+                    filled_at=sell.get("filled_at"),
+                    status=sell.get("status"),
+                )
+                if inserted is not None:
+                    new_orphan_count += 1
+                    logger.warning(
+                        "ORPHAN SELL detected for %s (alpaca_id=%s, "
+                        "filled_qty=%s @ %s) — not in local DB. paper_trade "
+                        "will refuse entries on this ticker until cleared. "
+                        "Run `paper orphans` to inspect; `paper orphans "
+                        "--resolve %s` to clear.",
+                        ticker, sell["order_id"], sell.get("filled_qty"),
+                        sell.get("filled_price"), sell["order_id"],
+                    )
+
         for buy in buys:
             tracked = db.get_order_by_alpaca_id(buy["order_id"])
             if not tracked:
+                # Orphan BUY — Alpaca says we have a position we never
+                # recorded. Almost always means a crash between Alpaca-ack
+                # and the local INSERT. Record + flag the ticker so the
+                # next paper_trade run doesn't stack on top.
+                inserted = db.insert_orphan_fill(
+                    alpaca_order_id=buy["order_id"],
+                    client_order_id=buy.get("client_order_id"),
+                    ticker=ticker,
+                    side="buy",
+                    qty=buy.get("qty"),
+                    filled_qty=buy.get("filled_qty"),
+                    filled_price=buy.get("filled_price"),
+                    filled_at=buy.get("filled_at"),
+                    status=buy.get("status"),
+                )
+                if inserted is not None:
+                    new_orphan_count += 1
+                    logger.warning(
+                        "ORPHAN BUY detected for %s (alpaca_id=%s, "
+                        "filled_qty=%s @ %s) — not in local DB. paper_trade "
+                        "will refuse entries on this ticker until cleared.",
+                        ticker, buy["order_id"], buy.get("filled_qty"),
+                        buy.get("filled_price"),
+                    )
                 continue  # not one of ours
 
             # Already closed?
@@ -140,7 +207,7 @@ def _reconcile_closed_trades(client, db, days):
             )
             new_trade_count += 1
 
-    return new_trade_count
+    return new_trade_count, new_orphan_count
 
 
 def _lookup_score(db, recommendation_id):
