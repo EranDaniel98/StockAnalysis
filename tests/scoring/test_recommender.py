@@ -234,14 +234,15 @@ class TestTakeProfit:
 
 
 class TestTimeStop:
-    def test_falls_back_to_90_when_no_strategy(self) -> None:
-        """Legacy BacktestConfig.max_hold_days was 90; preserved as
-        the safety floor so removing a per-strategy value doesn't
-        silently flip to an unbounded hold."""
+    def test_falls_back_to_default_when_no_strategy(self) -> None:
+        """Default reverted from 90 -> 365 on 2026-05-15 (Stage-1 revert):
+        the apparent time-stop edge was a scoring-engine-bias artifact.
+        The fallback is still finite so missing config doesn't produce an
+        unbounded hold."""
         result = _calculate_time_stop(None, as_of=date(2026, 1, 1))
         assert result["method"] == "calendar"
-        assert result["days"] == 90
-        assert result["exit_date"] == "2026-04-01"
+        assert result["days"] == 365
+        assert result["exit_date"] == "2027-01-01"
 
     def test_reads_strategy_time_stop_days(self) -> None:
         result = _calculate_time_stop(
@@ -258,7 +259,7 @@ class TestTimeStop:
             r = _calculate_time_stop(
                 {"time_stop_days": bad_value}, as_of=date(2026, 1, 1)
             )
-            assert r["days"] == 90, f"bad value {bad_value!r} should fall back"
+            assert r["days"] == 365, f"bad value {bad_value!r} should fall back"
 
     def test_detail_string_includes_human_date(self) -> None:
         r = _calculate_time_stop({"time_stop_days": 10}, as_of=date(2026, 5, 14))

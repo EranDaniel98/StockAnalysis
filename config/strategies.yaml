@@ -24,10 +24,13 @@ strategies:
     min_market_cap: 5_000_000_000
     prefer_profitable: true
     # Triple-barrier time stop. Forces exit if neither stop nor target
-    # fired by this calendar-day budget. Calibrated to the strategy's
-    # alpha half-life: long-term-growth holds quarters, so ~6 months.
-    # Sweep ±50% to confirm the literature default empirically.
-    time_stop_days: 180
+    # fired by this calendar-day budget. REVERTED to effectively no-op
+    # (365d) on 2026-05-15: the apparent +24% OOS Sharpe edge from the
+    # earlier sweep was a scoring-engine-bias artifact (silent-50
+    # fallback, now fixed in commit 9345a74). On the clean pipeline,
+    # no_time_stop wins (Sharpe 1.26 vs 1.08 at 5d). Re-enable only with
+    # fresh evidence — keep the field so re-enabling is a single edit.
+    time_stop_days: 365
 
   short_term_momentum:
     description: "Momentum trading - ride trends with risk management"
@@ -48,9 +51,11 @@ strategies:
     min_score: 65
     min_market_cap: 1_000_000_000
     prefer_profitable: false
-    # Alpha158 / momentum half-life is short (Numerai 20d target,
-    # Calluzzo et al. on momentum decay).
-    time_stop_days: 20
+    # Time stop reverted to no-op (see swing_trading comment for the why).
+    # Original alpha-half-life estimate: 20d (Numerai 20d target,
+    # Calluzzo et al. on momentum decay) — restore if clean-pipeline
+    # evidence later confirms it.
+    time_stop_days: 365
 
   value_investing:
     description: "Value investing - undervalued companies with strong fundamentals"
@@ -70,8 +75,9 @@ strategies:
     min_score: 70
     min_market_cap: 2_000_000_000
     prefer_profitable: true
-    # Value setups are slow to reprice — multi-quarter horizon.
-    time_stop_days: 180
+    # Time stop reverted to no-op (see swing_trading comment for the why).
+    # Original literature-default for value setups was 180d (multi-quarter).
+    time_stop_days: 365
 
   swing_trading:
     description: "Swing trading - capture price swings using technical patterns"
@@ -106,8 +112,11 @@ strategies:
       hold_upper: 48
       hold_lower: 40
       sell: 30
-    # 2-14 day horizon → 10 trading days (midpoint, slight buffer).
-    time_stop_days: 10
+    # Time stop reverted to no-op (see swing_trading comment for the why).
+    # Original 2-14 day horizon -> 10 days. The post-fix sweep (2026-05-15)
+    # showed this strategy benefits from holding through stop/target, not
+    # truncating at 10d. Restore only with fresh evidence.
+    time_stop_days: 365
 
   mean_reversion:
     description: "Mean reversion - buy oversold extremes, sell back to mean"
@@ -144,8 +153,10 @@ strategies:
       hold_upper: 48
       hold_lower: 42
       sell: 30
-    # 3-10 day horizon → 15 trading days (slight buffer over upper bound).
-    time_stop_days: 15
+    # Time stop reverted to no-op (see swing_trading comment for the why).
+    # Original 3-10 day horizon -> 15 trading days. Restore only with
+    # clean-pipeline evidence.
+    time_stop_days: 365
 
   dividend_income:
     description: "Dividend investing - stable companies with growing dividends"
@@ -164,6 +175,7 @@ strategies:
     min_score: 70
     min_market_cap: 10_000_000_000
     prefer_profitable: true
-    # Dividend strategy holds for income payments — multi-quarter
-    # minimum to avoid forced exits before ex-div dates.
-    time_stop_days: 180
+    # Time stop reverted to no-op (see swing_trading comment for the why).
+    # Original 180d guarded against forced exits before ex-div dates;
+    # restore only with clean-pipeline evidence.
+    time_stop_days: 365

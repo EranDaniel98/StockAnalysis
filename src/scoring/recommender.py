@@ -12,11 +12,14 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# Time-stop literature default when a strategy config doesn't declare one.
-# 90 trading days is the legacy backtest engine default (BacktestConfig.
-# max_hold_days). Keeping it as the fallback so removing a per-strategy
-# value reverts to the prior behavior, not to an unbounded hold.
-_DEFAULT_TIME_STOP_DAYS = 90
+# Time-stop fallback when a strategy config doesn't declare one.
+# Reverted from 90 -> 365 on 2026-05-15 (see config/strategies.yaml comment
+# on swing_trading.time_stop_days). The Stage-1 sweep that motivated a
+# tighter default ran on a contaminated scoring engine; the post-silent-50
+# clean-pipeline sweep shows no-time-stop outperforms. Keep the
+# infrastructure live so re-enabling is a single-value edit when fresh
+# evidence supports it.
+_DEFAULT_TIME_STOP_DAYS = 365
 
 
 def generate_recommendation(ticker, score_result, price_data, fundamentals, config, strategy=None):
