@@ -78,6 +78,21 @@ class LivePriceBus:
         self._symbol_refcounts: dict[str, int] = {}
         self._subscribers: dict[str, set[_Subscriber]] = {}
         self._closed = False
+        # Tier-2 #24: same silent-death surface as TradeUpdatesBus.
+        # ``self._run_task`` being a Task object doesn't tell us the
+        # stream is alive — it could be in the done state.
+        self._stream_healthy = False
+        self._stream_last_error: str | None = None
+
+    @property
+    def is_healthy(self) -> bool:
+        """True iff the stream task is alive AND the stream object exists."""
+        return (
+            self._stream_healthy
+            and self._stream is not None
+            and self._run_task is not None
+            and not self._run_task.done()
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Public API
@@ -138,8 +153,13 @@ class LivePriceBus:
 
     async def _ensure_stream(self) -> None:
         """Lazily build the StockDataStream and start its run task."""
-        if self._stream is not None:
+        if self.is_healthy:
             return
+
+        # Clear stale state from any prior death before re-creating.
+        self._stream = None
+        self._run_task = None
+        self._stream_healthy = False
 
         api_key = os.getenv("ALPACA_API_KEY")
         api_secret = os.getenv("ALPACA_API_SECRET")
@@ -160,6 +180,39 @@ class LivePriceBus:
         self._run_task = loop.create_task(
             asyncio.to_thread(self._stream.run), name="alpaca-data-stream"
         )
+        # Tier-2 #24: same done-callback resilience as TradeUpdatesBus.
+        self._run_task.add_done_callback(self._on_stream_exit)
+        self._stream_healthy = True
+        self._stream_last_error = None
+
+    def _on_stream_exit(self, task: asyncio.Task[Any]) -> None:
+        """Stream task ended for any reason — log and clear so the next
+        subscribe call reconnects. Never raises (callback)."""
+        self._stream_healthy = False
+        if task.cancelled():
+            self._stream_last_error = "task cancelled"
+            logger.info("live_prices stream task cancelled (clean shutdown)")
+            return
+        exc = task.exception()
+        if exc is not None:
+            self._stream_last_error = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "live_prices stream task died: %s — bus will reconnect on "
+                "next subscribe. In-flight subscribers will see no ticks "
+                "until then.",
+                self._stream_last_error,
+            )
+        else:
+            self._stream_last_error = "task exited cleanly (no exception)"
+            logger.warning(
+                "live_prices stream task ended without exception — "
+                "alpaca-py may have lost the connection silently."
+            )
+        # Janitor: mark all subscribers as failed so the next iteration
+        # drops them and the SSE caller reconnects, picking up the new bus.
+        for symbol_subs in self._subscribers.values():
+            for sub in tuple(symbol_subs):
+                sub.failed = True
 
     async def _add(self, subscriber: _Subscriber) -> None:
         async with self._lock:

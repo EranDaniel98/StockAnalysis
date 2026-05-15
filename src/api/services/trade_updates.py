@@ -77,6 +77,27 @@ class TradeUpdatesBus:
         self._run_task: asyncio.Task[None] | None = None
         self._subscribers: set[_Subscriber] = set()
         self._closed = False
+        # Tier-2 #24: surface stream-task death. Pre-fix the run task
+        # could end (auth rotation, network drop, alpaca-py internal
+        # exception) and ``monitor_status`` still reported the bus as
+        # "running" because ``self._run_task`` was a Task object — it
+        # just happened to be in the done state. Operators missed
+        # fill notifications on real trades. The ``is_healthy`` flag is
+        # flipped by ``_on_stream_exit`` when the run task ends for any
+        # reason; next ``_ensure_stream`` call re-creates the connection.
+        self._stream_healthy = False
+        self._stream_last_error: str | None = None
+
+    @property
+    def is_healthy(self) -> bool:
+        """True iff the run task is alive AND the stream object exists.
+        Operators / liveness probes should read this, not _run_task."""
+        return (
+            self._stream_healthy
+            and self._stream is not None
+            and self._run_task is not None
+            and not self._run_task.done()
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Public API
@@ -119,8 +140,18 @@ class TradeUpdatesBus:
     # ──────────────────────────────────────────────────────────────────
 
     async def _ensure_stream(self) -> None:
-        if self._stream is not None:
+        if self.is_healthy:
+            # Live and well; nothing to do. Note we read ``is_healthy``
+            # rather than ``_stream is not None`` so a dead-but-not-yet-
+            # cleared stream triggers a re-create.
             return
+
+        # Clear any stale state from a prior death before re-creating.
+        # The done-callback usually clears these but we belt+suspenders
+        # in case of a torn shutdown / re-entry.
+        self._stream = None
+        self._run_task = None
+        self._stream_healthy = False
 
         api_key = os.getenv("ALPACA_API_KEY")
         api_secret = os.getenv("ALPACA_API_SECRET")
@@ -139,6 +170,46 @@ class TradeUpdatesBus:
         self._run_task = loop.create_task(
             asyncio.to_thread(self._stream.run), name="alpaca-trade-updates"
         )
+        # Tier-2 #24: callback fires when the run task terminates for any
+        # reason (clean exit, exception, cancellation). Without this, the
+        # task could die silently and the bus would keep reporting "alive"
+        # while no trade events arrived.
+        self._run_task.add_done_callback(self._on_stream_exit)
+        self._stream_healthy = True
+        self._stream_last_error = None
+
+    def _on_stream_exit(self, task: asyncio.Task[Any]) -> None:
+        """Called when the run task ends. Logs the reason and clears
+        state so the next subscriber triggers a reconnect via
+        ``_ensure_stream``. Never raises — callbacks that raise from
+        ``add_done_callback`` propagate to ``asyncio`` and can wedge
+        the loop."""
+        self._stream_healthy = False
+        if task.cancelled():
+            self._stream_last_error = "task cancelled"
+            logger.info("trade_updates stream task cancelled (clean shutdown)")
+            return
+        exc = task.exception()
+        if exc is not None:
+            self._stream_last_error = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "trade_updates stream task died: %s — bus will reconnect on "
+                "next subscribe. Subscribers currently in flight will miss "
+                "events until then.",
+                self._stream_last_error,
+            )
+        else:
+            self._stream_last_error = "task exited cleanly (no exception)"
+            logger.warning(
+                "trade_updates stream task ended without exception — "
+                "alpaca-py may have lost the connection silently. Bus "
+                "will reconnect on next subscribe."
+            )
+        # Janitor: mark all subscribers as failed so the next event-loop
+        # iteration drops them; their SSE callers will see end-of-stream
+        # and reconnect, picking up the new (healthy) bus instance.
+        for sub in tuple(self._subscribers):
+            sub.failed = True
 
     async def _add(self, subscriber: _Subscriber) -> None:
         async with self._lock:
