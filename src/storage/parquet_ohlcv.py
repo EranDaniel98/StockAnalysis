@@ -99,20 +99,46 @@ class ParquetPriceRepository:
         for year, year_slice in df.groupby(df.index.year):
             path = partition_path(self._root, ticker, int(year))
             path.parent.mkdir(parents=True, exist_ok=True)
-            lock_path = path.with_suffix(".parquet.lock")
-            with portalocker.Lock(
-                str(lock_path),
-                mode="a",
-                # Block until we can grab the lock, but don't wait forever
-                # — a stuck writer should surface, not deadlock the caller.
-                timeout=30,
-            ):
-                merged = _merge_with_existing(path, year_slice)
-                tmp = path.with_suffix(".parquet.tmp")
-                table = pa.Table.from_pandas(merged, preserve_index=True)
-                pq.write_table(table, tmp, compression="snappy")
-                tmp.replace(path)  # near-atomic on Windows NTFS, atomic under the lock
-                total += len(merged)
+            # Lock files go into a sibling .locks/ subdirectory rather than
+            # next to the partition (reviewer I2). Living alongside .parquet
+            # files was noisy in directory listings, confused backup glob
+            # rules, and a future cleanup script could mistake a stale lock
+            # for orphan data. .locks/ is unambiguous.
+            locks_dir = path.parent / ".locks"
+            locks_dir.mkdir(parents=True, exist_ok=True)
+            lock_path = locks_dir / f"{path.stem}.parquet.lock"
+            try:
+                with portalocker.Lock(
+                    str(lock_path),
+                    mode="a",
+                    # Block until we can grab the lock, but don't wait forever
+                    # — a stuck writer should surface, not deadlock the caller.
+                    # portalocker raises LockException on timeout; callers see
+                    # the partition write fail loudly rather than silently
+                    # blocking the worker pool.
+                    timeout=30,
+                ):
+                    merged = _merge_with_existing(path, year_slice)
+                    tmp = path.with_suffix(".parquet.tmp")
+                    table = pa.Table.from_pandas(merged, preserve_index=True)
+                    pq.write_table(table, tmp, compression="snappy")
+                    tmp.replace(path)  # near-atomic on Windows NTFS, atomic under the lock
+                    total += len(merged)
+            finally:
+                # Best-effort lock-file cleanup AFTER the lock has been
+                # released by portalocker.__exit__ — on Windows, deleting
+                # while the handle is still open races with the lock
+                # owner. Outside the with-block means the handle is
+                # closed before we unlink. Failure to delete is non-fatal
+                # — the next writer will reacquire the same path.
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError as e:
+                    logger.debug(
+                        "lock-file cleanup failed for %s: %s "
+                        "(non-fatal, will retry on next write)",
+                        lock_path, e,
+                    )
         return total
 
     # ---- async reads (Protocol surface) -------------------------------

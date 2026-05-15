@@ -80,13 +80,72 @@ class FetchOutcome(Generic[T]):
         return cls(status="error", error_msg=msg)
 
 
+class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor whose workers are daemon threads.
+
+    Reviewer I5: the default ThreadPoolExecutor uses non-daemon worker
+    threads and registers an atexit hook that waits for them to drain.
+    For a TIMEOUT pool, orphaned (timed-out) workers can be running
+    indefinite blocking I/O — yfinance's internal HTTP can take minutes
+    to give up — so the default behavior turns interpreter shutdown
+    (SIGTERM in a FastAPI service, Ctrl-C in the CLI) into a stall.
+
+    Daemon workers are killed by the interpreter at process exit, which
+    means we lose in-flight results — but in-flight results are by
+    definition already past their timeout, so dropping them is the
+    desired behavior anyway.
+
+    We re-implement ``_adjust_thread_count`` (rather than subclass-then-
+    set-daemon) because ``Thread.daemon`` cannot be set after
+    ``Thread.start()`` — the default impl creates and immediately starts
+    the worker, so post-hoc adjustment raises RuntimeError. The body
+    below mirrors CPython's implementation circa 3.10-3.12; if a future
+    version restructures it, the import-time check at module load will
+    fail fast rather than silently regressing the daemon flag.
+    """
+
+    def _adjust_thread_count(self) -> None:  # type: ignore[override]
+        # Mirror CPython's ThreadPoolExecutor._adjust_thread_count so we
+        # can set daemon=True BEFORE the thread is started.
+        import threading
+        import weakref
+        from concurrent.futures.thread import _worker, _threads_queues
+
+        if self._idle_semaphore.acquire(timeout=0):  # type: ignore[attr-defined]
+            return
+
+        def _weakref_cb(_, q=self._work_queue):  # type: ignore[attr-defined]
+            q.put(None)
+
+        num_threads = len(self._threads)
+        if num_threads < self._max_workers:  # type: ignore[attr-defined]
+            thread_name = "%s_%d" % (
+                self._thread_name_prefix or self,  # type: ignore[attr-defined]
+                num_threads,
+            )
+            t = threading.Thread(
+                name=thread_name,
+                target=_worker,
+                args=(
+                    weakref.ref(self, _weakref_cb),
+                    self._work_queue,  # type: ignore[attr-defined]
+                    self._initializer,  # type: ignore[attr-defined]
+                    self._initargs,  # type: ignore[attr-defined]
+                ),
+            )
+            t.daemon = True
+            t.start()
+            self._threads.add(t)
+            _threads_queues[t] = self._work_queue  # type: ignore[attr-defined]
+
+
 # Module-level executor. Per-call ThreadPoolExecutor blocks shutdown
 # on the timed-out worker thread, which defeats the timeout — see
 # src.execution.paper_trade_service for the same lesson. Worker count is
 # generous so concurrent fetches (price + fundamentals + earnings) don't
 # back-pressure each other; OS will happily multiplex this many idle
 # network threads.
-_TIMEOUT_EXECUTOR = ThreadPoolExecutor(
+_TIMEOUT_EXECUTOR = _DaemonThreadPoolExecutor(
     max_workers=32,
     thread_name_prefix="fetch_timeout",
 )

@@ -27,6 +27,12 @@ class ScoreBreakdownRow(BaseModel):
     status: str = "ok"
     """One of 'ok', 'error'. 'disabled' slots are omitted from the
     breakdown entirely (the analyzer was never asked to run)."""
+    effective_weight: float | None = Field(default=None, ge=0, le=1)
+    """Renormalized weight after the error-slot exclusion. None when
+    status != 'ok' (errored slots don't contribute). When set, this is
+    the row's actual share of the composite — operators reading the
+    breakdown for a stress investigation should use this, not the
+    nominal ``weight``. Reviewer I6."""
 
 
 class ConsensusDiagnostic(BaseModel):

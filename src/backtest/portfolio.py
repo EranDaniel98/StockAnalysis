@@ -123,14 +123,25 @@ class SimPortfolio:
         self.cash = self.starting_cash
 
     def current_equity(self) -> float:
-        """Book-value equity: cash + open positions at ENTRY price.
+        """Book-value equity: cash + open positions at COST BASIS.
 
         Not mark-to-market on purpose — sizing on cost basis avoids
         letting a runaway winner inflate later position budgets. This
         is the sizing basis when compound=True.
+
+        Reviewer I1: previously summed ``shares * entry_price`` which
+        omitted the per-trade commission. ``cash`` drops by
+        ``gross_cost + commission`` on open, so equity silently
+        shrank by exactly the commission on every entry. With Alpaca
+        paper ($0 commission) the bug was invisible; with $1-$5/trade
+        and N open positions per day, the sizing basis pre-emptively
+        dropped by $N-$5N each entry day — a small but systematic
+        coupling between fee model and sizing. ``cost_basis`` is the
+        actual cash spent at entry, so cash + Σ(cost_basis) is now
+        conserved across the open transition.
         """
         return self.cash + sum(
-            p.shares * p.entry_price for p in self.positions.values()
+            p.cost_basis for p in self.positions.values()
         )
 
     def _sizing_basis(self) -> float:

@@ -228,13 +228,21 @@ def calculate_composite_score(
         w = weights.get(slot, 0)
         if status == "ok":
             s = sub_scores[slot]
-            contribution = s * w / total_weight if total_weight > 0 else 0
+            effective_w = w / total_weight if total_weight > 0 else 0
+            contribution = s * effective_w
             breakdown.append({
                 "category": slot.capitalize(),
                 "score": round(s, 1),
                 "weight": f"{w*100:.0f}%",
                 "contribution": round(contribution, 1),
                 "status": "ok",
+                # Reviewer I6: post-renormalization share so the
+                # breakdown table doesn't mislead when error slots are
+                # excluded. ok rows' effective_weight values sum to 1.0;
+                # nominal ``weight`` values don't (they sum to <1 in
+                # error scenarios), which previously made the table
+                # look like only some of the composite was accounted for.
+                "effective_weight": round(effective_w, 4),
             })
         else:
             breakdown.append({
@@ -243,6 +251,7 @@ def calculate_composite_score(
                 "weight": f"{w*100:.0f}%",
                 "contribution": 0.0,
                 "status": status,
+                "effective_weight": None,
             })
 
     return {
