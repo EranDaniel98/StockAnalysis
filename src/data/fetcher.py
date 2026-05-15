@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from src.data.fetch_outcome import call_with_timeout
+from src.data.numeric import coerce_numeric
 
 logger = logging.getLogger(__name__)
 
@@ -124,14 +125,21 @@ class DataFetcher:
         """
         def _pull():
             info = yf.Ticker(ticker).fast_info
+            # Every numeric field goes through coerce_numeric so downstream
+            # consumers (bootstrap position sizing, P&L math, stop-loss
+            # comparisons) get float-or-None. yfinance's fast_info has the
+            # same string-sentinel quirks as .info — 'Infinity' on undefined
+            # last_price, 'NaN' on thinly-traded snapshots — which exploded
+            # ``current_px <= 0`` in bootstrap_service. Sister fix to the
+            # fundamentals.py boundary (commit f1039c1).
             return {
-                "last_price": getattr(info, "last_price", None),
-                "previous_close": getattr(info, "previous_close", None),
-                "open": getattr(info, "open", None),
-                "day_high": getattr(info, "day_high", None),
-                "day_low": getattr(info, "day_low", None),
-                "last_volume": getattr(info, "last_volume", None),
-                "market_cap": getattr(info, "market_cap", None),
+                "last_price": coerce_numeric(getattr(info, "last_price", None)),
+                "previous_close": coerce_numeric(getattr(info, "previous_close", None)),
+                "open": coerce_numeric(getattr(info, "open", None)),
+                "day_high": coerce_numeric(getattr(info, "day_high", None)),
+                "day_low": coerce_numeric(getattr(info, "day_low", None)),
+                "last_volume": coerce_numeric(getattr(info, "last_volume", None)),
+                "market_cap": coerce_numeric(getattr(info, "market_cap", None)),
             }
         result, err = call_with_timeout(
             _pull,
