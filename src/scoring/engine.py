@@ -133,10 +133,17 @@ def calculate_composite_score(
             sub_scores[slot] = float(result["score"])
             continue
         if status == "error":
-            # Surface the broken result so the upstream alert / dashboard
-            # can flag it. We do NOT substitute 50 — that would be the
-            # exact silent-neutral failure mode this fix exists to kill.
-            logger.warning(
+            # Don't WARN per call — a backtest scoring R1000 across 100+
+            # Mondays will emit tens of thousands of identical lines and
+            # bury real issues. The structured `analyzer_status` field on
+            # every CompositeScore already surfaces this for dashboards
+            # and downstream gating; the per-call log is a debug-level
+            # diagnostic only. Composite-engine UNCAUGHT exceptions are
+            # still logged at WARNING in batch_score (the original audit
+            # ask was about uncaught exceptions disappearing silently,
+            # not this per-analyzer score-missing surface — see commit
+            # 9345a74 for the original intent).
+            logger.debug(
                 "Analyzer %s returned no usable score (status=%s); excluding "
                 "from weighted denominator. result=%r",
                 slot, status,
