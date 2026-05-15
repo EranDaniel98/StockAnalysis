@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from src.data.fetch_outcome import call_with_timeout
+from src.data.numeric import coerce_numeric as _coerce_numeric
 
 logger = logging.getLogger(__name__)
 
@@ -20,45 +21,6 @@ logger = logging.getLogger(__name__)
 # claims 5-15s typical). A hung connection past this gets cut so the
 # worker pool doesn't drain on bad tickers.
 _INFO_TIMEOUT_SECONDS = 15.0
-
-
-def _coerce_numeric(value):
-    """Coerce a yfinance value to float or None.
-
-    yfinance returns string sentinels for undefined numerics — most
-    commonly ``'Infinity'`` when a P/E is undefined because earnings
-    are negative, but ``'NaN'`` / ``'Inf'`` / ``''`` also appear. Pre-fix,
-    these strings propagated into downstream analyzers where
-    ``value > 0`` exploded with TypeError. Caught BILL on 2024-05-20 in
-    the in-flight sweep battery — every Monday from there on was
-    silently skipped before the audit promoted the score-ticker
-    exception log from debug to warning (commit 9345a74).
-
-    None / NaN / Inf / unparseable strings all map to None; downstream
-    analyzers already handle missing fields gracefully via
-    ``value is not None`` guards.
-    """
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        # Numerically NaN / Inf are not useful for comparisons either —
-        # treat them the same as None to keep downstream guards uniform.
-        try:
-            f = float(value)
-        except (TypeError, ValueError):
-            return None
-        if f != f or f in (float("inf"), float("-inf")):  # NaN or +/-Inf
-            return None
-        return f
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped or stripped.lower() in {"nan", "inf", "infinity", "-inf", "-infinity", "none", "null"}:
-            return None
-        try:
-            return _coerce_numeric(float(stripped))
-        except (TypeError, ValueError):
-            return None
-    return None
 
 
 class FundamentalsFetcher:

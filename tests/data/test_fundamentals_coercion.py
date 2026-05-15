@@ -134,32 +134,42 @@ def test_nan_field_coerced_to_none():
 def test_downstream_analyzer_does_not_explode_on_string_infinity():
     """End-to-end safety: even if the upstream coercion ever regresses,
     the analyzer's ``pe is not None and pe > 0`` guard MUST not crash
-    on a 'Infinity' string. Belt + suspenders since this hit real money
-    paths."""
-    # Skip if the analyzer module isn't importable in test context.
+    on a 'Infinity' string. This is the suspenders half of
+    belt+suspenders — the analyzer coerces on access via
+    ``src.data.numeric.coerce_numeric`` so the comparison short-circuits
+    cleanly even when an unsanitized dict reaches it."""
     from src.scoring.analyzers import fundamental as f_mod
 
-    # Directly construct a malformed fund dict and run analyze.
+    cfg = MagicMock()
+    # _score_growth/health/profitability call config.get("fundamental_filters", default={})
+    # and then .get(...) on the returned object; return a real dict so
+    # filter lookups don't blow up before we even reach the coercion paths.
+    cfg.get = MagicMock(return_value={
+        "min_revenue_growth_pct": 10,
+        "min_roe_pct": 10,
+        "min_profit_margin_pct": 5,
+        "max_pe_ratio": 50,
+        "max_debt_to_equity": 2.0,
+        "min_current_ratio": 1.0,
+    })
+
     malformed = {
-        "pe_trailing": "Infinity",  # string that bypassed coercion
-        "peg_ratio": None,
-        "pb_ratio": 2.5,
+        "pe_trailing": "Infinity",       # string that bypassed coercion
+        "pe_forward": "NaN",             # also poisoned
+        "peg_ratio": "",                  # empty string
+        "pb_ratio": 2.5,                 # legitimate value, must score
+        "ev_to_ebitda": float("inf"),    # numeric inf
+        "revenue_growth": "null",
+        "roe": float("nan"),
+        "debt_to_equity": "Infinity",
+        "free_cash_flow": "None",
+        "dividend_yield": "NaN",
         "sector": "Technology",
     }
-    # If the analyzer is well-guarded, this returns a dict; if not, the
-    # test will fail with TypeError. Either result documents whether the
-    # belt-and-suspenders defense exists.
-    try:
-        result = f_mod.analyze(malformed, _stub_config())
-        # Reaching here means the analyzer handled the string gracefully.
-        # We don't assert on the score value — just that it didn't crash.
-        assert isinstance(result, dict)
-    except TypeError as e:
-        # This is the analyzer-layer gap. The boundary coercion is the
-        # actual fix; mark this test as documenting the gap rather than
-        # failing the suite.
-        import pytest as _pt
-        _pt.skip(
-            f"Analyzer-layer defense not in place (this is the suspenders "
-            f"half of belt+suspenders): {e}"
-        )
+    result = f_mod.analyze(malformed, cfg)
+    assert isinstance(result, dict)
+    # The one legitimate value (pb_ratio=2.5) must still register a
+    # valuation score; everything else short-circuits to None and is
+    # excluded from the category mean.
+    assert result["scores"]["valuation"] is not None
+    assert 0 <= result["score"] <= 100
