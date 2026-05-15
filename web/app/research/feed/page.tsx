@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorState } from "@/components/error-state";
@@ -267,6 +268,16 @@ function NotificationRow({ notification }: { notification: FilingNotificationIte
             <span className="font-mono text-sm font-semibold tracking-wider text-foreground">
               {notification.ticker}
             </span>
+            <a
+              href={`https://www.tradingview.com/symbols/${encodeURIComponent(notification.ticker)}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground/60 hover:text-primary transition-colors"
+              title={`Open ${notification.ticker} chart on TradingView`}
+              aria-label={`Open ${notification.ticker} chart on TradingView (new tab)`}
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
             {formBadge(notification.form)}
             <span className="font-mono text-xs text-muted-foreground tabular-nums">
               filed {notification.filing_date}
