@@ -280,14 +280,32 @@ def equity_curve_stats(equity_curve: list[dict], *, compound: bool = True) -> di
     downside = weekly_returns[weekly_returns < 0]
     downside_std = float(downside.std(ddof=1)) if len(downside) > 1 else 0.0
 
-    ann_sharpe = (mean_w / std_w) * math.sqrt(WEEKS_PER_YEAR) if std_w > 0 else 0.0
-    ann_sortino = (mean_w / downside_std) * math.sqrt(WEEKS_PER_YEAR) if downside_std > 0 else 0.0
-    ann_vol = std_w * math.sqrt(WEEKS_PER_YEAR) * 100
+    # Tier-2 #27: empirical periods_per_year. Pre-fix hardcoded
+    # ``sqrt(WEEKS_PER_YEAR=52)`` annualized the weekly Sharpe regardless
+    # of how many periods actually fell into the year. When a backtest
+    # window included U.S. market holidays (MLK / Memorial / July 4 /
+    # Labor Day / Thanksgiving / Christmas → ~9 holiday Mondays a year),
+    # the equity curve had fewer-than-52 samples per year but the
+    # annualizer behaved as if it had 52, overstating Sharpe and
+    # Sortino. Compute the factor from actual elapsed days instead.
+    # First/last date come from the equity_curve dicts — caller's
+    # contract preserves them as ISO strings, so we parse to compute
+    # elapsed years.
+    first_date = pd.Timestamp(equity_curve[0]["date"])
+    last_date = pd.Timestamp(equity_curve[-1]["date"])
+    elapsed_days = max(1, (last_date - first_date).days)
+    years_elapsed = elapsed_days / 365.25
+    periods_per_year = (
+        len(weekly_returns) / years_elapsed if years_elapsed > 0 else float(WEEKS_PER_YEAR)
+    )
+    ann_factor = math.sqrt(periods_per_year)
+
+    ann_sharpe = (mean_w / std_w) * ann_factor if std_w > 0 else 0.0
+    ann_sortino = (mean_w / downside_std) * ann_factor if downside_std > 0 else 0.0
+    ann_vol = std_w * ann_factor * 100
 
     # Calmar = annualized return / |max DD|
     total_return = equities[-1] / equities[0] - 1
-    weeks_elapsed = len(weekly_returns)
-    years_elapsed = weeks_elapsed / WEEKS_PER_YEAR
     if years_elapsed > 0:
         if compound:
             ann_return = (1 + total_return) ** (1 / years_elapsed) - 1
