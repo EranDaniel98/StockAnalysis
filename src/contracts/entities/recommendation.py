@@ -196,13 +196,38 @@ class Recommendation(BaseModel):
     industry: str = "Unknown"
     market_cap: Optional[float] = None
 
+    # --- engine-level validity (Tier-1 B1 reviewer finding) ---
+    # Propagated from CompositeScore so downstream gates (paper-trade,
+    # backtest entry) can refuse on a structurally-broken score rather
+    # than acting on the 50.0 placeholder composite. Default True keeps
+    # callers that construct Recommendation directly working unchanged.
+    score_valid: bool = True
+    error_count: int = 0
+    error_slots: tuple[str, ...] = ()
+
     def legacy_dict(self) -> dict:
         """Return the legacy untyped-dict shape current call sites expect.
         Shim. Remove in Phase 1.
 
-        risk_management.{stop_loss,take_profit} emit as flat sub-dicts to
-        match the recommender's historical output and keep CLI / paper
-        trade gates working unchanged."""
+        risk_management.{stop_loss,take_profit} emit as legacy sub-dicts
+        rather than None-when-absent so paper_trade_service's
+        ``.get("stop_loss", {}).get("price")`` chain doesn't crash on the
+        migration (reviewer I3). The DB repo already uses
+        ``extract_stop_loss_price`` which handles both shapes.
+
+        score_valid / error_count / error_slots emit so downstream gates
+        on the legacy-dict surface can refuse a broken-pipeline result
+        (reviewer B1/I4)."""
+        if self.risk_management is None:
+            rm_payload: dict = {}
+        else:
+            rm_payload = self.risk_management.model_dump()
+            # Empty-dict fallback preserves the legacy
+            # ``.get("stop_loss", {}).get("price")`` chain (reviewer I3).
+            if rm_payload.get("stop_loss") is None:
+                rm_payload["stop_loss"] = {}
+            if rm_payload.get("take_profit") is None:
+                rm_payload["take_profit"] = {}
         return {
             "ticker": self.ticker,
             "action": self.action,
@@ -214,13 +239,14 @@ class Recommendation(BaseModel):
             "bullish_signals": self.bullish_signals,
             "bearish_signals": self.bearish_signals,
             "all_signals": [s.model_dump() for s in self.all_signals],
-            "risk_management": (
-                self.risk_management.model_dump() if self.risk_management else {}
-            ),
+            "risk_management": rm_payload,
             "name": self.name,
             "sector": self.sector,
             "industry": self.industry,
             "market_cap": self.market_cap,
+            "score_valid": self.score_valid,
+            "error_count": self.error_count,
+            "error_slots": list(self.error_slots),
         }
 
     @classmethod
@@ -257,4 +283,7 @@ class Recommendation(BaseModel):
             sector=sector,
             industry=industry,
             market_cap=market_cap,
+            score_valid=score.score_valid,
+            error_count=score.error_count,
+            error_slots=tuple(score.error_slots),
         )

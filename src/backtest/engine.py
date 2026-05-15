@@ -745,6 +745,13 @@ def run_backtest(
                 composite = result["composite_score"]
                 if pd.isna(composite):
                     continue
+                # Refuse to act on a structurally-broken score even if its
+                # placeholder composite happens to cross min_score (reviewer
+                # B1). Engine returns score_valid=False when all required
+                # analyzers errored; the 50.0 fallback + PEAD/consensus can
+                # otherwise lift composite past the threshold.
+                if not result.get("score_valid", True):
+                    continue
                 if composite < bt_cfg.min_score:
                     break  # sorted: rest are worse
                 if not portfolio.can_open(ticker):
@@ -1355,6 +1362,9 @@ def run_backtest_multi_mode(
 
                 for ticker, result, composite in rescored:
                     if pd.isna(composite):
+                        continue
+                    # See single-mode gate above — reviewer B1.
+                    if not result.get("score_valid", True):
                         continue
                     if composite < bt_cfg.min_score:
                         break

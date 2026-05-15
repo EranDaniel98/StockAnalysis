@@ -43,8 +43,19 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
     if strategy:
         thresholds.update(strategy.get("thresholds", {}) or {})
 
-    # --- Determine Action ---
-    action, confidence = _determine_action(composite, thresholds)
+    # --- Validity gate (Tier-1 B1 reviewer finding) ---
+    # When the engine returned score_valid=False, composite is the 50.0
+    # placeholder over a broken analyzer chain. Force HOLD/Low so the
+    # threshold pyramid can't classify the placeholder as BUY/STRONG BUY
+    # via PEAD/consensus lift (those are now also gated in the engine).
+    # Downstream gates in paper_trade_service / backtest also refuse on
+    # score_valid=False — this is the second line of defence.
+    score_valid = bool(score_result.get("score_valid", True))
+    if not score_valid:
+        action, confidence = "HOLD", "Low"
+    else:
+        # --- Determine Action ---
+        action, confidence = _determine_action(composite, thresholds)
 
     # --- Collect Key Reasoning ---
     reasoning = _build_reasoning(score_result, fundamentals)
@@ -72,6 +83,12 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
         "sector": fundamentals.get("sector", "Unknown") if fundamentals else "Unknown",
         "industry": fundamentals.get("industry", "Unknown") if fundamentals else "Unknown",
         "market_cap": fundamentals.get("market_cap") if fundamentals else None,
+        # Engine-level validity surfaced for downstream gates (paper-trade,
+        # backtest, web UI). Default True if caller passed a pre-typed
+        # CompositeScore (which already validated). Reviewer B1.
+        "score_valid": score_valid,
+        "error_count": int(score_result.get("error_count", 0) or 0),
+        "error_slots": list(score_result.get("error_slots", []) or []),
     }
 
 

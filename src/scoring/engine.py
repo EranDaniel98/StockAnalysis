@@ -182,30 +182,39 @@ def calculate_composite_score(
         composite = 50.0
         score_valid = False
 
-    # PEAD bonus (additive, not weighted) — captures earnings drift premium
-    if pead_result is not None and isinstance(pead_result, dict):
-        pead_bonus = pead_result.get("composite_bonus", 0.0) or 0.0
-        try:
-            composite += float(pead_bonus)
-        except (TypeError, ValueError):
-            pass
-
-    # Carver-style consensus scaling: when sub-scores disagree, pull composite
-    # toward 50 (neutral). Opt-in via strategy config to preserve baseline.
-    consensus_diag: dict = {}
-    if strategy_config.get("use_consensus_scaling", False) and sub_scores:
-        from src.scoring.diversification import apply_consensus_scaling
-        composite, consensus_diag = apply_consensus_scaling(composite, sub_scores)
-
-    # Signal consensus adjustment
+    # Post-composite adjustments — PEAD bonus, Carver consensus scaling,
+    # signal-consensus ±5. These ONLY apply when score_valid is True. When
+    # all required analyzers errored, composite is the 50.0 placeholder
+    # and lifting it via PEAD (which can be +5/+10) plus a bullish signal
+    # consensus (+5) would manufacture a BUY threshold (~65) out of zero
+    # real signal. Reviewer-flagged B2: keep the placeholder at 50 so the
+    # downstream score_valid gate refuses cleanly. Always compute the
+    # signal counts (callers display them) and the consensus diag (so
+    # operators see "scaling skipped: score_valid=False").
     bullish_count = sum(1 for s in all_signals if s.get("type") == "bullish")
     bearish_count = sum(1 for s in all_signals if s.get("type") == "bearish")
-    total_signals = bullish_count + bearish_count
+    consensus_diag: dict = {}
 
-    if total_signals > 0:
-        consensus_ratio = (bullish_count - bearish_count) / total_signals
-        # Slight adjustment based on signal consensus (max +/- 5 points)
-        composite += consensus_ratio * 5
+    if score_valid:
+        # PEAD bonus (additive, not weighted) — captures earnings drift premium.
+        if pead_result is not None and isinstance(pead_result, dict):
+            pead_bonus = pead_result.get("composite_bonus", 0.0) or 0.0
+            try:
+                composite += float(pead_bonus)
+            except (TypeError, ValueError):
+                pass
+
+        # Carver-style consensus scaling: when sub-scores disagree, pull
+        # composite toward 50 (neutral). Opt-in via strategy config.
+        if strategy_config.get("use_consensus_scaling", False) and sub_scores:
+            from src.scoring.diversification import apply_consensus_scaling
+            composite, consensus_diag = apply_consensus_scaling(composite, sub_scores)
+
+        total_signals = bullish_count + bearish_count
+        if total_signals > 0:
+            consensus_ratio = (bullish_count - bearish_count) / total_signals
+            # Slight adjustment based on signal consensus (max +/- 5 points).
+            composite += consensus_ratio * 5
 
     composite = max(0, min(100, composite))
 

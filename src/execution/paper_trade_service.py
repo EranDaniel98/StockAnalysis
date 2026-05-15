@@ -126,13 +126,31 @@ def run_paper_trade(config, args):
     )
 
     # --- Gate ---
+    # score_valid=False means the engine's composite is a 50.0 placeholder
+    # over a broken analyzer chain — never act on that, no matter what the
+    # action label or PEAD bonus says (reviewer B1). Default True keeps
+    # legacy recommendations (pre-silent-50 fix) qualifying as before.
     qualified = [
         r for r in recommendations
-        if r["composite_score"] >= min_score
+        if r.get("score_valid", True)
+        and r["composite_score"] >= min_score
         and r["action"] in ("BUY", "STRONG BUY", "HOLD")  # don't trade SELL signals
         and r.get("risk_management", {}).get("stop_loss", {}).get("price")
         and r.get("risk_management", {}).get("take_profit", {}).get("price")
     ][:top_n]
+
+    # Log how many were refused on validity grounds — fail-loud diagnostic
+    # so an upstream regression that flips every score to invalid is
+    # immediately visible in the operator log.
+    invalid_refused = sum(
+        1 for r in recommendations if not r.get("score_valid", True)
+    )
+    if invalid_refused:
+        logger.warning(
+            "paper_trade: refused %d recommendation(s) on score_valid=False "
+            "(broken-analyzer-chain guard, reviewer B1)",
+            invalid_refused,
+        )
 
     if not qualified:
         console.print(
