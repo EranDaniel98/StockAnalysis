@@ -1,0 +1,487 @@
+{
+  "ran_at": "2026-05-16T04:10:50.277480+00:00",
+  "universe": "russell_1000",
+  "strategy": "minimal_baseline",
+  "window": {
+    "start": "2022-05-13",
+    "end": "2024-05-13",
+    "years": 2.0
+  },
+  "starting_cash": 10000.0,
+  "pit_fundamentals": true,
+  "regime_mode": "off",
+  "snapshot_id": "4504fcb65f549dae",
+  "git_sha": "85b15b6",
+  "ablation_label": null,
+  "ablation_overrides": {
+    "min_score": null,
+    "atr_stop_mult": null,
+    "atr_target_mult": null,
+    "max_hold_days": null
+  },
+  "effective_config": {
+    "min_score": 55,
+    "atr_stop_mult": 2.0,
+    "atr_target_mult": 6.0,
+    "max_hold_days": 90
+  },
+  "full": {
+    "summary": {
+      "n_trades": 203,
+      "starting_cash": 10000.0,
+      "ending_equity": 15368.42,
+      "total_pnl": 5368.42,
+      "total_return_pct": 53.68,
+      "cagr_pct": 26.82,
+      "annualization_method": "linear",
+      "win_rate_pct": 42.9,
+      "avg_win_pct": 14.95,
+      "avg_loss_pct": -6.39,
+      "expectancy_pct": 2.75,
+      "avg_hold_days": 32.4,
+      "sharpe_per_trade": 0.23,
+      "spy_return_pct": 33.76,
+      "alpha_vs_spy_pct": 19.92,
+      "spy_deployment_matched_pct": 33.03,
+      "alpha_vs_spy_matched_pct": 20.65,
+      "total_costs_paid": 256.05,
+      "commissions_paid": 0.0,
+      "slippage_cost": 196.34,
+      "regulatory_fees": 59.71,
+      "start_date": "2022-05-13",
+      "end_date": "2024-05-13"
+    },
+    "equity_stats": {
+      "max_drawdown_pct": -17.06,
+      "time_in_dd_pct": 79.0,
+      "ann_sharpe": 1.09,
+      "ann_sortino": 1.34,
+      "calmar": 1.59,
+      "ann_volatility_pct": 22.32
+    },
+    "calibration": [
+      {
+        "bucket": "<50",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "50-59",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "60-69",
+        "n": 198,
+        "win_rate": 43.4,
+        "avg_return_pct": 2.9,
+        "median_return_pct": -3.79,
+        "avg_hold_days": 32.8,
+        "total_pnl": 5513.67
+      },
+      {
+        "bucket": "70-79",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "win_rate": 20.0,
+        "avg_return_pct": -2.95,
+        "median_return_pct": -4.04,
+        "avg_hold_days": 19.2,
+        "total_pnl": -145.25
+      }
+    ]
+  },
+  "in_sample": {
+    "summary": {
+      "n_trades": 134,
+      "starting_cash": 10000.0,
+      "ending_equity": 10720.11,
+      "total_pnl": 720.11,
+      "total_return_pct": 7.2,
+      "cagr_pct": 5.15,
+      "annualization_method": "linear",
+      "win_rate_pct": 30.6,
+      "avg_win_pct": 17.41,
+      "avg_loss_pct": -6.74,
+      "expectancy_pct": 0.65,
+      "avg_hold_days": 33.5,
+      "sharpe_per_trade": 0.05,
+      "spy_return_pct": 9.53,
+      "alpha_vs_spy_pct": -2.32,
+      "spy_deployment_matched_pct": 9.62,
+      "alpha_vs_spy_matched_pct": -2.42,
+      "total_costs_paid": 0.0,
+      "commissions_paid": 0.0,
+      "slippage_cost": 0.0,
+      "regulatory_fees": 0.0,
+      "start_date": "2022-05-13",
+      "end_date": "2023-10-06"
+    },
+    "equity_stats": {
+      "max_drawdown_pct": -17.06,
+      "time_in_dd_pct": 91.8,
+      "ann_sharpe": 0.34,
+      "ann_sortino": 0.42,
+      "calmar": 0.32,
+      "ann_volatility_pct": 23.32
+    },
+    "calibration": [
+      {
+        "bucket": "<50",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "50-59",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "60-69",
+        "n": 131,
+        "win_rate": 31.3,
+        "avg_return_pct": 0.77,
+        "median_return_pct": -4.97,
+        "avg_hold_days": 33.9,
+        "total_pnl": 968.88
+      },
+      {
+        "bucket": "70-79",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "80+",
+        "n": 3,
+        "win_rate": 0.0,
+        "avg_return_pct": -4.8,
+        "median_return_pct": -4.83,
+        "avg_hold_days": 15.3,
+        "total_pnl": -139.25
+      }
+    ]
+  },
+  "out_of_sample": {
+    "summary": {
+      "n_trades": 69,
+      "starting_cash": 10720.11,
+      "ending_equity": 15368.42,
+      "total_pnl": 4648.31,
+      "total_return_pct": 43.36,
+      "cagr_pct": 72.32,
+      "annualization_method": "linear",
+      "win_rate_pct": 66.7,
+      "avg_win_pct": 12.76,
+      "avg_loss_pct": -4.98,
+      "expectancy_pct": 6.85,
+      "avg_hold_days": 30.3,
+      "sharpe_per_trade": 0.71,
+      "spy_return_pct": 21.35,
+      "alpha_vs_spy_pct": 22.01,
+      "spy_deployment_matched_pct": 20.27,
+      "alpha_vs_spy_matched_pct": 23.09,
+      "total_costs_paid": 0.0,
+      "commissions_paid": 0.0,
+      "slippage_cost": 0.0,
+      "regulatory_fees": 0.0,
+      "start_date": "2023-10-06",
+      "end_date": "2024-05-13"
+    },
+    "equity_stats": {
+      "max_drawdown_pct": -9.73,
+      "time_in_dd_pct": 34.4,
+      "ann_sharpe": 3.24,
+      "ann_sortino": 4.19,
+      "calmar": 7.55,
+      "ann_volatility_pct": 19.49
+    },
+    "calibration": [
+      {
+        "bucket": "<50",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "50-59",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "60-69",
+        "n": 67,
+        "win_rate": 67.2,
+        "avg_return_pct": 7.06,
+        "median_return_pct": 9.85,
+        "avg_hold_days": 30.5,
+        "total_pnl": 4544.79
+      },
+      {
+        "bucket": "70-79",
+        "n": 0,
+        "win_rate": null,
+        "avg_return_pct": null,
+        "median_return_pct": null,
+        "avg_hold_days": null,
+        "total_pnl": 0.0
+      },
+      {
+        "bucket": "80+",
+        "n": 2,
+        "win_rate": 50.0,
+        "avg_return_pct": -0.17,
+        "median_return_pct": -0.17,
+        "avg_hold_days": 25.0,
+        "total_pnl": -6.0
+      }
+    ]
+  },
+  "split_date": "2023-10-06",
+  "walk_forward": {
+    "n_folds": 5,
+    "folds": [
+      {
+        "fold_index": 0,
+        "start_date": "2022-05-13",
+        "end_date": "2022-10-06",
+        "n_trades": 37,
+        "status": "ok",
+        "total_return_pct": -6.67,
+        "ann_sharpe": -0.43,
+        "max_drawdown_pct": -15.69
+      },
+      {
+        "fold_index": 1,
+        "start_date": "2022-10-06",
+        "end_date": "2023-03-01",
+        "n_trades": 32,
+        "status": "ok",
+        "total_return_pct": -7.93,
+        "ann_sharpe": -0.91,
+        "max_drawdown_pct": -16.4
+      },
+      {
+        "fold_index": 2,
+        "start_date": "2023-03-01",
+        "end_date": "2023-07-25",
+        "n_trades": 44,
+        "status": "ok",
+        "total_return_pct": 11.98,
+        "ann_sharpe": 1.96,
+        "max_drawdown_pct": -4.5
+      },
+      {
+        "fold_index": 3,
+        "start_date": "2023-07-25",
+        "end_date": "2023-12-18",
+        "n_trades": 43,
+        "status": "ok",
+        "total_return_pct": 9.78,
+        "ann_sharpe": 1.56,
+        "max_drawdown_pct": -8.11
+      },
+      {
+        "fold_index": 4,
+        "start_date": "2023-12-18",
+        "end_date": "2024-05-13",
+        "n_trades": 45,
+        "status": "ok",
+        "total_return_pct": 29.89,
+        "ann_sharpe": 3.39,
+        "max_drawdown_pct": -9.73
+      }
+    ],
+    "mean_sharpe": 1.11,
+    "min_sharpe": -0.91,
+    "max_sharpe": 3.39,
+    "min_mean_sharpe_threshold": 0.5,
+    "passes_min_fold_gate": false,
+    "gate_reason": "min fold Sharpe -0.91 <= 0 \u2014 at least one fold lost money"
+  },
+  "regimes": {
+    "spy_bull": {
+      "n": 146,
+      "win_rate_pct": 46.6,
+      "avg_return_pct": 3.81,
+      "expectancy_pct": 3.81,
+      "total_pnl": 5377.14
+    },
+    "spy_bear": {
+      "n": 57,
+      "win_rate_pct": 33.3,
+      "avg_return_pct": 0.05,
+      "expectancy_pct": 0.05,
+      "total_pnl": -8.72
+    },
+    "vix_low": {
+      "n": 82,
+      "win_rate_pct": 56.1,
+      "avg_return_pct": 4.76,
+      "expectancy_pct": 4.76,
+      "total_pnl": 3778.49
+    },
+    "vix_normal": {
+      "n": 80,
+      "win_rate_pct": 33.8,
+      "avg_return_pct": 1.86,
+      "expectancy_pct": 1.86,
+      "total_pnl": 1461.69
+    },
+    "vix_high": {
+      "n": 41,
+      "win_rate_pct": 34.1,
+      "avg_return_pct": 0.48,
+      "expectancy_pct": 0.48,
+      "total_pnl": 128.24
+    }
+  },
+  "data_quality": {
+    "pipeline_version": "2026-05-15-survivorship-haircut",
+    "survivorship_bias": {
+      "applies": true,
+      "severity": "haircut_estimated",
+      "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+      "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+      "details": "Universe is built from a present-day ticker snapshot, so stocks that delisted / went bankrupt / were acquired before today are excluded entirely. Headline Sharpe / CAGR are biased upward by an unknown amount.",
+      "remediation": "Adopt point-in-time index membership (CRSP / Norgate / Sharadar) or apply Bessembinder-style synthetic delisted returns. Until then, treat all headline numbers as upper bounds.",
+      "universe_label": "russell_1000",
+      "adjusted": {
+        "full": {
+          "total_return_pct": 49.68,
+          "cagr_pct": 24.82,
+          "ann_sharpe": 0.89,
+          "haircut_applied": {
+            "annual_return_haircut_pct": 2.0,
+            "sharpe_haircut": 0.2,
+            "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+          }
+        },
+        "out_of_sample": {
+          "total_return_pct": 42.16,
+          "cagr_pct": 70.32,
+          "ann_sharpe": 3.04,
+          "haircut_applied": {
+            "annual_return_haircut_pct": 2.0,
+            "sharpe_haircut": 0.2,
+            "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+          }
+        },
+        "method": "Flat annual-return + Sharpe haircut applied to headline metrics per universe. See src/backtest/survivorship.py for magnitudes and citations. Headline numbers are unchanged; the adjusted block is the credible lower bound."
+      }
+    },
+    "n_tickers_traded": 99
+  },
+  "n_trades": 203,
+  "warnings": [
+    "PIT fundamentals active: loader covers 98% of universe. Fundamental weight 30% scored against EDGAR PIT rows.",
+    "Survivorship bias: universe is built from current-snapshot ticker lists. Stocks that delisted, went bankrupt, or were acquired before today are excluded entirely \u2014 results are biased upward by an unknown amount (typically 1-3%/yr for large-cap windows, more for small-cap or longer windows)."
+  ],
+  "pipeline_version": "2026-05-15-survivorship-haircut",
+  "bootstrap": {
+    "n_resamples": 500,
+    "block_size": 5,
+    "total_return_ci_pct": [
+      27.84,
+      65.08
+    ],
+    "win_rate_ci_pct": [
+      53.62,
+      81.16
+    ],
+    "expectancy_ci_pct": [
+      4.21,
+      9.77
+    ],
+    "ann_sharpe_ci": [
+      0.79,
+      7.99
+    ]
+  },
+  "bootstrap_label": "OOS",
+  "concentration_sensitivity": {
+    "applicable": true,
+    "n_removed": 5,
+    "n_trades": 69,
+    "top_pnl_sum": 1070.37,
+    "total_pnl": 4538.79,
+    "concentration_pct": 23.58,
+    "headline_total_return_pct": 43.63,
+    "stripped_total_return_pct": 33.63,
+    "headline_ann_sharpe": 3.24,
+    "stripped_ann_sharpe": 2.61,
+    "sharpe_drop": 0.63,
+    "top_trade_summary": [
+      {
+        "ticker": "NVDA",
+        "entry_date": "2023-11-06 05:00:00",
+        "exit_date": "2024-01-16 05:00:00",
+        "pnl": 240.64,
+        "pnl_pct": 24.16
+      },
+      {
+        "ticker": "CELH",
+        "entry_date": "2024-02-12 05:00:00",
+        "exit_date": "2024-02-29 05:00:00",
+        "pnl": 214.85,
+        "pnl_pct": 21.58
+      },
+      {
+        "ticker": "FTAI",
+        "entry_date": "2023-11-13 05:00:00",
+        "exit_date": "2024-01-12 05:00:00",
+        "pnl": 214.55,
+        "pnl_pct": 21.92
+      },
+      {
+        "ticker": "ANET",
+        "entry_date": "2024-02-20 05:00:00",
+        "exit_date": "2024-05-13 00:00:00",
+        "pnl": 208.42,
+        "pnl_pct": 21.53
+      },
+      {
+        "ticker": "CRWD",
+        "entry_date": "2023-10-23 04:00:00",
+        "exit_date": "2023-11-28 05:00:00",
+        "pnl": 191.91,
+        "pnl_pct": 21.8
+      }
+    ],
+    "window_label": "OOS"
+  }
+}
