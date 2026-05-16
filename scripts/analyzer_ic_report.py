@@ -413,9 +413,15 @@ def main() -> int:
     logger.info("Score panel rows: %d", len(panel))
 
     logger.info("Building price matrix...")
-    # Forward returns need bars past the panel's last date — request the
-    # widest range that contains the panel + ~30 trading days runway.
-    prices = build_price_matrix(price_data, start, end + pd.Timedelta(days=45))
+    # Forward returns need bars past the panel's last date. Alphalens
+    # drops period columns if too many rebalances lack their full
+    # forward window — for a 42D horizon we need ~60 trading days =
+    # ~90 calendar days of runway. Original 45 days truncated 21D.
+    max_period_days = max(periods) if periods else 5
+    runway_days = max(45, int(max_period_days * 2 + 14))
+    prices = build_price_matrix(
+        price_data, start, end + pd.Timedelta(days=runway_days),
+    )
     if prices.empty:
         logger.error("Empty price matrix; aborting.")
         return 4
