@@ -101,7 +101,7 @@ Price: **$38.96** | Composite z: **+2.90** | Analyst tgt: $41.92 (+7.62%) — *h
 | **Risk/Reward** | 0.82× | risk $3.81/sh, reward $3.11/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-833,372.80; 1 sales ($833,372.80), most recent 2026-03-31
+- ⚪ **NEUTRAL** — net $-833,372.80; 1 sales ($833,372.80), most recent 2026-03-31
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $42.07
@@ -150,7 +150,7 @@ Price: **$16.49** | Composite z: **+2.38** | Analyst tgt: $17.50 (+6.16%) — *b
 | **Risk/Reward** | 0.94× | risk $1.40/sh, reward $1.31/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-278,337.07; 2 open-market buys ($5,201.61); 1 sales ($283,538.68), most recent 2026-04-15
+- ⚪ **NEUTRAL** — net $-278,337.07; 2 open-market buys ($5,201.61); 1 sales ($283,538.68), most recent 2026-04-15
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $17.80
@@ -245,7 +245,7 @@ Price: **$396.64** | Composite z: **+2.24** | Analyst tgt: $427.89 (+7.88%) — 
 | **Risk/Reward** | 1.26× | risk $25.21/sh, reward $31.74/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-47.92M; 58 sales ($47.92M), most recent 2026-04-30
+- ⚪ **NEUTRAL** — net $-47.92M; 58 sales ($47.92M), most recent 2026-04-30
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $428.38
@@ -393,7 +393,7 @@ Price: **$108.85** | Composite z: **+2.16** | Analyst tgt: $144.01 (+32.30%) —
 | **Risk/Reward** | 0.72× | risk $12.06/sh, reward $8.71/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-7.52M; 12 sales ($7.52M), most recent 2026-05-01
+- ⚪ **NEUTRAL** — net $-7.52M; 12 sales ($7.52M), most recent 2026-05-01
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $117.56
@@ -485,7 +485,7 @@ Price: **$26.64** | Composite z: **+2.09** | Analyst tgt: $30.69 (+15.20%) — *
 | **Risk/Reward** | 1.38× | risk $1.54/sh, reward $2.13/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-195,750.22; 1 sales ($195,750.22), most recent 2026-05-07
+- ⚪ **NEUTRAL** — net $-195,750.22; 1 sales ($195,750.22), most recent 2026-05-07
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $28.77
@@ -577,7 +577,7 @@ Price: **$949.92** | Composite z: **+2.01** | Analyst tgt: $947.60 (-0.24%) — 
 | **Risk/Reward** | 1.36× | risk $55.77/sh, reward $75.99/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-22.18M; 88 open-market buys ($6.87M); 56 sales ($29.05M), most recent 2026-05-06
+- ⚪ **NEUTRAL** — net $-22.18M; 88 open-market buys ($6.87M); 56 sales ($29.05M), most recent 2026-05-06
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $1,025.91
@@ -623,7 +623,7 @@ Price: **$134.99** | Composite z: **+2.01** | Analyst tgt: $142.64 (+5.67%) — 
 | **Risk/Reward** | 1.58× | risk $6.82/sh, reward $10.80/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-6.57M; 4 sales ($6.57M), most recent 2026-04-17
+- ⚪ **NEUTRAL** — net $-6.57M; 4 sales ($6.57M), most recent 2026-04-17
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $145.79
@@ -712,7 +712,7 @@ Price: **$192.50** | Composite z: **+1.89** | Analyst tgt: $203.29 (+5.60%) — 
 | **Risk/Reward** | 1.49× | risk $10.31/sh, reward $15.40/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-16.62M; 11 sales ($16.62M), most recent 2026-04-20
+- ⚪ **NEUTRAL** — net $-16.62M; 11 sales ($16.62M), most recent 2026-04-20
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $207.90
@@ -758,7 +758,7 @@ Price: **$53.13** | Composite z: **+1.87** | Analyst tgt: $63.48 (+19.46%) — *
 | **Risk/Reward** | 1.51× | risk $2.82/sh, reward $4.26/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-4.20M; 2 sales ($4.20M), most recent 2026-05-05
+- ⚪ **NEUTRAL** — net $-4.20M; 2 sales ($4.20M), most recent 2026-05-05
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $57.39
@@ -847,7 +847,7 @@ Price: **$73.01** | Composite z: **+1.81** | Analyst tgt: $69.45 (-4.87%) — *h
 | **Risk/Reward** | 1.40× | risk $4.17/sh, reward $5.84/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-1.89M; 1 sales ($1.89M), most recent 2026-03-05
+- ⚪ **NEUTRAL** — net $-1.89M; 1 sales ($1.89M), most recent 2026-03-05
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $78.85
@@ -893,7 +893,7 @@ Price: **$205.31** | Composite z: **+1.78** | Analyst tgt: $233.53 (+13.74%) —
 | **Risk/Reward** | 1.55× | risk $10.62/sh, reward $16.42/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-2.51M; 2 sales ($2.51M), most recent 2026-05-07
+- ⚪ **NEUTRAL** — net $-2.51M; 2 sales ($2.51M), most recent 2026-05-07
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $221.73
@@ -939,7 +939,7 @@ Price: **$422.96** | Composite z: **+1.77** | Analyst tgt: $513.10 (+21.31%) —
 | **Risk/Reward** | 1.04× | risk $32.52/sh, reward $33.84/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-903,536.74; 1 sales ($903,536.74), most recent 2026-05-07
+- ⚪ **NEUTRAL** — net $-903,536.74; 1 sales ($903,536.74), most recent 2026-05-07
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $456.80
@@ -985,7 +985,7 @@ Price: **$21.39** | Composite z: **+1.73** | Analyst tgt: $22.88 (+6.97%) — *b
 | **Risk/Reward** | 1.55× | risk $1.11/sh, reward $1.71/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-1.54M; 2 sales ($1.54M), most recent 2026-05-08
+- ⚪ **NEUTRAL** — net $-1.54M; 2 sales ($1.54M), most recent 2026-05-08
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $23.10
@@ -1074,7 +1074,7 @@ Price: **$95.30** | Composite z: **+1.70** | Analyst tgt: $108.50 (+13.85%) — 
 | **Risk/Reward** | 1.02× | risk $7.48/sh, reward $7.62/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-5.44M; 3 sales ($5.44M), most recent 2026-05-08
+- ⚪ **NEUTRAL** — net $-5.44M; 3 sales ($5.44M), most recent 2026-05-08
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $102.92
@@ -1120,7 +1120,7 @@ Price: **$123.34** | Composite z: **+1.69** | Analyst tgt: $146.84 (+19.05%) —
 | **Risk/Reward** | 1.28× | risk $7.70/sh, reward $9.87/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-5.64M; 5 sales ($5.64M), most recent 2026-05-08
+- ⚪ **NEUTRAL** — net $-5.64M; 5 sales ($5.64M), most recent 2026-05-08
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $133.21
@@ -1166,7 +1166,7 @@ Price: **$152.88** | Composite z: **+1.64** | Analyst tgt: $160.54 (+5.01%) — 
 | **Risk/Reward** | 1.47× | risk $8.34/sh, reward $12.23/sh |
 
 **Insider activity (last 90 days)**
-- 🔴 **BEARISH** — net $-9.44M; 1 open-market buys ($312,475.00); 7 sales ($9.75M), most recent 2026-04-22
+- ⚪ **NEUTRAL** — net $-9.44M; 1 open-market buys ($312,475.00); 7 sales ($9.75M), most recent 2026-04-22
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $165.11

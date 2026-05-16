@@ -136,13 +136,20 @@ def main() -> int:
         "morning_briefing",
     )
 
+    # Force UTF-8 stdout so unicode summary markers don't crash on
+    # cp1252 Windows consoles.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
     print()
     print("=" * 60)
     print("DAILY PIPELINE RESULT")
     print("=" * 60)
     for step in STEPS:
         ok = results.get(step, False)
-        print(f"  {'✓' if ok else '✗'} {step}")
+        marker = "[OK]" if ok else "[FAIL]"
+        print(f"  {marker} {step}")
     print()
     print(f"Outputs in: reports/ and data/daily_picks/")
     print()
