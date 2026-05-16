@@ -199,11 +199,12 @@ def _compute_factor_stats(
     ic = al.performance.factor_information_coefficient(clean)
     qr_mean, _ = al.performance.mean_return_by_quantile(clean)
 
+    # alphalens labels horizons using the modal calendar gap between
+    # rebalance dates — for real equity data with market holidays this
+    # shifts labels (10 trading days → "11D", 21 → "23D", 42 → "44D").
+    # Just read whatever columns alphalens emitted rather than guessing.
     per_horizon: dict[str, dict] = {}
-    for p in periods:
-        col = f"{p}D"
-        if col not in ic.columns:
-            continue
+    for col in ic.columns:
         ic_series = ic[col].dropna()
         ic_mean = float(ic_series.mean()) if len(ic_series) else 0.0
         ic_std = float(ic_series.std()) if len(ic_series) > 1 else 0.0
@@ -275,7 +276,20 @@ def _emit_markdown(
         "",
     ]
 
-    for horizon in (f"{p}D" for p in periods):
+    # Use the union of horizon labels actually emitted by alphalens.
+    # The patched calendar inference shifts requested periods (e.g.
+    # asked-for 21D becomes "23D" on calendars with holidays), so we
+    # can't reuse the requested periods list for table headers.
+    horizons: list[str] = []
+    seen: set[str] = set()
+    for entry in per_factor:
+        for h in entry.get("by_horizon", {}).keys():
+            if h not in seen:
+                seen.add(h)
+                horizons.append(h)
+    horizons.sort(key=lambda s: int(s.rstrip("D")) if s.rstrip("D").isdigit() else 999)
+
+    for horizon in horizons:
         lines.append(f"## Horizon: {horizon}")
         lines.append("")
         lines.append("| Factor | IC mean | IC IR | t-stat | Bonferroni-p | "

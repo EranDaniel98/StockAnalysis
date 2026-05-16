@@ -1,0 +1,34 @@
+2026-05-16 03:25:41,876 [INFO] analyzer_ic_report: Reading cached score panel from data\baseline\score_panel_2022_2024.csv
+2026-05-16 03:25:41,929 [INFO] analyzer_ic_report: Fetching ticker price histories (for price matrix)...
+2026-05-16 03:25:43,288 [WARNING] src.data.fetch_outcome: yf.history(BFA) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:44,392 [WARNING] src.data.fetch_outcome: yf.history(BFB) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:45,704 [WARNING] src.data.fetch_outcome: yf.history(BRKB) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:46,270 [WARNING] src.data.fetch_outcome: yf.history(LENB) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:46,990 [WARNING] src.data.fetch_outcome: yf.history(HEIA) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:48,870 [WARNING] src.data.fetch_outcome: yf.history(UHALB) failed: YFRateLimitError: Too Many Requests. Rate limited. Try after a while.
+2026-05-16 03:25:48,883 [INFO] src.data.fetcher: Fetched price data for 996/1002 tickers (workers=10)
+2026-05-16 03:25:48,883 [INFO] analyzer_ic_report: Score panel rows: 97406
+2026-05-16 03:25:48,883 [INFO] analyzer_ic_report: Building price matrix...
+2026-05-16 03:25:49,091 [INFO] analyzer_ic_report: Computing IC for factor=technical ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:25:52,492 [INFO] analyzer_ic_report: Computing IC for factor=fundamental ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:25:54,887 [INFO] analyzer_ic_report: Computing IC for factor=statistical ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:25:57,119 [INFO] analyzer_ic_report: Computing IC for factor=pattern ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:25:58,011 [WARNING] analyzer_ic_report: alphalens failed for factor=pattern: max_loss (50.0%) exceeded 80.0%, consider increasing it.
+2026-05-16 03:25:58,011 [INFO] analyzer_ic_report: Computing IC for factor=trend ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:25:59,960 [INFO] analyzer_ic_report: Computing IC for factor=alpha158 ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:26:02,265 [INFO] analyzer_ic_report: Computing IC for factor=composite ...
+C:\Users\Eran Daniel\Desktop\Personal\StockNew\src\research\diagnostic_service.py:337: FutureWarning: The previous implementation of stack is deprecated and will be removed in a future version of pandas. See the What's New notes for pandas 2.1.0 for details. Specify future_stack=True to adopt the new implementation and silence this warning.
+  series = wide.stack(dropna=True)
+2026-05-16 03:26:04,605 [INFO] analyzer_ic_report: Wrote reports\analyzer_ic_2022_2024_extended.md + reports\analyzer_ic_2022_2024_extended.json
