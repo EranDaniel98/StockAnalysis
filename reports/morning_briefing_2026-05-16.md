@@ -179,12 +179,74 @@ ranked decisions are:
   `c7fe153`. The skip_bear hypothesis remains unfalsified by this run
   — we just chose the wrong gate.
 
-### Runs queued / in-flight
-- **`skip_bear_and_chop` on 2022-2024** (task `blv6po4nq`). This gate
-  ALSO refuses on chop (SPY<SMA200 OR VIX in 20-25 zone), which
-  matches the 2022 grinding-bear pattern. If folds 0/1 turn neutral
-  here without killing 2-4, regime-filtering is a real fix. If folds
-  2-4 collapse too, the strategy's edge is just being long in 2023.
+- **`skip_bear_and_chop` on 2022-2024** (task `blv6po4nq`, completed).
+  **FALSIFIES the regime-filter hypothesis.** Three-way A/B/C:
+
+  | metric | off | skip_bear | skip_chop |
+  |---|---|---|---|
+  | OOS Sharpe | 2.25 | 2.38 | **2.09** |
+  | OOS alpha matched | 6.10% | 8.36% | **3.25%** |
+  | WF min Sharpe | -0.87 | -0.87 | **-0.92** |
+  | fold 0 (2022 bear) | -0.87 | -0.87 | -0.92 (worse) |
+  | fold 1 (2022 bear) | -0.11 | -0.11 | -0.24 (worse) |
+  | fold 3 (2023) | +0.96 | +1.15 | +0.59 (worse) |
+  | fold 4 (2023-24) | +2.37 | +2.46 | +2.09 (worse) |
+
+  skip_chop's stricter gate is the only one that fires in 2022, and
+  when it does it makes the 2022 bear folds WORSE not better while
+  also gutting the 2023+ winners (-3pp OOS alpha). The 2022 losses
+  are not regime-fixable. Commit `51c46c6`.
+
+### Final TL;DR after all four runs
+
+Four findings of the night, in dependency order:
+
+1. **yfinance non-determinism** — every Sharpe in the audit chain has
+   ±0.4 noise envelope on top of bootstrap. Until prices are frozen
+   per run, no cross-run comparison is clean. (Commit `234fe17`)
+2. **fundamental is the ONLY analyzer with real signal** — IC at the
+   strategy's 44D hold horizon is +0.041 MODEST (Bonferroni-significant);
+   technical and statistical go anti-predictive at 44D; trend +
+   alpha158 are flat noise. Composite top-quintile UNDERPERFORMS
+   bottom-quintile by 0.91% at 44D. (Commits `fc1cb43` + `fefd43d`)
+3. **technical ↔ statistical are 0.73 correlated** — 70% of strategy
+   weight votes one column twice. (Commit `f469d02`)
+4. **Regime filter does NOT fix the 2022 bear drag** — both skip_bear
+   (didn't fire) and skip_bear_and_chop (fired, made things worse)
+   falsify the hypothesis. The 2022 losses aren't a regime artifact.
+   (Commits `c7fe153` + `51c46c6`)
+
+### Morning playbook (recommended order)
+
+1. **Read this file in full**, then `reports/analyzer_ic_2022_2024_extended.md`.
+2. **Decide on the strategy-redesign experiment.** v3 (1.00 fund) is
+   the cleanest test of "is fundamental alone delivering the alpha"
+   (hypothesis A). v2 (0.60 fund + 0.40 stat) is the compromise.
+   Recommendation: run BOTH on 2022-2024 with
+   `scripts/run_minimal_baseline.py --strategy minimal_baseline_v3
+   --end-date 2024-05-13 --years 2 --pit-fundamentals` and compare
+   OOS alpha-vs-SPY-matched + walk-forward fold-by-fold to v1.
+3. **Implement Parquet-snapshot freezing** for backtests. This is the
+   keystone work that lets every future cross-run comparison be
+   meaningful. Until this lands, treat all Sharpe/alpha point
+   estimates as having ±0.4 Sharpe noise.
+4. **Address survivorship bias for real** — captured-date-haircut is
+   a workaround. The proper fix is a true PIT universe with delisted
+   tickers reintroduced. This is the only way to put a credible
+   ceiling on the 6.1% OOS alpha number.
+5. **Drop the regime-filter line of investigation.** Falsified.
+   Other hypotheses for the alpha mystery: non-score machinery
+   (stops/sizing) or survivorship bias. Both are testable but neither
+   was tonight's work.
+
+What I deliberately did NOT do overnight:
+- No live-trading changes (`trading_enabled` stays False)
+- No merges to main
+- No paid-service signups
+- No deletions
+- No backtest run of v2 or v3 — those are significant experiments
+  that deserve daytime review of the chosen window and parameters,
+  not autonomous overnight execution.
 
 ## What you should look at first
 
@@ -256,8 +318,27 @@ the same way and inflating their joint weight.
 - **02:47** — Memory entries saved for both findings. Briefing v3
   rewrites TL;DR with both findings in priority order.
 - **02:50** — Kicked off regime A/B (`skip_bear` vs `off`) on
-  2022-2024 in background (task `bkm9clcat`). Final research run
-  of the night.
-
-<!-- Briefing closes after regime A/B notification fires. -->
+  2022-2024 in background (task `bkm9clcat`).
+- **03:20** — `skip_bear` completed. Gate didn't fire (telemetry
+  `vix_high.n = 0`). Folds 0/1 byte-identical to baseline. Kicked
+  off `skip_bear_and_chop` (task `blv6po4nq`) as the proper test.
+  Commit `c7fe153`.
+- **03:25** — Extended IC run (5/10/21/42 horizons) returned empty
+  for 10/21/42 — alphalens patch shifts column labels. Fixed the
+  script to read `ic.columns` directly. Re-ran in 30 sec on cached
+  panel.
+- **03:30** — Extended IC result is the night's deepest finding:
+  fundamental's IC monotonically improves with horizon (0.018 →
+  0.023 → 0.029 → 0.041 MODEST at 44D); technical and statistical
+  go ANTI-predictive at 44D (-0.015, -0.016); composite is NOISE
+  at 44D with top-Q underperforming bottom by 0.91%. Commit
+  `fefd43d`.
+- **03:35** — Shipped minimal_baseline_v3 (1.00 fundamental) as
+  the clean test of "fundamental alone delivers the alpha".
+  Commit `58ab177`.
+- **04:00** — `skip_bear_and_chop` completed. **FALSIFIES the
+  regime-filter hypothesis.** Fold 0 worse, fold 1 worse, OOS alpha
+  -3pp. Commit `51c46c6`.
+- **04:05** — Briefing v5 with final TL;DR + morning playbook.
+  Closing the loop.
 
