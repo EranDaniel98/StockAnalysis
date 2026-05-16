@@ -244,6 +244,42 @@ def main() -> int:
                      "Backtest 3-window avg alpha vs SPY: **+1.88%/yr**.")
         lines.append("")
 
+    # ---- INSIDER BEARISH PICKS ----
+    if analysis:
+        bearish_insider_picks = []
+        # Re-parse from the analysis markdown if available (the JSON
+        # twin doesn't carry insider context yet).
+        md_path = Path(f"reports/portfolio_analysis_{date_str.replace('-', '_')}.md")
+        if md_path.exists():
+            content = md_path.read_text(encoding="utf-8")
+            sections = content.split("### #")[1:]
+            for section in sections:
+                header = section.split("\n")[0]
+                if "BEARISH" in section:
+                    bear_line = next(
+                        (l for l in section.splitlines() if "BEARISH" in l),
+                        "",
+                    )
+                    bearish_insider_picks.append((header.strip(), bear_line.strip()))
+        if bearish_insider_picks:
+            lines.append("## Insider activity flags (last 90 days)")
+            lines.append("")
+            lines.append(
+                f"**{len(bearish_insider_picks)} picks** show meaningful "
+                "insider SELLING (net sales > 0.05% of market cap, "
+                "with sells > 2× buys). This isn't disqualifying — "
+                "the factor model still ranks these in the top 5% — "
+                "but it's a yellow flag worth knowing:"
+            )
+            lines.append("")
+            for header, bear in bearish_insider_picks:
+                clean = bear.replace("- 🔴 ", "").replace("- ", "")
+                # Strip the existing ** ** from the header to avoid
+                # rendering as double-bold.
+                header_clean = header.replace("**", "")
+                lines.append(f"- **{header_clean.strip()}** — {clean.strip()}")
+            lines.append("")
+
     # ---- STRESS-TEST WORST CASE ----
     date_us = date_str.replace("-", "_")
     stress_path = Path(f"reports/stress_test_{date_us}.md")

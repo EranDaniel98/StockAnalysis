@@ -47,6 +47,14 @@
 
 **Honest caveat:** these are backtest per-pick distributions on a 63-day hold, scaled to the equity. Real-world drift is real. Backtest 3-window avg alpha vs SPY: **+1.88%/yr**.
 
+## Insider activity flags (last 90 days)
+
+**3 picks** show meaningful insider SELLING (net sales > 0.05% of market cap, with sells > 2× buys). This isn't disqualifying — the factor model still ranks these in the top 5% — but it's a yellow flag worth knowing:
+
+- **5. DELL — Technology** — **BEARISH** — net $-6.58B; 2195 sales ($6.58B), most recent 2026-04-16
+- **6. CF — Basic Materials** — **BEARISH** — net $-72.18M; 36 sales ($72.18M), most recent 2026-04-28
+- **10. SYF — Financial Services** — **BEARISH** — net $-35.05M; 19 sales ($35.05M), most recent 2026-05-01
+
 ## Stress-test range
 
 - **Worst case (COVID-style -35% crash):** portfolio -46.2% ($-18,963)
