@@ -161,6 +161,78 @@ beats it (Sharpe 1.60, return 99.8%) — but the marginal alpha is
 ~59 percentage points of return for ~0.66 Sharpe lift, much of which
 is concentrated in a few trades.
 
+## Regime breakdown (per-trade expectancy by entry regime)
+
+Each trade is classified at entry by SPY trend + VIX level. This is
+the engine's `regimes` block (not the regime-gate; classification only).
+
+| strategy | spy_bull trades | spy_bull avg | spy_bear trades | spy_bear avg | spy_bear P&L |
+|---|---|---|---|---|---|
+| v1 | 146 | +3.81% | 57 | +0.05% | **$-9 (flat)** |
+| v2 | 190 | +3.90% | 79 | +3.57% | $2793 |
+| v3 | 166 | +3.39% | 68 | +4.03% | $2673 |
+
+| strategy | vix_low avg | vix_normal avg | vix_high avg |
+|---|---|---|---|
+| v1 | +4.76% | +1.86% | +0.48% |
+| v2 | +4.70% | +1.95% | +5.96% |
+| v3 | +4.25% | +1.16% | +5.99% |
+
+Findings:
+- **v1 is bull-only** — its $5377 bull P&L is barely diluted by $-9
+  bear P&L. The strategy doesn't really lose in bears, but it also
+  doesn't make money.
+- **v2 and v3 work in bears too** — both deliver ~+3.5-4% avg per
+  bear-classified trade, totaling ~$2700 of bear-period P&L.
+- **v2 and v3 thrive in HIGH-VIX** (+5.96% / +5.99% avg) vs v1's
+  +0.48%. The IC-driven simplification handles volatility regimes
+  much better.
+- **All three are weakest in vix_normal** — the "boring" middle.
+
+## Bubble concentration (the central truth-finding result)
+
+Every top-5 OOS trade across all three strategies closes between
+2023-10 and 2024-05 — the AI bubble. **No top-5 trade in any
+strategy exits before 2023-10.**
+
+| strategy | top-5 OOS trades | sectors / theme |
+|---|---|---|
+| v1 | NVDA, CELH, FTAI, ANET, CRWD | AI hardware + momentum |
+| v2 | SMCI×2, CELH, ANET×2 | AI infrastructure + momentum |
+| v3 | SMCI×2, CELH, ANET, NVDA | AI infrastructure + momentum |
+
+### Pre-bubble vs bubble cumulative return (walk-forward fold sums)
+
+Folds 0+1 = 2022-05 → 2023-03 (deep bear). Folds 2-4 = 2023-03 → 2024-05 (recovery + AI bull).
+
+| strategy | pre-bubble cumulative | bubble cumulative | dependence |
+|---|---|---|---|
+| v1 | **-14.60%** | +51.65% | All edge from bubble; loses pre-bubble |
+| v2 | +0.24% | +58.43% | ~All edge from bubble; flat pre-bubble |
+| v3 | **+7.78%** | +40.49% | Only variant with measurable pre-bubble alpha |
+
+### Reconciling regime vs fold views
+
+The trade-bucket view (above) and the fold view tell consistent
+but different stories:
+
+- **Per-trade**: v2 and v3 work in bears (+$2700 each across 79/68 bear trades).
+- **Cumulative**: their bear-period 10-month return is still small
+  (+0.24% for v2, +7.78% for v3) because the strategies don't
+  trade THAT often in bears, and bear-trade wins are smaller than
+  bubble-period wins.
+
+Both facts are true. The question for capital deployment is which
+matters more:
+- If you'd be trading continuously, per-trade expectancy is what
+  determines compounding. v2/v3 win.
+- If you care about absolute return over a calendar period that
+  might be a bear, v3 is the only variant with proven positive
+  return through a 10-month bear (folds 0+1).
+
+See `reports/bubble_concentration_2022_2024.md` for the full
+analysis.
+
 ## Ablation tests (v2 mechanic teardown)
 
 **In flight — task `bapovhgre`.** Will populate the table when each
