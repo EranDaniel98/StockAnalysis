@@ -28,6 +28,7 @@ is committed on `overnight/2026-05-16`.
 | `reports/position_monitor_2026_05_16.md` | Stop/target check on held positions | 5 KB |
 | `reports/adhoc_2026_05_16.md` | Demo: NVDA, AAPL, TSLA on-demand analysis | 10 KB |
 | `reports/watchlist_2026_05_16.md` | Ranks 25-75: names on the bubble | 4 KB |
+| `reports/stress_test_2026_05_16.md` | 8 scenarios with per-position impact | 14 KB |
 | `reports/factor_strategy_report_2026_05_16.md` | Strategy verdict + 3-window evidence | 9 KB |
 
 ### Daily-use scripts (run these going forward)
@@ -161,11 +162,32 @@ is the clean replacement, not a tweak.
 
 These are deferred, not forgotten.
 
+## Stress test highlights (2026-05-16 portfolio)
+
+Avg portfolio beta = 0.91 (slightly defensive vs SPY).
+
+| Scenario | Strategy | SPY | Alpha |
+|---|---|---|---|
+| SPY +10% rally | +9.15% | +10.00% | -0.85% |
+| SPY -10% correction | -9.15% | -10.00% | +0.85% |
+| SPY -20% bear | -20.12% | -20.00% | -0.12% |
+| COVID-style -35% crash | **-46.20%** | -35.00% | -11.20% |
+| Banking crisis (financials -25%) | -12.91% | -5.00% | -7.91% |
+| Oil shock (energy +30%) | -1.24% | -5.00% | +3.76% |
+| Aggressive rate hikes (+200bps) | -7.36% | -8.00% | +0.64% |
+| Recession (cyclicals -25%) | -19.84% | -15.00% | -4.84% |
+
+**Risk callout:** the 42% Financial Services concentration shows up
+hard in COVID-style and banking-crisis scenarios. Energy holdings
+(APA, OXY) hedge nicely against oil shocks (the only positive-alpha
+scenario besides +/-10% baseline). Average β=0.91 means modestly
+better downside but slightly trail upside.
+
 ## Tests
 
 ```bash
 uv run pytest tests/analysis/ tests/factors/ tests/universe/ tests/storage/
-# 44 tests, all passing
+# 69 tests, all passing
 ```
 
 ## Commits this session (16 in autonomous mode)
