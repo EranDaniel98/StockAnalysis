@@ -39,7 +39,7 @@ def _parse_args() -> argparse.Namespace:
         description="Run the minimal_baseline control strategy.",
     )
     p.add_argument("--universe", default="russell_1000",
-                   choices=("russell_1000",))
+                   choices=("russell_1000", "sp500_pit"))
     p.add_argument("--years", type=float, default=2.0,
                    help="Backtest window length, years (default 2)")
     p.add_argument("--starting-cash", type=float, default=10_000.0)
@@ -148,14 +148,30 @@ def main() -> int:
         )
         return 2
 
-    # Universe selection
-    if args.universe == "russell_1000":
+    # Universe selection. For snapshot-id runs we don't need to pre-fetch
+    # the universe — the snapshot already pinned it. The check is just so
+    # the fresh-pull path has a valid ticker list.
+    tickers: list[str] = []
+    if args.snapshot_id:
+        # The snapshot is the source of truth for tickers. Skip the
+        # pre-fetch entirely so PIT universes (which need an --as-of
+        # date) don't need to redundantly resolve membership here.
+        pass
+    elif args.universe == "russell_1000":
         tickers = config.get_russell_1000_tickers()
+    elif args.universe == "sp500_pit":
+        logger.error(
+            "sp500_pit fresh-pull is not supported — freeze a snapshot "
+            "via `scripts/freeze_snapshot.py --universe sp500_pit "
+            "--as-of DATE --window-end DATE --years N` and then pass "
+            "--snapshot-id <id> here.",
+        )
+        return 2
     else:
         logger.error("Unknown universe %s", args.universe)
         return 2
 
-    if not tickers:
+    if not args.snapshot_id and not tickers:
         logger.error(
             "Universe %s has no tickers. Run scripts/fetch_russell_1000.py "
             "first.", args.universe,
