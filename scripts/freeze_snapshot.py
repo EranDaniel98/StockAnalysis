@@ -47,12 +47,18 @@ def _parse_args() -> argparse.Namespace:
                     "can pin to.",
     )
     p.add_argument("--universe", default="russell_1000",
-                   choices=("russell_1000",))
+                   choices=("russell_1000", "sp500_pit"))
     p.add_argument("--window-end", required=True,
                    help="ISO end date for the backtest window (e.g. "
                         "2024-05-13)")
     p.add_argument("--years", type=float, default=2.0,
                    help="Years before window-end the window starts.")
+    p.add_argument("--as-of", default=None,
+                   help="For --universe sp500_pit only: ISO date at "
+                        "which to reconstruct membership. Defaults to "
+                        "window-start so the constituent list matches "
+                        "the universe the strategy could have traded "
+                        "at backtest entry.")
     p.add_argument("--pre-buffer-days", type=int, default=400,
                    help="Calendar days of pre-window history to include "
                         "(default 400 ≈ SMA200 + buffer).")
@@ -79,18 +85,42 @@ def main() -> int:
 
     config = Config()
 
+    end = pd.Timestamp(args.window_end)
+    start = end - pd.DateOffset(years=int(args.years))
+
     if args.universe == "russell_1000":
         tickers = config.get_russell_1000_tickers()
+        as_of = None
+        if not tickers:
+            logger.error(
+                "Universe russell_1000 has no tickers — run "
+                "scripts/fetch_russell_1000.py first.",
+            )
+            return 2
+    elif args.universe == "sp500_pit":
+        # Default as-of = window start: the constituent list a strategy
+        # would have traded when opening positions at the backtest start.
+        # Operator can override (e.g., for a multi-rebalance backtest
+        # that wants the membership at a specific anchor).
+        as_of_dt = (
+            pd.Timestamp(args.as_of) if args.as_of else start
+        )
+        tickers = config.get_sp500_pit_tickers(as_of_dt)
+        as_of = as_of_dt.date().isoformat()
+        if not tickers:
+            logger.error(
+                "Universe sp500_pit as-of %s returned no tickers — "
+                "run scripts/fetch_sp500_membership.py first.",
+                as_of,
+            )
+            return 2
+        logger.info(
+            "Reconstructed S&P 500 as-of %s — %d tickers",
+            as_of, len(tickers),
+        )
     else:
         logger.error("Unknown universe %s", args.universe)
         return 2
-    if not tickers:
-        logger.error("Universe %s has no tickers — run "
-                     "scripts/fetch_russell_1000.py first.", args.universe)
-        return 2
-
-    end = pd.Timestamp(args.window_end)
-    start = end - pd.DateOffset(years=int(args.years))
 
     # Survivorship guard parity: refuse if end is past the universe
     # captured date.
@@ -182,6 +212,7 @@ def main() -> int:
         window_start=start,
         window_end=end,
         pipeline_version=PIPELINE_VERSION,
+        universe_as_of=as_of,
     )
 
     logger.info(

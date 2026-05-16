@@ -98,9 +98,15 @@ class SnapshotManifest:
     has_spy: bool
     has_vix: bool
     content_hashes: Mapping[str, str] = field(default_factory=dict)
+    # Optional. For PIT-reconstructed universes only — the as-of date
+    # used to build the constituent list. None for static universes
+    # (e.g., russell_1000). Kept separately from window_start because
+    # the operator may pick an as-of different from window_start
+    # (e.g., to test a single rebalance at the window mid-point).
+    universe_as_of: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "snapshot_id": self.snapshot_id,
             "created_at": self.created_at,
             "universe_label": self.universe_label,
@@ -114,6 +120,9 @@ class SnapshotManifest:
             "has_vix": self.has_vix,
             "content_hashes": dict(self.content_hashes),
         }
+        if self.universe_as_of is not None:
+            out["universe_as_of"] = self.universe_as_of
+        return out
 
     @staticmethod
     def from_dict(d: dict) -> "SnapshotManifest":
@@ -132,6 +141,7 @@ class SnapshotManifest:
             has_spy=bool(d.get("has_spy", False)),
             has_vix=bool(d.get("has_vix", False)),
             content_hashes=dict(d.get("content_hashes", {})),
+            universe_as_of=d.get("universe_as_of"),
         )
 
 
@@ -217,6 +227,7 @@ def write_snapshot(
     window_end: pd.Timestamp,
     pipeline_version: str,
     root: Path = SNAPSHOT_ROOT,
+    universe_as_of: str | None = None,
 ) -> SnapshotManifest:
     """Persist a snapshot under ``root/<snapshot_id>/``.
 
@@ -368,6 +379,7 @@ def write_snapshot(
         has_spy=has_spy,
         has_vix=has_vix,
         content_hashes=content_hashes,
+        universe_as_of=universe_as_of,
     )
     (final / MANIFEST_FILE).write_text(
         json.dumps(manifest.to_dict(), indent=2),

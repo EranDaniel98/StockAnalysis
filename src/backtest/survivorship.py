@@ -67,6 +67,18 @@ _DEFAULTS: dict[str, SurvivorshipHaircut] = {
         sharpe_haircut=0.20,
         rationale="large-cap broad index, Bessembinder 2018 / BGR 1995",
     ),
+    # PIT-reconstructed S&P 500. The whole point of PIT is to neutralize
+    # survivorship bias; the residual haircut covers two small leaks:
+    # (1) ticker renames (FB→META) not in the changes log — affects
+    #     ~0.05% of names; (2) M&A terminal returns may be smoothed
+    #     because we still pull yfinance survivor prices.
+    # When we wire a delisted-ticker price source (Phase 2), this can
+    # drop further. Until then keep a small honest residual.
+    "sp500_pit": SurvivorshipHaircut(
+        annual_return_haircut_pct=0.3,
+        sharpe_haircut=0.05,
+        rationale="PIT-reconstructed S&P 500; residual covers rename + M&A leaks",
+    ),
     # Small-cap. More frequent delisting, more bankruptcy-driven exits,
     # bigger left-tail mass that survivor-only data discards.
     "russell_2000": SurvivorshipHaircut(

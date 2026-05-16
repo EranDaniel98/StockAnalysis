@@ -146,6 +146,19 @@ class Config:
             if t.strip() and not t.startswith("#")
         )
 
+    def get_sp500_pit_tickers(self, as_of_date) -> list[str]:
+        """Reconstructed S&P 500 constituents as of ``as_of_date``.
+
+        Backed by ``src.universe.sp500_pit.SP500Membership``. Returns a
+        sorted list so caller order is deterministic. Raises
+        ``FileNotFoundError`` if the membership CSVs haven't been
+        scraped — run ``scripts/fetch_sp500_membership.py`` first.
+        """
+        from src.universe import load_default_sp500
+
+        membership = load_default_sp500()
+        return sorted(membership.as_of(as_of_date))
+
     def get_universe_captured_date(self, universe_label: str):
         """Return the ``# captured: YYYY-MM-DD`` date in a universe file.
 
@@ -160,6 +173,13 @@ class Config:
         header as "no bias risk"); returns ``None`` when the file
         doesn't exist (universe is empty)."""
         from datetime import date
+
+        # sp500_pit is a reconstructed universe — there is no "captured
+        # date" because membership is computed per-target-date from the
+        # Wikipedia changes log. Return None so the survivorship guard
+        # in the backtest engine permits any historical window.
+        if universe_label == "sp500_pit":
+            return None
 
         path_map = {
             "russell_1000": self.config_dir / "russell_1000_tickers.txt",
