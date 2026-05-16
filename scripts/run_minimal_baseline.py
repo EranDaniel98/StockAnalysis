@@ -109,6 +109,13 @@ def _parse_args() -> argparse.Namespace:
         help="Free-text label stamped into the slim JSON so a comparison "
              "harness can tell ablation runs apart.",
     )
+    p.add_argument(
+        "--include-trades", action="store_true",
+        help="Include the raw trades list in the slim JSON output. By "
+             "default the slim writer drops trades to keep the file "
+             "small. Enable when downstream sector/holding-period "
+             "analysis needs them.",
+    )
     return p.parse_args()
 
 
@@ -444,6 +451,12 @@ def main() -> int:
         # MVTP gate fires FAIL if Sharpe drop > 0.4.
         "concentration_sensitivity": result.get("concentration_sensitivity"),
     }
+    if args.include_trades:
+        # Raw trades list (heavy — typically 200-300 trades × ~15 fields).
+        # Off by default to keep result JSONs readable; flip on for the
+        # analyses that need per-trade granularity (sector exposure,
+        # bubble-period filtering, hold-time histograms).
+        slim["trades"] = result.get("trades") or []
     out.write_text(json.dumps(slim, indent=2, default=str), encoding="utf-8")
     logger.info("Wrote %s", out)
     return 0

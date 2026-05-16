@@ -93,13 +93,19 @@ def _parse_args() -> argparse.Namespace:
         help="Skip running the strategies; just read existing result "
              "JSONs from --results-dir matching the snapshot-id.",
     )
+    p.add_argument(
+        "--include-trades", action="store_true",
+        help="Ask each child run to embed its raw trades list in the "
+             "slim JSON. Required for post-hoc sector / hold-time / "
+             "bubble-period analyses.",
+    )
     return p.parse_args()
 
 
 def _run_strategy(
     strategy: str, snapshot_id: str, years: float, starting_cash: float,
     pit_fundamentals: bool, regime_mode: str, end_date: Optional[str],
-    results_dir: Path,
+    results_dir: Path, include_trades: bool = False,
 ) -> Path:
     out = results_dir / f"compare_{strategy}_{snapshot_id}.json"
     err = out.with_suffix(".err")
@@ -116,6 +122,8 @@ def _run_strategy(
         cmd.append("--pit-fundamentals")
     if end_date:
         cmd.extend(["--end-date", end_date])
+    if include_trades:
+        cmd.append("--include-trades")
     logger.info("Running %s -> %s ...", strategy, out)
     with err.open("wb") as ef:
         rc = subprocess.call(cmd, stdout=ef, stderr=subprocess.STDOUT)
@@ -533,6 +541,7 @@ def main() -> int:
                 pit_fundamentals=args.pit_fundamentals,
                 regime_mode=args.regime_mode, end_date=args.end_date,
                 results_dir=results_dir,
+                include_trades=args.include_trades,
             )
 
     summaries: list[dict] = []
