@@ -1,0 +1,240 @@
+{
+  "executed_at_utc": "2026-05-16T15:33:43.465305+00:00",
+  "picks_date": "2026-05-16",
+  "strategy": "factor_composite_d05_r63",
+  "equity_at_start": 41042.6,
+  "submitted": [],
+  "skipped": [],
+  "failed": [
+    {
+      "ticker": "AAPL",
+      "side": "sell",
+      "error": "order value $1,801.38 exceeds max_order_value_usd $1,000.00 \u2014 refusing AAPL submission."
+    },
+    {
+      "ticker": "ADI",
+      "side": "sell",
+      "error": "order value $1,669.96 exceeds max_order_value_usd $1,000.00 \u2014 refusing ADI submission."
+    },
+    {
+      "ticker": "ALAB",
+      "side": "sell",
+      "error": "open positions 23 >= max_open_positions 10 \u2014 refusing ALAB submission."
+    },
+    {
+      "ticker": "APH",
+      "side": "sell",
+      "error": "order value $1,875.00 exceeds max_order_value_usd $1,000.00 \u2014 refusing APH submission."
+    },
+    {
+      "ticker": "ARM",
+      "side": "sell",
+      "error": "order value $1,882.44 exceeds max_order_value_usd $1,000.00 \u2014 refusing ARM submission."
+    },
+    {
+      "ticker": "AVGO",
+      "side": "sell",
+      "error": "order value $5,952.66 exceeds max_order_value_usd $1,000.00 \u2014 refusing AVGO submission."
+    },
+    {
+      "ticker": "CCJ",
+      "side": "sell",
+      "error": "open positions 23 >= max_open_positions 10 \u2014 refusing CCJ submission."
+    },
+    {
+      "ticker": "DNN",
+      "side": "sell",
+      "error": "open positions 23 >= max_open_positions 10 \u2014 refusing DNN submission."
+    },
+    {
+      "ticker": "LITE",
+      "side": "sell",
+      "error": "order value $1,941.40 exceeds max_order_value_usd $1,000.00 \u2014 refusing LITE submission."
+    },
+    {
+      "ticker": "LRCX",
+      "side": "sell",
+      "error": "order value $1,708.32 exceeds max_order_value_usd $1,000.00 \u2014 refusing LRCX submission."
+    },
+    {
+      "ticker": "NKE",
+      "side": "sell",
+      "error": "order value $1,340.16 exceeds max_order_value_usd $1,000.00 \u2014 refusing NKE submission."
+    },
+    {
+      "ticker": "NXPI",
+      "side": "sell",
+      "error": "order value $1,749.00 exceeds max_order_value_usd $1,000.00 \u2014 refusing NXPI submission."
+    },
+    {
+      "ticker": "NYT",
+      "side": "sell",
+      "error": "order value $1,862.00 exceeds max_order_value_usd $1,000.00 \u2014 refusing NYT submission."
+    },
+    {
+      "ticker": "PAYP",
+      "side": "sell",
+      "error": "order value $1,948.29 exceeds max_order_value_usd $1,000.00 \u2014 refusing PAYP submission."
+    },
+    {
+      "ticker": "RCI",
+      "side": "sell",
+      "error": "order value $1,908.36 exceeds max_order_value_usd $1,000.00 \u2014 refusing RCI submission."
+    },
+    {
+      "ticker": "SNDK",
+      "side": "sell",
+      "error": "order value $1,407.61 exceeds max_order_value_usd $1,000.00 \u2014 refusing SNDK submission."
+    },
+    {
+      "ticker": "SNPS",
+      "side": "sell",
+      "error": "order value $1,507.26 exceeds max_order_value_usd $1,000.00 \u2014 refusing SNPS submission."
+    },
+    {
+      "ticker": "SPY",
+      "side": "sell",
+      "error": "order value $2,956.68 exceeds max_order_value_usd $1,000.00 \u2014 refusing SPY submission."
+    },
+    {
+      "ticker": "TER",
+      "side": "sell",
+      "error": "order value $1,689.40 exceeds max_order_value_usd $1,000.00 \u2014 refusing TER submission."
+    },
+    {
+      "ticker": "TSLA",
+      "side": "sell",
+      "error": "order value $1,688.96 exceeds max_order_value_usd $1,000.00 \u2014 refusing TSLA submission."
+    },
+    {
+      "ticker": "TXN",
+      "side": "sell",
+      "error": "order value $1,816.38 exceeds max_order_value_usd $1,000.00 \u2014 refusing TXN submission."
+    },
+    {
+      "ticker": "VZ",
+      "side": "sell",
+      "error": "order value $1,901.17 exceeds max_order_value_usd $1,000.00 \u2014 refusing VZ submission."
+    },
+    {
+      "ticker": "APA",
+      "side": "buy",
+      "error": "order value $1,675.06 exceeds max_order_value_usd $1,000.00 \u2014 refusing APA submission."
+    },
+    {
+      "ticker": "VTRS",
+      "side": "buy",
+      "error": "order value $1,664.98 exceeds max_order_value_usd $1,000.00 \u2014 refusing VTRS submission."
+    },
+    {
+      "ticker": "GOOG",
+      "side": "buy",
+      "error": "order value $1,572.96 exceeds max_order_value_usd $1,000.00 \u2014 refusing GOOG submission."
+    },
+    {
+      "ticker": "GOOGL",
+      "side": "buy",
+      "error": "order value $1,586.58 exceeds max_order_value_usd $1,000.00 \u2014 refusing GOOGL submission."
+    },
+    {
+      "ticker": "DELL",
+      "side": "sell_rebal",
+      "error": "open positions 23 >= max_open_positions 10 \u2014 refusing DELL submission."
+    },
+    {
+      "ticker": "CF",
+      "side": "buy",
+      "error": "order value $1,625.52 exceeds max_order_value_usd $1,000.00 \u2014 refusing CF submission."
+    },
+    {
+      "ticker": "NEM",
+      "side": "buy",
+      "error": "order value $1,632.75 exceeds max_order_value_usd $1,000.00 \u2014 refusing NEM submission."
+    },
+    {
+      "ticker": "DOW",
+      "side": "buy",
+      "error": "order value $1,666.47 exceeds max_order_value_usd $1,000.00 \u2014 refusing DOW submission."
+    },
+    {
+      "ticker": "RF",
+      "side": "buy",
+      "error": "order value $1,651.68 exceeds max_order_value_usd $1,000.00 \u2014 refusing RF submission."
+    },
+    {
+      "ticker": "SYF",
+      "side": "buy",
+      "error": "order value $1,638.17 exceeds max_order_value_usd $1,000.00 \u2014 refusing SYF submission."
+    },
+    {
+      "ticker": "GS",
+      "side": "buy",
+      "error": "open positions 23 >= max_open_positions 10 \u2014 refusing GS submission."
+    },
+    {
+      "ticker": "BK",
+      "side": "buy",
+      "error": "order value $1,619.88 exceeds max_order_value_usd $1,000.00 \u2014 refusing BK submission."
+    },
+    {
+      "ticker": "OXY",
+      "side": "buy",
+      "error": "order value $1,668.94 exceeds max_order_value_usd $1,000.00 \u2014 refusing OXY submission."
+    },
+    {
+      "ticker": "MS",
+      "side": "buy",
+      "error": "order value $1,540.00 exceeds max_order_value_usd $1,000.00 \u2014 refusing MS submission."
+    },
+    {
+      "ticker": "USB",
+      "side": "buy",
+      "error": "order value $1,647.18 exceeds max_order_value_usd $1,000.00 \u2014 refusing USB submission."
+    },
+    {
+      "ticker": "TFC",
+      "side": "buy",
+      "error": "order value $1,642.01 exceeds max_order_value_usd $1,000.00 \u2014 refusing TFC submission."
+    },
+    {
+      "ticker": "MO",
+      "side": "buy",
+      "error": "order value $1,606.22 exceeds max_order_value_usd $1,000.00 \u2014 refusing MO submission."
+    },
+    {
+      "ticker": "MTB",
+      "side": "buy",
+      "error": "order value $1,642.48 exceeds max_order_value_usd $1,000.00 \u2014 refusing MTB submission."
+    },
+    {
+      "ticker": "HCA",
+      "side": "buy",
+      "error": "order value $1,268.88 exceeds max_order_value_usd $1,000.00 \u2014 refusing HCA submission."
+    },
+    {
+      "ticker": "HST",
+      "side": "buy",
+      "error": "order value $1,668.03 exceeds max_order_value_usd $1,000.00 \u2014 refusing HST submission."
+    },
+    {
+      "ticker": "AES",
+      "side": "buy",
+      "error": "order value $1,662.90 exceeds max_order_value_usd $1,000.00 \u2014 refusing AES submission."
+    },
+    {
+      "ticker": "INCY",
+      "side": "buy",
+      "error": "order value $1,620.10 exceeds max_order_value_usd $1,000.00 \u2014 refusing INCY submission."
+    },
+    {
+      "ticker": "C",
+      "side": "buy",
+      "error": "order value $1,603.42 exceeds max_order_value_usd $1,000.00 \u2014 refusing C submission."
+    },
+    {
+      "ticker": "STT",
+      "side": "buy",
+      "error": "order value $1,528.80 exceeds max_order_value_usd $1,000.00 \u2014 refusing STT submission."
+    }
+  ]
+}
