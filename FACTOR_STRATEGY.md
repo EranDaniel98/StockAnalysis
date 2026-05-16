@@ -55,7 +55,24 @@ Cross-window average alpha: **+2.77%/yr**. Full verdict in
 
 ## Daily Workflow
 
-### Step 1 — Generate today's picks
+### Option A — One-command daily pipeline (recommended)
+
+```bash
+uv run python -m scripts.run_daily_pipeline --top-n 24
+```
+
+Runs all 7 steps in sequence: picks → analysis → exit plan →
+position monitor → stress test → watchlist → morning briefing.
+Each step writes its own file under `reports/` and
+`data/daily_picks/`. Each step is idempotent and continues on
+failure, so partial results stay usable.
+
+After it finishes, **read `reports/morning_briefing_*.md` first**.
+It's the single-page summary; everything else is drill-down.
+
+### Option B — Step by step
+
+#### Step 1 — Generate today's picks
 
 ```bash
 uv run python -m scripts.daily_factor_picks --top-n 24
@@ -100,7 +117,7 @@ produces a per-stock trading plan:
 Plus portfolio-level: sector breakdown, concentration warning,
 earnings calendar overlap, expected portfolio P&L.
 
-### Step 3 — Exit plan (if you have current positions)
+#### Step 3 — Exit plan (if you have current positions)
 
 ```bash
 uv run python -m scripts.exit_analysis \
@@ -111,7 +128,52 @@ uv run python -m scripts.exit_analysis \
 Per current position: action (KEEP / TRIM / EXIT), P&L,
 earnings-blackout warning, tax-loss-harvest tag if loss > 5%.
 
-### Step 4 — Send to paper trading (when ready)
+#### Step 4 — Position monitor (mid-cycle check)
+
+```bash
+uv run python -m scripts.position_monitor
+```
+
+Checks every current paper position against its strategy-
+recommended stop loss and target. Flags 🚨 STOP HIT, 🟢 TARGET HIT,
+⚠️ NEAR STOP / NEAR TARGET, or ✓ HOLDING. Run this between
+quarterly rebalances to catch position-level events.
+
+#### Step 5 — Stress test
+
+```bash
+uv run python -m scripts.stress_test \
+    --output reports/stress_test_YYYY-MM-DD.md
+```
+
+Runs the portfolio through 8 scenarios (SPY +/-10/20%, COVID-
+style -35%, banking crisis, oil shock, rate hikes, recession).
+Uses each pick's beta + sector shock overlays. Output includes
+worst case dollar loss, sector exposure breakdown, and risk
+recommendations.
+
+#### Step 6 — Watchlist (next-quarter prep)
+
+```bash
+uv run python -m scripts.generate_watchlist \
+    --start-rank 25 --end-rank 75 \
+    --output reports/watchlist_YYYY-MM-DD.md
+```
+
+Names ranked 25-75 — just outside the top-5% selection. These
+are the most likely entrants for the next quarterly rebalance.
+
+#### Step 7 — Ad-hoc per-ticker analysis
+
+```bash
+uv run python -m scripts.analyze_ticker NVDA AAPL TSLA
+```
+
+Runs the full per-stock card for any ticker, with a verdict
+(STRONG BUY / BUY-CANDIDATE / WATCH / NEUTRAL / AVOID) based on
+where it sits in the full composite ranking.
+
+### Send to paper trading (when ready)
 
 ```bash
 # Dry-run first (always):
