@@ -27,9 +27,19 @@ is committed on `overnight/2026-05-16`.
 | `reports/exit_plan_2026_05_16.md` | What to sell (22 names) | 5 KB |
 | `reports/position_monitor_2026_05_16.md` | Stop/target check on held positions | 5 KB |
 | `reports/adhoc_2026_05_16.md` | Demo: NVDA, AAPL, TSLA on-demand analysis | 10 KB |
+| `reports/watchlist_2026_05_16.md` | Ranks 25-75: names on the bubble | 4 KB |
 | `reports/factor_strategy_report_2026_05_16.md` | Strategy verdict + 3-window evidence | 9 KB |
 
 ### Daily-use scripts (run these going forward)
+
+**One-command full pipeline** (recommended):
+```bash
+uv run python -m scripts.run_daily_pipeline
+# → picks → analysis → exit → position-monitor → briefing
+# → reports/ and data/daily_picks/ populated in ~5-10 min
+```
+
+Or each step individually:
 
 ```bash
 # Generate today's top 24 picks from PIT S&P 500 + composite factor
@@ -55,6 +65,11 @@ uv run python -m scripts.position_monitor
 
 # Ad-hoc: analyze any ticker(s) — works for names not in today's picks
 uv run python -m scripts.analyze_ticker NVDA AAPL TSLA
+
+# Generate watchlist (names ranked 25-100, just outside top-24)
+uv run python -m scripts.generate_watchlist \
+    --start-rank 25 --end-rank 100 \
+    --output reports/watchlist_YYYY-MM-DD.md
 
 # Send today's picks to Alpaca PAPER (DRY-RUN by default)
 uv run python -m scripts.paper_trade_factor_picks --picks-date YYYY-MM-DD
