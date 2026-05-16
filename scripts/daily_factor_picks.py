@@ -137,6 +137,15 @@ def _load_earnings_histories(
                 try:
                     df = pd.read_parquet(cache_path)
                     if not df.empty:
+                        # Restore the DatetimeIndex that was flattened by
+                        # ``reset_index()`` at write time. Without this,
+                        # analyze() sees a RangeIndex and treats every row
+                        # as a stale Unix-epoch date.
+                        if "earnings_ts" in df.columns:
+                            df = df.set_index(
+                                pd.to_datetime(df["earnings_ts"])
+                            ).drop(columns=["earnings_ts"])
+                            df.index.name = None
                         out[t] = df
                         n_cached += 1
                         continue
