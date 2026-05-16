@@ -11,32 +11,40 @@ the research environment? Answers are recorded with full provenance
 
 ## Executive summary
 
-**Verdict: INCONCLUSIVE-LEANING-NEGATIVE. No strategy variant survives
-clean cross-window validation.** The 2022-2024 candidate
-(`v3_all_mechanics_off`, the only variant to clear walk-forward on
-that window) has NOT been re-tested on 2024-2026 yet (task
-`bypxgjjnv` in flight), but v3-baseline's 2024-2026 result is a
-critical warning shot:
+**Verdict: NO defensible edge proven.**
 
-  - **v3 on 2024-2026 OOS underperforms SPY by 6.49%.** Same
-    strategy that produced +19.69% OOS alpha on 2022-2024 loses
-    money relative to the benchmark in the next window. The
-    "bear-immune fundamental thesis" doesn't transfer.
-  - All three strategies have **>50% top-5 trade concentration on
-    2024-2026**, with v3 at **148.96%** — meaning v3's non-top-5
-    trades are net NEGATIVE.
-  - The walk-forward picture FLIPPED across windows: v3 fails on
-    2022-2024, passes on 2024-2026; v2 fails 2022-2024, passes
-    2024-2026; v1 fails BOTH. None of the variants is consistent.
-  - **v2 wins full-window α-vs-SPY on BOTH windows** (+67% and
-    +72%) but its OOS alpha collapses from +23.7% to +4.44% across
-    windows. That's not a stable edge — that's regime exposure.
+The audit chain ran four strategy variants on two frozen Russell-1000
+snapshots (2022-2024 + 2024-2026). The headline result:
 
-If `v3_all_mechanics_off` ALSO fails on 2024-2026, the
-"defensible candidate" from 2022-2024 was window-specific. The
-audit chain will conclude with **no defensible edge proven**.
-Capital deployment must remain blocked; the system needs to keep
-researching.
+| variant | 2022-2024 WF | 2024-2026 WF | 2022-24 OOS α | 2024-26 OOS α | avg OOS α |
+|---|---|---|---|---|---|
+| v1 (40 tech + 30 fund + 30 stat) | FAIL | FAIL | +23.09% | +18.79% | +20.94% |
+| v2 (60 fund + 40 stat) | FAIL | PASS | +23.69% | +4.44% | +14.07% |
+| v3 (100 fund) | FAIL | PASS | +19.69% | -6.49% | +6.60% |
+| **v3_all_mechanics_off** | **PASS** | **PASS** | **+2.25%** | **-1.01%** | **+0.62%** |
+
+The only variant that survives strict walk-forward on BOTH windows
+is `v3_all_mechanics_off` — and its cross-window OOS alpha averages
+**+0.62%**, below the noise floor. It is structurally robust (every
+fold positive in both regimes, 73-82% OOS win rate, 175-day quality
+holds that ride through bear chop) but does not deliver meaningful
+alpha vs SPY.
+
+Every variant that DOES show meaningful OOS alpha (v1 +20%, v2 +14%,
+v3 +6.6%) FAILS walk-forward on at least one window. Their alpha is
+regime-luck, not a stable edge.
+
+This is the honest answer:
+- The fundamental score IS picking real winners (83.6% / 86.2%
+  full-window win rates with mechanics off, across both windows).
+- The current engine mechanics CONVERT that into churn that
+  amplifies cumulative return at the cost of walk-forward stability.
+- Neither configuration produces alpha that survives clean cross-
+  window validation.
+
+**The system needs better signal generation before any capital
+deployment is justified.** Continuing to deploy variants of the
+current pipeline cannot be defended on the evidence collected.
 
 Headline of v3_all_mechanics_off:
   - Full Sharpe 1.26, return +68.1%, 55 trades, 83.6% win rate
@@ -63,18 +71,22 @@ recovery.
 
 ## Verdict
 
-**Does a defensible edge exist?** _**Pending the final v3_all_off
-2024-2026 run. Currently leaning NO.**_
+**Does a defensible edge exist?** _**NO.**_
 
-The 2022-2024 candidate (`v3_all_mechanics_off`) needs to clear
-2024-2026 walk-forward AND alpha-vs-SPY before being called real.
-Even then the caveats below apply.
+`v3_all_mechanics_off` is the only variant in the audit chain that
+survives strict walk-forward on both 2022-2024 and 2024-2026. But
+its cross-window OOS alpha averages **+0.62%** vs SPY — below the
+defensible 2-8%/yr band, indistinguishable from buy-and-hold-SPY at
+the 95% bootstrap CI level.
 
-Candidate (provisional): **`minimal_baseline_v3` with
-`--atr-stop-mult-override 99 --max-hold-days-override 9999
---min-score-override 0`** (or equivalent — the YAML strategy is
-`minimal_baseline_v3`; the engine mechanics are turned off via
-runtime overrides).
+Every variant that DOES show meaningful OOS alpha (v1 +20.9%,
+v2 +14.1%, v3 +6.6%) fails walk-forward on at least one window.
+Their alpha is regime exposure, not edge.
+
+**Capital deployment must remain blocked.** The 2022-2024 +9.88%
+fold-1 result that briefly looked like a candidate was the
+strategy's bear-immune-quality property in a specific bear chop;
+it doesn't generalize to bubble continuation regimes.
 
 This strategy:
 - Passes strict walk-forward (every fold positive on 2022-2024)
@@ -398,7 +410,33 @@ v3_all_off on 2024-2026, then probably conclude no defensible edge."**
 If v3_all_off generalizes (positive WF + positive alpha on 2024-2026),
 that's the strongest result. If it doesn't, we have no candidate.
 
-### v3 + all_mechanics_off — the 2022-2024 candidate (NOT YET cross-validated)
+### v3 + all_mechanics_off — cross-window result
+
+| metric | 2022-2024 | 2024-2026 |
+|---|---|---|
+| trades | 55 | 65 |
+| full Sharpe | 1.26 | 1.33 |
+| full return | +68.08% | +63.18% |
+| full win rate | 83.6% | **86.2%** |
+| avg hold days | 175.0 | 157.6 |
+| OOS Sharpe | 2.51 | 1.10 |
+| **OOS α vs SPY** | **+2.25%** | **-1.01%** |
+| OOS DD | -7.6% | -9.4% |
+| OOS win rate | 81.8% | 73.3% |
+| WF min Sharpe | +0.40 | +0.32 |
+| WF passes? | YES | YES |
+| top-5 % of P&L | 52% | **131%** |
+
+2024-2026 walk-forward folds (Sharpe): +1.68, +0.32, +0.00, +3.01, +1.04
+2024-2026 walk-forward returns: +14.28%, +1.74%, +0.00%, +15.54%, +5.77%
+
+The strategy DOES survive walk-forward across both regimes — every
+fold is non-negative. The 2024-2026 fold 2 has 0% return because no
+trades were entered in that fold (a 4.8-month period mid-2025 where
+v3_all_off found nothing worth a 175-day commitment).
+
+But OOS alpha across both windows averages just +0.62%. That's not
+edge — that's tracking SPY ±2pp within bootstrap noise.
 
 When the same all-mechanics-off teardown is applied to v3 (pure
 fundamental, no statistical), the strategy CLEARS the strict walk-
@@ -511,52 +549,70 @@ the user signs off.
 
 ## Recommendation
 
-Based on the v3_all_mechanics_off finding:
+Based on the full cross-window evidence:
 
-- **Do NOT enable live real-money trading.** Even the candidate
-  has caveats (small N, survivorship bias, top-5 concentration).
-- **Promote v3_all_off to paper-trading validation track.** Run it
-  live on Alpaca paper for 30+ days; compare daily P&L to the
-  backtest's pinned trajectory. The validation harness shipped
-  earlier (commit `1c2b8fe`) is ready for this.
-- **Add a `minimal_baseline_v4` strategy YAML** that bakes the
-  no-mechanics setup into a single named strategy (no engine
-  overrides required). The mechanics live as engine defaults; v4
-  needs to express "no ATR stop, no time stop, no min_score gate"
-  declaratively.
-- **Wait for 2024-2026 cross-window** before any further commitment.
-  If v3_all_off fold-1-equivalent fails on a different window, the
-  +9.88% bear-fold result on 2022 might be window-specific.
-- **The current minimal_baseline (v1) and v2 should be considered
-  failed strategies.** Both fail walk-forward. Both have ~all
-  alpha concentrated in the AI bubble. Continuing to backtest
-  them is sunk-cost.
+1. **DO NOT enable live real-money trading.** No variant in the
+   audit chain produces alpha that survives both walk-forward AND
+   cross-window validation. The system has no defensible edge to
+   deploy.
+2. **Stop optimizing the current pipeline.** All four tested variants
+   (v1 / v2 / v3 / v3_all_off) are flawed in different ways but
+   none has real edge:
+   - v1, v2, v3 baseline: meaningful alpha but window-specific
+   - v3_all_off: stable across windows but no meaningful alpha
+   - The composite-score architecture inherits all these
+     failure modes
+3. **Look for a NEW signal source.** The fundamental analyzer IS
+   picking real winners (83-86% win rate when mechanics off across
+   both windows), but that doesn't beat SPY in a market where
+   fundamentals are already largely priced in. Candidate alternative
+   signal sources:
+   - Earnings drift with verified PIT earnings dates
+   - Post-earnings price action (analyst-revision-driven momentum)
+   - Insider transactions with PIT filing dates
+   - Short-interest changes (with PIT availability)
+   - Cross-sectional dispersion (low-volatility quality)
+4. **Build a true PIT universe** before more strategy research. The
+   current survivorship-haircut mitigation isn't enough — every
+   strategy is benefiting from "the tickers that survived" being
+   the universe. Re-introducing delisted tickers as point-in-time
+   members is the prerequisite for credible alpha measurement.
+5. **Keep the snapshot freezing + ablation harness infrastructure.**
+   This is permanent value-add: any future signal candidate can
+   be A/B'd against the same frozen data, eliminating yfinance
+   drift from comparisons.
+6. **Archive the current minimal_baseline_v1/v2/v3 variants as
+   "investigated, no edge found"** so future researchers don't
+   re-explore them.
 
-## Next steps (ranked)
+## Next steps (ranked by impact)
 
-1. **Wait for 2024-2026 cross-window comparison** (task `bdpdyq2du`,
-   in flight). v3 + all_mechanics_off applied to the 2024-2026 frozen
-   snapshot. If fold 1 still inverts to positive (in a different
-   window), the bear-immune fundamental thesis holds.
-2. **Add `minimal_baseline_v4` strategy YAML** that bakes the
-   no-mechanics configuration declaratively. Right now the candidate
-   strategy requires three CLI overrides; that's fragile.
-3. **Implement a true PIT universe** — survivorship-bias correction
-   is the next major data upgrade. Identify a free source for
-   delisted-ticker price history.
-4. **Run v3_all_off in Alpaca paper trading** for 30 days. The
-   validation harness (`scripts/validation_daily.py`) is ready.
-   Daily delta from frozen-backtest's trajectory is the gate.
-5. **Replace strategy YAML `min_score` defaults** to a binding
-   value. Currently `min_score=55` is decorative — `max_open_positions=20`
-   constrains selection first. Either lower max_open_positions or
-   raise min_score so the gate actually filters.
-6. **Sector neutralization** — top-5 trades are still AI cluster.
-   A version that limits per-sector exposure would reduce the
-   AI-bubble dependence further.
-7. **Random-signal baseline** — engine work to inject random
-   composite scores. If random scores + the engine produce 60%
-   of the v2 baseline alpha, the score is doing less than we
-   thought.
-8. **QQQ + sector ETFs in next snapshot freeze** for fuller
-   benchmark comparison.
+1. **Build a true point-in-time universe.** Currently every strategy
+   benefits from survivorship bias (Russell 1000 list captured
+   2026-05-13). Re-introducing delisted tickers (bankrupt, acquired)
+   as PIT members is the prerequisite for credible alpha measurement.
+   Without it, any new signal we test inherits the same upward bias.
+2. **Explore new signal sources.** The current six-analyzer composite
+   has no defensible edge after rigorous testing. Candidates to
+   investigate:
+   - Earnings-announcement drift with verified PIT earnings dates
+     and surprise data
+   - Insider transactions with PIT filing dates (Form 4 data)
+   - Short-interest delta signals (FINRA semi-monthly data, PIT
+     availability is the question)
+   - Cross-sectional volatility regime indicators
+   - Sector-neutral fundamental ranking
+3. **Fix `min_score=55` decorativeness.** Either lower
+   `max_open_positions` to make the gate binding, or raise
+   `min_score` to a meaningful percentile. Currently the gate is
+   a no-op that misleads strategy designers.
+4. **Random-signal baseline.** Inject random composite scores in
+   the engine and run the same backtest. If the mechanics + universe
+   alone deliver 60% of the v2 baseline alpha regardless of the
+   score, the score is doing less than we think.
+5. **Document the audit chain's negative finding** so future
+   researchers don't re-explore minimal_baseline_v1/v2/v3 thinking
+   "with more tweaks it might work." It won't.
+6. **Keep the snapshot + ablation infrastructure** — any future
+   strategy candidate gets tested on these snapshots against the
+   same code path, eliminating yfinance noise from comparisons.
