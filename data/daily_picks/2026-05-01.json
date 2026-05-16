@@ -1,0 +1,250 @@
+{
+  "as_of": "2026-05-01",
+  "generated_at_utc": "2026-05-16T15:15:19.722811+00:00",
+  "strategy": "composite_d05_r63",
+  "universe_size": 486,
+  "top_n": 24,
+  "picks": [
+    {
+      "ticker": "APA",
+      "mean_normalized_rank": 0.08239006942983379,
+      "raw": -0.08239006942983379,
+      "rank": 1,
+      "z_score": 2.680692186886047,
+      "mom_rank": 9,
+      "qual_rank": NaN,
+      "val_rank": 73
+    },
+    {
+      "ticker": "AES",
+      "mean_normalized_rank": 0.117557332211235,
+      "raw": -0.117557332211235,
+      "rank": 2,
+      "z_score": 2.453631559980093,
+      "mom_rank": 96,
+      "qual_rank": NaN,
+      "val_rank": 21
+    },
+    {
+      "ticker": "SYF",
+      "mean_normalized_rank": 0.148116978750263,
+      "raw": -0.148116978750263,
+      "rank": 3,
+      "z_score": 2.2563204259203276,
+      "mom_rank": 131,
+      "qual_rank": NaN,
+      "val_rank": 16
+    },
+    {
+      "ticker": "NEM",
+      "mean_normalized_rank": 0.16649225907650925,
+      "raw": -0.16649225907650925,
+      "rank": 4,
+      "z_score": 2.137678759197926,
+      "mom_rank": 17,
+      "qual_rank": 108.0,
+      "val_rank": 110
+    },
+    {
+      "ticker": "USB",
+      "mean_normalized_rank": 0.16780980433410478,
+      "raw": -0.16780980433410478,
+      "rank": 5,
+      "z_score": 2.1291719085503167,
+      "mom_rank": 121,
+      "qual_rank": NaN,
+      "val_rank": 45
+    },
+    {
+      "ticker": "CF",
+      "mean_normalized_rank": 0.17881090580562123,
+      "raw": -0.17881090580562123,
+      "rank": 6,
+      "z_score": 2.0581422975082084,
+      "mom_rank": 42,
+      "qual_rank": 79.0,
+      "val_rank": 135
+    },
+    {
+      "ticker": "RF",
+      "mean_normalized_rank": 0.1800967809804334,
+      "raw": -0.1800967809804334,
+      "rank": 7,
+      "z_score": 2.0498399276271475,
+      "mom_rank": 129,
+      "qual_rank": NaN,
+      "val_rank": 49
+    },
+    {
+      "ticker": "GOOG",
+      "mean_normalized_rank": 0.1821728532808841,
+      "raw": -0.1821728532808841,
+      "rank": 8,
+      "z_score": 2.036435578219217,
+      "mom_rank": 32,
+      "qual_rank": 46.0,
+      "val_rank": 186
+    },
+    {
+      "ticker": "GOOGL",
+      "mean_normalized_rank": 0.18218687950993248,
+      "raw": -0.18218687950993248,
+      "rank": 9,
+      "z_score": 2.0363450165971577,
+      "mom_rank": 30,
+      "qual_rank": 46.0,
+      "val_rank": 188
+    },
+    {
+      "ticker": "XOM",
+      "mean_normalized_rank": 0.18356113262116902,
+      "raw": -0.18356113262116902,
+      "rank": 10,
+      "z_score": 2.0274720265409103,
+      "mom_rank": 50,
+      "qual_rank": 192.0,
+      "val_rank": 10
+    },
+    {
+      "ticker": "MRK",
+      "mean_normalized_rank": 0.18770610543979685,
+      "raw": -0.18770610543979685,
+      "rank": 11,
+      "z_score": 2.000709632988816,
+      "mom_rank": 82,
+      "qual_rank": 134.0,
+      "val_rank": 48
+    },
+    {
+      "ticker": "EQT",
+      "mean_normalized_rank": 0.19193593377081206,
+      "raw": -0.19193593377081206,
+      "rank": 12,
+      "z_score": 1.973399362112323,
+      "mom_rank": 156,
+      "qual_rank": 20.0,
+      "val_rank": 106
+    },
+    {
+      "ticker": "FITB",
+      "mean_normalized_rank": 0.19766463286345465,
+      "raw": -0.19766463286345465,
+      "rank": 13,
+      "z_score": 1.9364114959989862,
+      "mom_rank": 125,
+      "qual_rank": NaN,
+      "val_rank": 70
+    },
+    {
+      "ticker": "MTB",
+      "mean_normalized_rank": 0.20379933099330136,
+      "raw": -0.20379933099330136,
+      "rank": 14,
+      "z_score": 1.8968022602190988,
+      "mom_rank": 159,
+      "qual_rank": 23.0,
+      "val_rank": 117
+    },
+    {
+      "ticker": "DVN",
+      "mean_normalized_rank": 0.20381357935719888,
+      "raw": -0.20381357935719888,
+      "rank": 15,
+      "z_score": 1.8967102643632068,
+      "mom_rank": 45,
+      "qual_rank": 186.0,
+      "val_rank": 51
+    },
+    {
+      "ticker": "DOW",
+      "mean_normalized_rank": 0.20629076372817168,
+      "raw": -0.20629076372817168,
+      "rank": 16,
+      "z_score": 1.8807160984330626,
+      "mom_rank": 89,
+      "qual_rank": NaN,
+      "val_rank": 114
+    },
+    {
+      "ticker": "MU",
+      "mean_normalized_rank": 0.21171802583047492,
+      "raw": -0.21171802583047492,
+      "rank": 17,
+      "z_score": 1.845674487631791,
+      "mom_rank": 3,
+      "qual_rank": 12.0,
+      "val_rank": 295
+    },
+    {
+      "ticker": "GS",
+      "mean_normalized_rank": 0.21482221754681255,
+      "raw": -0.21482221754681255,
+      "rank": 18,
+      "z_score": 1.8256319918160335,
+      "mom_rank": 62,
+      "qual_rank": NaN,
+      "val_rank": 149
+    },
+    {
+      "ticker": "EOG",
+      "mean_normalized_rank": 0.2163629289939608,
+      "raw": -0.2163629289939608,
+      "rank": 19,
+      "z_score": 1.8156842483921214,
+      "mom_rank": 132,
+      "qual_rank": 95.0,
+      "val_rank": 83
+    },
+    {
+      "ticker": "FCX",
+      "mean_normalized_rank": 0.22055547040386336,
+      "raw": -0.22055547040386336,
+      "rank": 20,
+      "z_score": 1.78861472390911,
+      "mom_rank": 57,
+      "qual_rank": 119.0,
+      "val_rank": 137
+    },
+    {
+      "ticker": "HCA",
+      "mean_normalized_rank": 0.22354096277686333,
+      "raw": -0.22354096277686333,
+      "rank": 21,
+      "z_score": 1.7693386211868125,
+      "mom_rank": 106,
+      "qual_rank": 66.0,
+      "val_rank": 151
+    },
+    {
+      "ticker": "INCY",
+      "mean_normalized_rank": 0.2242957769943822,
+      "raw": -0.2242957769943822,
+      "rank": 22,
+      "z_score": 1.764465094620565,
+      "mom_rank": 64,
+      "qual_rank": 114.0,
+      "val_rank": 141
+    },
+    {
+      "ticker": "MO",
+      "mean_normalized_rank": 0.22435987876514604,
+      "raw": -0.22435987876514604,
+      "rank": 23,
+      "z_score": 1.7640512157143249,
+      "mom_rank": 189,
+      "qual_rank": 15.0,
+      "val_rank": 126
+    },
+    {
+      "ticker": "TFC",
+      "mean_normalized_rank": 0.22506837786661055,
+      "raw": -0.22506837786661055,
+      "rank": 24,
+      "z_score": 1.7594767269023635,
+      "mom_rank": 166,
+      "qual_rank": NaN,
+      "val_rank": 56
+    }
+  ],
+  "snapshot_id": "be2f46f43e6e9d0e"
+}
