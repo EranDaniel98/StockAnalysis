@@ -66,6 +66,21 @@ def _parse_args() -> argparse.Namespace:
              "hypothesis that 2022-bear folds drag minimal_baseline's "
              "walk-forward result.",
     )
+    p.add_argument(
+        "--strategy",
+        default="minimal_baseline",
+        help="Strategy key from config/strategies.yaml. Defaults to the "
+             "control. Use minimal_baseline_v2 / _v3 for the IC-driven "
+             "redesigns.",
+    )
+    p.add_argument(
+        "--snapshot-id",
+        help="Read every yfinance-sourced input from "
+             "data/snapshots/<snapshot_id>/ instead of pulling fresh. "
+             "Pins the run for reproducibility — eliminates ±0.4 Sharpe "
+             "yfinance drift across pulls. Build snapshots with "
+             "scripts/freeze_snapshot.py.",
+    )
     return p.parse_args()
 
 
@@ -89,11 +104,12 @@ def main() -> int:
     from src.data.fundamentals import FundamentalsFetcher
 
     config = Config()
-    strategy = config.get_strategy("minimal_baseline")
+    strategy_name = args.strategy
+    strategy = config.get_strategy(strategy_name)
     if strategy is None:
         logger.error(
-            "Strategy 'minimal_baseline' not found in config/strategies.yaml. "
-            "Did you skip the review-#6 edit?"
+            "Strategy %r not found in config/strategies.yaml.",
+            strategy_name,
         )
         return 2
 
@@ -113,71 +129,116 @@ def main() -> int:
 
     logger.info("Universe %s: %d tickers", args.universe, len(tickers))
 
-    # Cache + fetchers
-    cache = DataCache(
-        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
-        market_hours_expiry_minutes=config.get(
-            "data", "market_hours_cache_minutes", default=5,
-        ),
-    )
-    fetcher = DataFetcher(config, cache)
-    fund_fetcher = FundamentalsFetcher(config, cache)
-
-    # Default end_date: min(today, universe-captured). The survivorship
-    # guard refuses end > captured, so picking the smaller automatically
-    # keeps the run within the safe window. Explicit --end-date wins.
-    today = pd.Timestamp.utcnow().normalize().tz_localize(None)
-    try:
-        captured = config.get_universe_captured_date(args.universe)
-    except ValueError as exc:
-        logger.error("Universe captured-date header malformed: %s", exc)
-        return 2
-    if args.end_date:
-        end = pd.Timestamp(args.end_date)
-    elif captured is not None:
-        end = min(today, pd.Timestamp(captured))
-        if end < today:
-            logger.info(
-                "End_date trimmed to universe-capture date %s (today=%s) "
-                "to satisfy the survivorship guard.",
-                end.date(), today.date(),
-            )
-    else:
-        end = today
-    start = end - pd.DateOffset(years=int(args.years))
-
-    logger.info("Fetching %d ticker price histories (this can take a while)...",
-                len(tickers))
-    price_data = fetcher.fetch_batch(tickers)
-    fundamentals = fund_fetcher.fetch_batch(tickers)
-
-    # Earnings (used by the engine's blackout filter)
-    logger.info("Fetching earnings history...")
-    earnings_history = fetch_earnings_history(list(price_data.keys()), workers=8)
-
-    # SPY benchmark
-    logger.info("Fetching SPY benchmark...")
-    spy_df = fetcher.fetch_price_data("SPY", period=f"{int(args.years)+1}y")
-
-    # VIX — required for the regime gate's bear-classification when
-    # --regime-mode is non-off. Cheap to fetch even when unused; pull
-    # it conditionally to keep the no-regime path identical to today's.
-    vix_df = None
-    if args.regime_mode != "off":
-        logger.info("Fetching ^VIX history for regime gate (%s)...",
-                    args.regime_mode)
-        vix_df = fetcher.fetch_price_data("^VIX",
-                                          period=f"{int(args.years)+1}y")
-        if vix_df is None or vix_df.empty:
+    # ----- snapshot vs fresh-fetch branch -----
+    # When --snapshot-id is set the run reads from a frozen Parquet
+    # snapshot and refuses fresh yfinance calls. Eliminates the ±0.4
+    # Sharpe drift between pulls (project_yfinance_nondeterminism).
+    if args.snapshot_id:
+        from src.storage.snapshot import load_snapshot
+        logger.info("Loading snapshot %s ...", args.snapshot_id)
+        snap = load_snapshot(args.snapshot_id)
+        logger.info(
+            "Snapshot loaded: window %s -> %s, %d tickers with prices, "
+            "spy=%s vix=%s",
+            snap.manifest.window_start, snap.manifest.window_end,
+            snap.manifest.n_tickers_with_prices,
+            snap.manifest.has_spy, snap.manifest.has_vix,
+        )
+        if args.universe != snap.manifest.universe_label:
             logger.error(
-                "Regime gate requested but ^VIX fetch returned empty; "
-                "refusing to run silently with gate=off. Re-run with "
-                "--regime-mode off if the gate isn't needed."
+                "Snapshot universe %s != requested %s",
+                snap.manifest.universe_label, args.universe,
             )
             return 2
+        price_data = snap.price_data
+        fundamentals = snap.fundamentals
+        earnings_history = snap.earnings_history
+        spy_df = snap.spy_df
+        vix_df = snap.vix_df
 
-        # Monkey-patch the config getter so the engine's gate reads our
-        # override without us having to touch settings.yaml on disk.
+        # Window comes from the snapshot manifest unless caller
+        # explicitly overrode --end-date. The runner's --years
+        # determines how far back we slice into the snapshot.
+        if args.end_date:
+            end = pd.Timestamp(args.end_date)
+        else:
+            end = pd.Timestamp(snap.manifest.window_end)
+        start = end - pd.DateOffset(years=int(args.years))
+        snapshot_id_for_record = args.snapshot_id
+    else:
+        # Cache + fetchers (fresh-pull path)
+        cache = DataCache(
+            expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+            market_hours_expiry_minutes=config.get(
+                "data", "market_hours_cache_minutes", default=5,
+            ),
+        )
+        fetcher = DataFetcher(config, cache)
+        fund_fetcher = FundamentalsFetcher(config, cache)
+
+        # Default end_date: min(today, universe-captured). The survivorship
+        # guard refuses end > captured, so picking the smaller automatically
+        # keeps the run within the safe window. Explicit --end-date wins.
+        today = pd.Timestamp.utcnow().normalize().tz_localize(None)
+        try:
+            captured = config.get_universe_captured_date(args.universe)
+        except ValueError as exc:
+            logger.error("Universe captured-date header malformed: %s", exc)
+            return 2
+        if args.end_date:
+            end = pd.Timestamp(args.end_date)
+        elif captured is not None:
+            end = min(today, pd.Timestamp(captured))
+            if end < today:
+                logger.info(
+                    "End_date trimmed to universe-capture date %s (today=%s) "
+                    "to satisfy the survivorship guard.",
+                    end.date(), today.date(),
+                )
+        else:
+            end = today
+        start = end - pd.DateOffset(years=int(args.years))
+
+        logger.info("Fetching %d ticker price histories (this can take a while)...",
+                    len(tickers))
+        price_data = fetcher.fetch_batch(tickers)
+        fundamentals = fund_fetcher.fetch_batch(tickers)
+
+        # Earnings (used by the engine's blackout filter)
+        logger.info("Fetching earnings history...")
+        earnings_history = fetch_earnings_history(list(price_data.keys()), workers=8)
+
+        # SPY benchmark
+        logger.info("Fetching SPY benchmark...")
+        spy_df = fetcher.fetch_price_data("SPY", period=f"{int(args.years)+1}y")
+
+        # VIX — required for the regime gate's bear-classification when
+        # --regime-mode is non-off.
+        vix_df = None
+        if args.regime_mode != "off":
+            logger.info("Fetching ^VIX history for regime gate (%s)...",
+                        args.regime_mode)
+            vix_df = fetcher.fetch_price_data("^VIX",
+                                              period=f"{int(args.years)+1}y")
+            if vix_df is None or vix_df.empty:
+                logger.error(
+                    "Regime gate requested but ^VIX fetch returned empty; "
+                    "refusing to run silently with gate=off."
+                )
+                return 2
+        snapshot_id_for_record = None
+
+    # The regime gate's config monkey-patch is independent of which
+    # data path supplied the bars. Apply it now (after vix_df is known)
+    # so snapshot runs can also use --regime-mode.
+    if args.regime_mode != "off":
+        if vix_df is None or vix_df.empty:
+            logger.error(
+                "Regime gate %s requested but VIX data is missing from "
+                "the data source (snapshot or fetch). Refusing.",
+                args.regime_mode,
+            )
+            return 2
         _orig_get_regime_filter = config.get_regime_filter
 
         def _patched_get_regime_filter():
@@ -267,10 +328,21 @@ def main() -> int:
     # Strip the full equity curve to keep the file readable; keep just
     # the summary blocks + the walk-forward report (the things the MVTP
     # report consumer reads).
+    # Provenance stamps so a result JSON is self-describing — caller
+    # can verify which code + data + config produced this number.
+    import subprocess
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+        ).decode().strip()
+    except Exception:  # noqa: BLE001
+        git_sha = None
+
     slim = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "universe": args.universe,
-        "strategy": "minimal_baseline",
+        "strategy": strategy_name,
         "window": {
             "start": start.date().isoformat(),
             "end": end.date().isoformat(),
@@ -279,6 +351,8 @@ def main() -> int:
         "starting_cash": args.starting_cash,
         "pit_fundamentals": args.pit_fundamentals,
         "regime_mode": args.regime_mode,
+        "snapshot_id": snapshot_id_for_record,
+        "git_sha": git_sha,
         "full": result.get("full"),
         "in_sample": result.get("in_sample"),
         "out_of_sample": result.get("out_of_sample"),
