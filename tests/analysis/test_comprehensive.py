@@ -146,6 +146,7 @@ def test_insider_bearish_when_sells_dominant() -> None:
         {"transaction_code": "P", "value_usd": 50_000,
          "transaction_date": date(2024, 2, 1)},
     ]
+    # $1M sell > $500K default threshold + buys 50K < 2x of sells → bearish
     result = compute_insider_activity(txs)
     assert result.signal == "bearish"
 
@@ -157,8 +158,42 @@ def test_insider_neutral_under_threshold() -> None:
          "transaction_date": date(2024, 1, 15)},
     ]
     result = compute_insider_activity(txs)
-    # 50K alone is below 100K threshold → neutral.
+    # 50K alone is below 500K default sell threshold → neutral.
     assert result.signal == "neutral"
+
+
+def test_insider_megacap_routine_sales_are_neutral() -> None:
+    """For a $1T mkt cap stock, a $500K sale is noise (0.00005% of mcap)."""
+    txs = [
+        {"transaction_code": "S", "value_usd": 500_000,
+         "transaction_date": date(2024, 1, 15)},
+    ]
+    # mkt_cap = $1T → sell_threshold = $1T * 0.0005 = $500M
+    result = compute_insider_activity(txs, market_cap_usd=1_000_000_000_000)
+    assert result.signal == "neutral"
+
+
+def test_insider_smallcap_modest_sales_flag_bearish() -> None:
+    """For a $500M small cap, a $500K sale is meaningful (0.1% of mcap)."""
+    txs = [
+        {"transaction_code": "S", "value_usd": 500_000,
+         "transaction_date": date(2024, 1, 15)},
+    ]
+    # mkt_cap = $500M → sell_threshold = $500M * 0.0005 = $250K
+    # 500K > 250K and no offsetting buys → bearish
+    result = compute_insider_activity(txs, market_cap_usd=500_000_000)
+    assert result.signal == "bearish"
+
+
+def test_insider_megacap_meaningful_buy_flags_bullish() -> None:
+    """For a $100B mkt cap, a $10M open-market buy is real conviction."""
+    txs = [
+        {"transaction_code": "P", "value_usd": 10_000_000,
+         "transaction_date": date(2024, 1, 15)},
+    ]
+    # mkt_cap = $100B → buy_threshold = $100B * 0.00005 = $5M
+    result = compute_insider_activity(txs, market_cap_usd=100_000_000_000)
+    assert result.signal == "bullish"
 
 
 def test_insider_ignores_grants_and_option_exercises() -> None:

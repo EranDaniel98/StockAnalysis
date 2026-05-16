@@ -343,6 +343,7 @@ def compute_trading_plan(
 def compute_insider_activity(
     transactions: list[dict],
     window_days: int = 90,
+    market_cap_usd: float | None = None,
 ) -> InsiderActivity:
     """Summarize Form 4 activity for one ticker.
 
@@ -354,10 +355,18 @@ def compute_insider_activity(
       - F: tax withholding on RSU vest (neutral)
 
     Only P + S signal real conviction. We sum dollar values and emit
-    a bull/bear/neutral verdict.
+    a bull/bear/neutral verdict, scaled by market cap so routine
+    megacap exec sales (which are noise) don't flag bearish.
 
-    ``transactions`` is the list of rows for this ticker within the
-    window — caller filters by ticker and date upstream.
+    Signal thresholds:
+      - bullish: buys > 2x sells AND buys ≥ 0.005% of mkt cap
+        (i.e., a meaningful insider purchase, not a $1K test)
+      - bearish: sells > 2x buys AND sells ≥ 0.05% of mkt cap
+        (5x the buy threshold — sells are noisier than buys)
+      - neutral: anything else with transactions
+
+    When mkt_cap is None, fall back to absolute dollar thresholds
+    ($100K buy / $500K sell).
     """
     if not transactions:
         return InsiderActivity(
@@ -387,13 +396,20 @@ def compute_insider_activity(
             sell_value += val
 
     net = buy_value - sell_value
+
+    # Calibrate thresholds by market cap when available.
+    if market_cap_usd and market_cap_usd > 0:
+        buy_threshold = market_cap_usd * 0.00005  # 0.005% of mkt cap
+        sell_threshold = market_cap_usd * 0.0005   # 0.05% of mkt cap
+    else:
+        buy_threshold = 100_000.0
+        sell_threshold = 500_000.0
+
     if buy_value == 0 and sell_value == 0:
         signal = "no_data"
-    elif buy_value > sell_value * 2:
-        signal = "bullish"   # buys at least 2x sells in $ terms
-    elif sell_value > buy_value * 2 and sell_value > 100_000:
-        # Big sells without offsetting buys — bearish only above
-        # noise threshold ($100K aggregate)
+    elif buy_value > sell_value * 2 and buy_value >= buy_threshold:
+        signal = "bullish"
+    elif sell_value > buy_value * 2 and sell_value >= sell_threshold:
         signal = "bearish"
     else:
         signal = "neutral"
@@ -635,7 +651,12 @@ def analyze_ticker(
         days_to_next_earnings=days_to_next_earnings,
         short_pct_float=short_pct,
     )
-    insider = compute_insider_activity(insider_txs or [], window_days=90)
+    mkt_cap = None
+    if yf_info:
+        mkt_cap = yf_info.get("marketCap")
+    insider = compute_insider_activity(
+        insider_txs or [], window_days=90, market_cap_usd=mkt_cap,
+    )
     rationale = build_rationale(
         ticker=ticker, composite_z=composite_z,
         mom_rank=mom_rank, qual_rank=qual_rank, val_rank=val_rank,
