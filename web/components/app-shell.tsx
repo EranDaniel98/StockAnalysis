@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Rss,
   Search,
+  Sparkles,
   Target,
   Wallet,
 } from "lucide-react";
@@ -46,6 +47,12 @@ const NAV: NavLink[] = [
     label: "Home",
     icon: Home,
     description: "Today's best plays across every strategy",
+  },
+  {
+    href: "/factors",
+    label: "Factors",
+    icon: Sparkles,
+    description: "Composite-factor daily picks (m+q+v)",
   },
   {
     href: "/portfolio",
