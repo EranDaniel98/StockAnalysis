@@ -198,6 +198,26 @@ def render_one_stock(a: StockAnalysis) -> str:
     )
     lines.append("")
 
+    # INSIDER ACTIVITY
+    if a.insider and a.insider.signal != "no_data":
+        ins = a.insider
+        signal_emoji = {
+            "bullish": "🟢", "bearish": "🔴", "neutral": "⚪",
+        }.get(ins.signal, "⚪")
+        lines.append(f"**Insider activity (last {ins.window_days} days)**")
+        bits = []
+        if ins.n_buys > 0:
+            bits.append(f"{ins.n_buys} open-market buys ({_big_money(ins.buy_value_usd)})")
+        if ins.n_sells > 0:
+            bits.append(f"{ins.n_sells} sales ({_big_money(ins.sell_value_usd)})")
+        if not bits:
+            bits.append("no notable transactions")
+        recency = f", most recent {ins.most_recent_date}" if ins.most_recent_date else ""
+        lines.append(f"- {signal_emoji} **{ins.signal.upper()}** — "
+                     f"net {_big_money(ins.net_value_usd)}; "
+                     f"{'; '.join(bits)}{recency}")
+        lines.append("")
+
     # EXPECTED OUTCOMES
     lines.append("**Expected outcome (63 trading days)**")
     lines.append(f"- Base case (median): **{a.expected_return_pct:+.1f}%** → "

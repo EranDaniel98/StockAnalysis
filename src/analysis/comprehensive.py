@@ -119,6 +119,19 @@ class RiskFlags:
 
 
 @dataclass
+class InsiderActivity:
+    """Form 4 summary for the last N days."""
+    window_days: int
+    n_buys: int
+    n_sells: int
+    buy_value_usd: float
+    sell_value_usd: float
+    net_value_usd: float
+    most_recent_date: str | None
+    signal: str  # "bullish" | "bearish" | "neutral" | "no_data"
+
+
+@dataclass
 class StockAnalysis:
     """Full per-stock analysis bundle."""
     ticker: str
@@ -140,6 +153,7 @@ class StockAnalysis:
     analyst_recommendation: str | None = None
     short_pct_float: float | None = None
     beta: float | None = None
+    insider: InsiderActivity | None = None
     rationale: str = ""
 
 
@@ -326,6 +340,74 @@ def compute_trading_plan(
     )
 
 
+def compute_insider_activity(
+    transactions: list[dict],
+    window_days: int = 90,
+) -> InsiderActivity:
+    """Summarize Form 4 activity for one ticker.
+
+    Transaction codes (SEC):
+      - P: open-market purchase (BULLISH — exec putting own money in)
+      - A: grant / award (neutral — comp, not conviction)
+      - S: open-market sale (mixed — could be tax / diversification)
+      - M: option exercise (neutral)
+      - F: tax withholding on RSU vest (neutral)
+
+    Only P + S signal real conviction. We sum dollar values and emit
+    a bull/bear/neutral verdict.
+
+    ``transactions`` is the list of rows for this ticker within the
+    window — caller filters by ticker and date upstream.
+    """
+    if not transactions:
+        return InsiderActivity(
+            window_days=window_days, n_buys=0, n_sells=0,
+            buy_value_usd=0.0, sell_value_usd=0.0, net_value_usd=0.0,
+            most_recent_date=None, signal="no_data",
+        )
+
+    n_buys = 0
+    n_sells = 0
+    buy_value = 0.0
+    sell_value = 0.0
+    most_recent = None
+    for t in transactions:
+        code = (t.get("transaction_code") or "").upper()
+        val = float(t.get("value_usd") or 0.0)
+        dt = t.get("transaction_date") or t.get("filing_date")
+        if dt is not None:
+            d_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+            if most_recent is None or d_str > most_recent:
+                most_recent = d_str
+        if code == "P":
+            n_buys += 1
+            buy_value += val
+        elif code == "S":
+            n_sells += 1
+            sell_value += val
+
+    net = buy_value - sell_value
+    if buy_value == 0 and sell_value == 0:
+        signal = "no_data"
+    elif buy_value > sell_value * 2:
+        signal = "bullish"   # buys at least 2x sells in $ terms
+    elif sell_value > buy_value * 2 and sell_value > 100_000:
+        # Big sells without offsetting buys — bearish only above
+        # noise threshold ($100K aggregate)
+        signal = "bearish"
+    else:
+        signal = "neutral"
+
+    return InsiderActivity(
+        window_days=window_days,
+        n_buys=n_buys, n_sells=n_sells,
+        buy_value_usd=buy_value, sell_value_usd=sell_value,
+        net_value_usd=net,
+        most_recent_date=most_recent,
+        signal=signal,
+    )
+
+
 def compute_risk_flags(
     *, tech: TechnicalSnapshot,
     days_to_next_earnings: int | None,
@@ -457,6 +539,7 @@ def analyze_ticker(
     expected_returns: tuple[float, float, float],
     days_to_next_earnings: int | None = None,
     yf_info: dict | None = None,
+    insider_txs: list[dict] | None = None,
 ) -> StockAnalysis:
     tech = compute_technicals(prices, as_of)
     fund = compute_fundamentals(loader, ticker, as_of)
@@ -482,6 +565,7 @@ def analyze_ticker(
         days_to_next_earnings=days_to_next_earnings,
         short_pct_float=short_pct,
     )
+    insider = compute_insider_activity(insider_txs or [], window_days=90)
     rationale = build_rationale(
         ticker=ticker, composite_z=composite_z,
         mom_rank=mom_rank, qual_rank=qual_rank, val_rank=val_rank,
@@ -507,5 +591,6 @@ def analyze_ticker(
         analyst_recommendation=analyst_rec,
         short_pct_float=short_pct,
         beta=beta,
+        insider=insider,
         rationale=rationale,
     )

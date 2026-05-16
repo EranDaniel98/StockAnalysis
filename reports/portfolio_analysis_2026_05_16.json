@@ -1,6 +1,6 @@
 {
   "as_of": "2026-05-16",
-  "generated_at_utc": "2026-05-16T15:46:52.696842+00:00",
+  "generated_at_utc": "2026-05-16T15:51:15.790730+00:00",
   "strategy": "composite_d05_r63",
   "equity_usd": 41042.6,
   "n_positions": 24,
@@ -24,7 +24,7 @@
       "rationale": "APA sits at composite z=+2.90. Top by strong momentum (rank #24, +123% past year) + cheap valuation (rank #14, earnings yield 11.4%). Price is above the 200-day SMA (confirmed uptrend).",
       "analyst_target": null,
       "sector": null,
-      "days_to_earnings": null
+      "days_to_earnings": 81
     },
     {
       "rank": 2,
@@ -38,9 +38,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "VTRS sits at composite z=+2.38. Top by strong momentum (rank #41, +105% past year). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 17.5,
+      "sector": "Healthcare",
+      "days_to_earnings": 81
     },
     {
       "rank": 3,
@@ -54,9 +54,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "GOOG sits at composite z=+2.24. Top by strong momentum (rank #27, +137% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 418.46933,
+      "sector": "Communication Services",
+      "days_to_earnings": 68
     },
     {
       "rank": 4,
@@ -70,9 +70,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "GOOGL sits at composite z=+2.24. Top by strong momentum (rank #25, +141% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 427.88712,
+      "sector": "Communication Services",
+      "days_to_earnings": 68
     },
     {
       "rank": 5,
@@ -86,9 +86,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "DELL sits at composite z=+2.21. Top by strong momentum (rank #38, +122% past year). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 197.04349,
+      "sector": "Technology",
+      "days_to_earnings": 12
     },
     {
       "rank": 6,
@@ -102,9 +102,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "CF sits at composite z=+2.16. Top by high quality (rank #51, op-margin 43%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 122.57895,
+      "sector": "Basic Materials",
+      "days_to_earnings": 81
     },
     {
       "rank": 7,
@@ -118,9 +118,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "NEM sits at composite z=+2.16. Top by strong momentum (rank #18, +127% past year). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 144.008,
+      "sector": "Basic Materials",
+      "days_to_earnings": 68
     },
     {
       "rank": 8,
@@ -134,9 +134,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "DOW sits at composite z=+2.13. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 43.0625,
+      "sector": "Basic Materials",
+      "days_to_earnings": 67
     },
     {
       "rank": 9,
@@ -150,9 +150,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "RF sits at composite z=+2.09. Top by cheap valuation (rank #23, earnings yield 8.7%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 30.69,
+      "sector": "Financial Services",
+      "days_to_earnings": 61
     },
     {
       "rank": 10,
@@ -166,9 +166,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "SYF sits at composite z=+2.02. Top by cheap valuation (rank #10, earnings yield 13.4%). Price is BELOW the 200-day SMA \u2014 countertrend pick, respect the stop.",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 89.59091,
+      "sector": "Financial Services",
+      "days_to_earnings": 65
     },
     {
       "rank": 11,
@@ -182,9 +182,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "GS sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 947.6,
+      "sector": "Financial Services",
+      "days_to_earnings": 58
     },
     {
       "rank": 12,
@@ -198,9 +198,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "BK sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 142.64285,
+      "sector": "Financial Services",
+      "days_to_earnings": 59
     },
     {
       "rank": 13,
@@ -214,9 +214,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "OXY sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 64.33333,
+      "sector": "Energy",
+      "days_to_earnings": 81
     },
     {
       "rank": 14,
@@ -230,9 +230,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "MS sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 203.2857,
+      "sector": "Financial Services",
+      "days_to_earnings": 59
     },
     {
       "rank": 15,
@@ -246,9 +246,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "USB sits at composite z=+1.87. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 63.475,
+      "sector": "Financial Services",
+      "days_to_earnings": 60
     },
     {
       "rank": 16,
@@ -262,9 +262,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "TFC sits at composite z=+1.87. Top by cheap valuation (rank #32, earnings yield 8.3%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 55.68421,
+      "sector": "Financial Services",
+      "days_to_earnings": 61
     },
     {
       "rank": 17,
@@ -278,9 +278,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "MO sits at composite z=+1.81. Top by high quality (rank #12, op-margin 54%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 69.45455,
+      "sector": "Consumer Defensive",
+      "days_to_earnings": 74
     },
     {
       "rank": 18,
@@ -294,9 +294,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "MTB sits at composite z=+1.78. Top by high quality (rank #17). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 233.52632,
+      "sector": "Financial Services",
+      "days_to_earnings": 59
     },
     {
       "rank": 19,
@@ -310,9 +310,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "HCA sits at composite z=+1.77. Top by high quality (rank #50). Price is BELOW the 200-day SMA \u2014 countertrend pick, respect the stop.",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 513.0952,
+      "sector": "Healthcare",
+      "days_to_earnings": 68
     },
     {
       "rank": 20,
@@ -326,9 +326,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "HST sits at composite z=+1.73. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 22.875,
+      "sector": "Real Estate",
+      "days_to_earnings": 74
     },
     {
       "rank": 21,
@@ -342,9 +342,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "AES sits at composite z=+1.71. Top by cheap valuation (rank #29, earnings yield 10.3%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 15.11111,
+      "sector": "Utilities",
+      "days_to_earnings": 75
     },
     {
       "rank": 22,
@@ -358,9 +358,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "INCY sits at composite z=+1.70. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 108.5,
+      "sector": "Healthcare",
+      "days_to_earnings": 72
     },
     {
       "rank": 23,
@@ -374,9 +374,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "C sits at composite z=+1.69. Top by strong momentum (rank #40, +68% past year) + cheap valuation (rank #22, earnings yield 5.9%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 146.84091,
+      "sector": "Financial Services",
+      "days_to_earnings": 58
     },
     {
       "rank": 24,
@@ -390,9 +390,9 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "STT sits at composite z=+1.64. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
-      "days_to_earnings": null
+      "analyst_target": 160.5357,
+      "sector": "Financial Services",
+      "days_to_earnings": 58
     }
   ]
 }

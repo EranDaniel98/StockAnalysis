@@ -19,12 +19,22 @@
 
 | Sector | Count | % of portfolio |
 |---|---|---|
-| Unknown | 24 | 100.0% ⚠️ |
+| Financial Services | 10 | 41.7% ⚠️ |
+| Healthcare | 3 | 12.5% |
+| Basic Materials | 3 | 12.5% |
+| Communication Services | 2 | 8.3% |
+| Unknown | 1 | 4.2% |
+| Technology | 1 | 4.2% |
+| Energy | 1 | 4.2% |
+| Consumer Defensive | 1 | 4.2% |
+| Real Estate | 1 | 4.2% |
+| Utilities | 1 | 4.2% |
 
 ⚠️ **Sector concentration warning.** One sector exceeds 30% of the portfolio — single-sector drawdowns will hit harder than the broad market.
 
 ## Portfolio-wide risk summary
 
+- Earnings within 14 days: DELL(12d)
 - >30% above 200d SMA (overbought): APA, VTRS, GOOG, GOOGL, DELL, CF, DOW
 
 ---
@@ -69,6 +79,9 @@ Price: **$38.96** | Composite z: **+2.90**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.82× | risk $3.81/sh, reward $3.11/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-833,372.80; 1 sales ($833,372.80), most recent 2026-03-31
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $42.07
 - Bull case (75th pct): +17.6% → ~$45.81
@@ -79,12 +92,12 @@ Price: **$38.96** | Composite z: **+2.90**
 
 ---
 
-### #2. **VTRS**
+### #2. **VTRS** — Healthcare
 
 _VTRS sits at composite z=+2.38. Top by strong momentum (rank #41, +105% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$16.49** | Composite z: **+2.38**
+Price: **$16.49** | Composite z: **+2.38** | Analyst tgt: $17.50 (+6.16%) — *buy* | β=0.87
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -115,6 +128,9 @@ Price: **$16.49** | Composite z: **+2.38**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.94× | risk $1.40/sh, reward $1.31/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-278,337.07; 2 open-market buys ($5,201.61); 1 sales ($283,538.68), most recent 2026-04-15
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $17.80
 - Bull case (75th pct): +17.6% → ~$19.39
@@ -125,12 +141,12 @@ Price: **$16.49** | Composite z: **+2.38**
 
 ---
 
-### #3. **GOOG**
+### #3. **GOOG** — Communication Services
 
 _GOOG sits at composite z=+2.24. Top by strong momentum (rank #27, +137% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$393.24** | Composite z: **+2.24**
+Price: **$393.24** | Composite z: **+2.24** | Analyst tgt: $418.47 (+6.42%) — *strong_buy* | β=1.27
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -171,12 +187,12 @@ Price: **$393.24** | Composite z: **+2.24**
 
 ---
 
-### #4. **GOOGL**
+### #4. **GOOGL** — Communication Services
 
 _GOOGL sits at composite z=+2.24. Top by strong momentum (rank #25, +141% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$396.64** | Composite z: **+2.24**
+Price: **$396.64** | Composite z: **+2.24** | Analyst tgt: $427.89 (+7.88%) — *strong_buy* | β=1.27
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -207,6 +223,9 @@ Price: **$396.64** | Composite z: **+2.24**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.26× | risk $25.21/sh, reward $31.74/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-47.92M; 58 sales ($47.92M), most recent 2026-04-30
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $428.38
 - Bull case (75th pct): +17.6% → ~$466.37
@@ -217,12 +236,12 @@ Price: **$396.64** | Composite z: **+2.24**
 
 ---
 
-### #5. **DELL**
+### #5. **DELL** — Technology
 
 _DELL sits at composite z=+2.21. Top by strong momentum (rank #38, +122% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$242.80** | Composite z: **+2.21**
+Price: **$242.80** | Composite z: **+2.21** | Analyst tgt: $197.04 (-18.85%) — *buy* | β=1.06
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -253,22 +272,26 @@ Price: **$242.80** | Composite z: **+2.21**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.67× | risk $29.14/sh, reward $19.42/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-6.58B; 2195 sales ($6.58B), most recent 2026-04-16
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $262.22
 - Bull case (75th pct): +17.6% → ~$285.49
 - Bear case (25th pct): -1.5% → ~$239.07
 
 **Risk flags**
+- Earnings in 12 days (outside blackout but worth tracking)
 - ⚠️ Extended >30% above 200d SMA — pullback risk
 
 ---
 
-### #6. **CF**
+### #6. **CF** — Basic Materials
 
 _CF sits at composite z=+2.16. Top by high quality (rank #51, op-margin 43%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$125.04** | Composite z: **+2.16**
+Price: **$125.04** | Composite z: **+2.16** | Analyst tgt: $122.58 (-1.97%) — *hold* | β=0.42
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -299,6 +322,9 @@ Price: **$125.04** | Composite z: **+2.16**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.75× | risk $13.37/sh, reward $10.00/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-72.18M; 36 sales ($72.18M), most recent 2026-04-28
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $135.04
 - Bull case (75th pct): +17.6% → ~$147.02
@@ -309,12 +335,12 @@ Price: **$125.04** | Composite z: **+2.16**
 
 ---
 
-### #7. **NEM**
+### #7. **NEM** — Basic Materials
 
 _NEM sits at composite z=+2.16. Top by strong momentum (rank #18, +127% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$108.85** | Composite z: **+2.16**
+Price: **$108.85** | Composite z: **+2.16** | Analyst tgt: $144.01 (+32.30%) — *buy* | β=0.45
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -345,6 +371,9 @@ Price: **$108.85** | Composite z: **+2.16**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.72× | risk $12.06/sh, reward $8.71/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-7.52M; 12 sales ($7.52M), most recent 2026-05-01
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $117.56
 - Bull case (75th pct): +17.6% → ~$127.99
@@ -352,12 +381,12 @@ Price: **$108.85** | Composite z: **+2.16**
 
 ---
 
-### #8. **DOW**
+### #8. **DOW** — Basic Materials
 
 _DOW sits at composite z=+2.13. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$38.76** | Composite z: **+2.13**
+Price: **$38.76** | Composite z: **+2.13** | Analyst tgt: $43.06 (+11.11%) — *buy* | β=0.45
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -398,12 +427,12 @@ Price: **$38.76** | Composite z: **+2.13**
 
 ---
 
-### #9. **RF**
+### #9. **RF** — Financial Services
 
 _RF sits at composite z=+2.09. Top by cheap valuation (rank #23, earnings yield 8.7%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$26.64** | Composite z: **+2.09**
+Price: **$26.64** | Composite z: **+2.09** | Analyst tgt: $30.69 (+15.20%) — *hold* | β=1.03
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -434,6 +463,9 @@ Price: **$26.64** | Composite z: **+2.09**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.38× | risk $1.54/sh, reward $2.13/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-195,750.22; 1 sales ($195,750.22), most recent 2026-05-07
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $28.77
 - Bull case (75th pct): +17.6% → ~$31.32
@@ -441,12 +473,12 @@ Price: **$26.64** | Composite z: **+2.09**
 
 ---
 
-### #10. **SYF**
+### #10. **SYF** — Financial Services
 
 _SYF sits at composite z=+2.02. Top by cheap valuation (rank #10, earnings yield 13.4%). Price is BELOW the 200-day SMA — countertrend pick, respect the stop._
 
 **Snapshot**
-Price: **$71.22** | Composite z: **+2.02**
+Price: **$71.22** | Composite z: **+2.02** | Analyst tgt: $89.59 (+25.79%) — *buy* | β=1.36
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -477,6 +509,9 @@ Price: **$71.22** | Composite z: **+2.02**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.23× | risk $4.64/sh, reward $5.70/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-35.05M; 19 sales ($35.05M), most recent 2026-05-01
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $76.92
 - Bull case (75th pct): +17.6% → ~$83.74
@@ -484,12 +519,12 @@ Price: **$71.22** | Composite z: **+2.02**
 
 ---
 
-### #11. **GS**
+### #11. **GS** — Financial Services
 
 _GS sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$949.92** | Composite z: **+2.01**
+Price: **$949.92** | Composite z: **+2.01** | Analyst tgt: $947.60 (-0.24%) — *hold* | β=1.27
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -520,6 +555,9 @@ Price: **$949.92** | Composite z: **+2.01**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.36× | risk $55.77/sh, reward $75.99/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-22.18M; 88 open-market buys ($6.87M); 56 sales ($29.05M), most recent 2026-05-06
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $1,025.91
 - Bull case (75th pct): +17.6% → ~$1,116.93
@@ -527,12 +565,12 @@ Price: **$949.92** | Composite z: **+2.01**
 
 ---
 
-### #12. **BK**
+### #12. **BK** — Financial Services
 
 _BK sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$134.99** | Composite z: **+2.01**
+Price: **$134.99** | Composite z: **+2.01** | Analyst tgt: $142.64 (+5.67%) — *buy* | β=1.07
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -563,6 +601,9 @@ Price: **$134.99** | Composite z: **+2.01**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.58× | risk $6.82/sh, reward $10.80/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-6.57M; 4 sales ($6.57M), most recent 2026-04-17
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $145.79
 - Bull case (75th pct): +17.6% → ~$158.72
@@ -570,12 +611,12 @@ Price: **$134.99** | Composite z: **+2.01**
 
 ---
 
-### #13. **OXY**
+### #13. **OXY** — Energy
 
 _OXY sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$59.60** | Composite z: **+1.89**
+Price: **$59.60** | Composite z: **+1.89** | Analyst tgt: $64.33 (+7.93%) — *hold* | β=0.17
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -613,12 +654,12 @@ Price: **$59.60** | Composite z: **+1.89**
 
 ---
 
-### #14. **MS**
+### #14. **MS** — Financial Services
 
 _MS sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$192.50** | Composite z: **+1.89**
+Price: **$192.50** | Composite z: **+1.89** | Analyst tgt: $203.29 (+5.60%) — *buy* | β=1.21
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -649,6 +690,9 @@ Price: **$192.50** | Composite z: **+1.89**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.49× | risk $10.31/sh, reward $15.40/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-16.62M; 11 sales ($16.62M), most recent 2026-04-20
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $207.90
 - Bull case (75th pct): +17.6% → ~$226.34
@@ -656,12 +700,12 @@ Price: **$192.50** | Composite z: **+1.89**
 
 ---
 
-### #15. **USB**
+### #15. **USB** — Financial Services
 
 _USB sits at composite z=+1.87. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$53.13** | Composite z: **+1.87**
+Price: **$53.13** | Composite z: **+1.87** | Analyst tgt: $63.48 (+19.46%) — *buy* | β=1.02
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -692,6 +736,9 @@ Price: **$53.13** | Composite z: **+1.87**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.51× | risk $2.82/sh, reward $4.26/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-4.20M; 2 sales ($4.20M), most recent 2026-05-05
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $57.39
 - Bull case (75th pct): +17.6% → ~$62.47
@@ -699,12 +746,12 @@ Price: **$53.13** | Composite z: **+1.87**
 
 ---
 
-### #16. **TFC**
+### #16. **TFC** — Financial Services
 
 _TFC sits at composite z=+1.87. Top by cheap valuation (rank #32, earnings yield 8.3%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$46.91** | Composite z: **+1.87**
+Price: **$46.91** | Composite z: **+1.87** | Analyst tgt: $55.68 (+18.69%) — *buy* | β=0.91
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -742,12 +789,12 @@ Price: **$46.91** | Composite z: **+1.87**
 
 ---
 
-### #17. **MO**
+### #17. **MO** — Consumer Defensive
 
 _MO sits at composite z=+1.81. Top by high quality (rank #12, op-margin 54%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$73.01** | Composite z: **+1.81**
+Price: **$73.01** | Composite z: **+1.81** | Analyst tgt: $69.45 (-4.87%) — *hold* | β=0.52
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -778,6 +825,9 @@ Price: **$73.01** | Composite z: **+1.81**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.40× | risk $4.17/sh, reward $5.84/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-1.89M; 1 sales ($1.89M), most recent 2026-03-05
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $78.85
 - Bull case (75th pct): +17.6% → ~$85.85
@@ -785,12 +835,12 @@ Price: **$73.01** | Composite z: **+1.81**
 
 ---
 
-### #18. **MTB**
+### #18. **MTB** — Financial Services
 
 _MTB sits at composite z=+1.78. Top by high quality (rank #17). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$205.31** | Composite z: **+1.78**
+Price: **$205.31** | Composite z: **+1.78** | Analyst tgt: $233.53 (+13.74%) — *hold* | β=0.59
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -821,6 +871,9 @@ Price: **$205.31** | Composite z: **+1.78**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.55× | risk $10.62/sh, reward $16.42/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-2.51M; 2 sales ($2.51M), most recent 2026-05-07
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $221.73
 - Bull case (75th pct): +17.6% → ~$241.41
@@ -828,12 +881,12 @@ Price: **$205.31** | Composite z: **+1.78**
 
 ---
 
-### #19. **HCA**
+### #19. **HCA** — Healthcare
 
 _HCA sits at composite z=+1.77. Top by high quality (rank #50). Price is BELOW the 200-day SMA — countertrend pick, respect the stop._
 
 **Snapshot**
-Price: **$422.96** | Composite z: **+1.77**
+Price: **$422.96** | Composite z: **+1.77** | Analyst tgt: $513.10 (+21.31%) — *buy* | β=1.19
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -864,6 +917,9 @@ Price: **$422.96** | Composite z: **+1.77**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.04× | risk $32.52/sh, reward $33.84/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-903,536.74; 1 sales ($903,536.74), most recent 2026-05-07
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $456.80
 - Bull case (75th pct): +17.6% → ~$497.32
@@ -871,12 +927,12 @@ Price: **$422.96** | Composite z: **+1.77**
 
 ---
 
-### #20. **HST**
+### #20. **HST** — Real Estate
 
 _HST sits at composite z=+1.73. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$21.39** | Composite z: **+1.73**
+Price: **$21.39** | Composite z: **+1.73** | Analyst tgt: $22.88 (+6.97%) — *buy* | β=1.12
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -907,6 +963,9 @@ Price: **$21.39** | Composite z: **+1.73**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.55× | risk $1.11/sh, reward $1.71/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-1.54M; 2 sales ($1.54M), most recent 2026-05-08
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $23.10
 - Bull case (75th pct): +17.6% → ~$25.15
@@ -914,12 +973,12 @@ Price: **$21.39** | Composite z: **+1.73**
 
 ---
 
-### #21. **AES**
+### #21. **AES** — Utilities
 
 _AES sits at composite z=+1.71. Top by cheap valuation (rank #29, earnings yield 10.3%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$14.46** | Composite z: **+1.71**
+Price: **$14.46** | Composite z: **+1.71** | Analyst tgt: $15.11 (+4.50%) — *hold* | β=0.96
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -957,12 +1016,12 @@ Price: **$14.46** | Composite z: **+1.71**
 
 ---
 
-### #22. **INCY**
+### #22. **INCY** — Healthcare
 
 _INCY sits at composite z=+1.70. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$95.30** | Composite z: **+1.70**
+Price: **$95.30** | Composite z: **+1.70** | Analyst tgt: $108.50 (+13.85%) — *buy* | β=0.80
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -993,6 +1052,9 @@ Price: **$95.30** | Composite z: **+1.70**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.02× | risk $7.48/sh, reward $7.62/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-5.44M; 3 sales ($5.44M), most recent 2026-05-08
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $102.92
 - Bull case (75th pct): +17.6% → ~$112.05
@@ -1000,12 +1062,12 @@ Price: **$95.30** | Composite z: **+1.70**
 
 ---
 
-### #23. **C**
+### #23. **C** — Financial Services
 
 _C sits at composite z=+1.69. Top by strong momentum (rank #40, +68% past year) + cheap valuation (rank #22, earnings yield 5.9%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$123.34** | Composite z: **+1.69**
+Price: **$123.34** | Composite z: **+1.69** | Analyst tgt: $146.84 (+19.05%) — *buy* | β=1.12
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -1036,6 +1098,9 @@ Price: **$123.34** | Composite z: **+1.69**
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.28× | risk $7.70/sh, reward $9.87/sh |
 
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-5.64M; 5 sales ($5.64M), most recent 2026-05-08
+
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $133.21
 - Bull case (75th pct): +17.6% → ~$145.02
@@ -1043,12 +1108,12 @@ Price: **$123.34** | Composite z: **+1.69**
 
 ---
 
-### #24. **STT**
+### #24. **STT** — Financial Services
 
 _STT sits at composite z=+1.64. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$152.88** | Composite z: **+1.64**
+Price: **$152.88** | Composite z: **+1.64** | Analyst tgt: $160.54 (+5.01%) — *buy* | β=1.46
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -1078,6 +1143,9 @@ Price: **$152.88** | Composite z: **+1.64**
 | **PROFIT TARGET** | $165.11 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.47× | risk $8.34/sh, reward $12.23/sh |
+
+**Insider activity (last 90 days)**
+- 🔴 **BEARISH** — net $-9.44M; 1 open-market buys ($312,475.00); 7 sales ($9.75M), most recent 2026-04-22
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $165.11

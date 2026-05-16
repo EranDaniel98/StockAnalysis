@@ -145,6 +145,39 @@ def _load_fundamentals(tickers: list[str]):
     return run_with_dispose(_go())
 
 
+def _load_insider_transactions(tickers: list[str], days: int = 90) -> dict[str, list[dict]]:
+    """Pull last N days of Form 4 transactions for the ticker list.
+
+    Returns {ticker: [tx_dict, ...]}; each dict has the columns the
+    comprehensive analyzer expects (transaction_code, value_usd,
+    transaction_date, filing_date).
+    """
+    from datetime import date, timedelta
+    from sqlalchemy import text
+    from src.db.session import get_sessionmaker, run_with_dispose
+
+    async def _go():
+        cutoff = date.today() - timedelta(days=days)
+        async with get_sessionmaker()() as session:
+            res = await session.execute(
+                text(
+                    "SELECT ticker, transaction_code, value_usd, "
+                    "transaction_date, filing_date "
+                    "FROM insider_transactions "
+                    "WHERE ticker = ANY(:tks) "
+                    "AND filing_date >= :cutoff"
+                ),
+                {"tks": [t.upper() for t in tickers], "cutoff": cutoff},
+            )
+            return res.mappings().all()
+
+    rows = run_with_dispose(_go())
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["ticker"], []).append(dict(r))
+    return out
+
+
 def _resolve_equity(override: float | None) -> float:
     if override is not None:
         return float(override)
@@ -213,6 +246,13 @@ def main() -> int:
     logger.info("Loading EDGAR PIT fundamentals for picks...")
     loader = _load_fundamentals(pick_tickers)
 
+    # Insider transactions (Form 4) — last 90 days.
+    logger.info("Loading insider transactions (last 90d) for picks...")
+    insider_txs = _load_insider_transactions(pick_tickers, days=90)
+    logger.info("Insider coverage: %d/%d tickers with ≥1 transaction",
+                sum(1 for v in insider_txs.values() if v),
+                len(pick_tickers))
+
     # Expected returns from backtest trade log
     trades = _load_backtest_trades(args.backtest_json)
     from src.analysis.comprehensive import (
@@ -248,6 +288,7 @@ def main() -> int:
             expected_returns=exp_returns,
             days_to_next_earnings=days_to_earn.get(t),
             yf_info=yf_info.get(t, {}),
+            insider_txs=insider_txs.get(t, []),
         )
         analyses.append(a)
 
