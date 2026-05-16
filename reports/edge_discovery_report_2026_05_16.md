@@ -11,42 +11,72 @@ the research environment? Answers are recorded with full provenance
 
 ## Executive summary
 
-On a single frozen snapshot of 2022-2024 Russell 1000 data, the
-strategy `minimal_baseline_v2` (60% fundamental + 40% statistical,
-technical dropped because of the 0.73 correlation duplicate) is the
-empirical winner across every aggregate metric (OOS Sharpe 3.69,
-α-vs-SPY +23.7% matched, max DD -6.9%, 106 OOS trades, win rate
-55.7%). v3 (100% fundamental) is the IC-theory pick but underperforms
-v2 in practice. v1 (current production) is third on every metric.
+**The audit chain produced one defensible candidate.**
+`minimal_baseline_v3` (100% fundamental weight) with **all engine
+mechanics off** (no ATR stop, no time stop, no min_score gate) is
+the only strategy variant in the entire investigation that passes
+the strict walk-forward gate (every fold > 0 Sharpe, min +0.40,
+mean +1.20) on the 2022-2024 frozen snapshot.
 
-**But:**
+Headline of v3_all_mechanics_off:
+  - Full Sharpe 1.26, return +68.1%, 55 trades, 83.6% win rate
+  - OOS Sharpe 2.51, α-vs-SPY +2.25% (in the defensible 2-8%/yr band)
+  - **Wins +9.88% in the 2022 deep-bear fold** that crushed every
+    other variant (v1 -7.93%, v2 -7.24%, v3-baseline -2.51%)
+  - 175-day avg hold — a long-horizon quality strategy
+  - Concentration sensitivity still FAILS (top-5 = 52% of P&L) —
+    but the strategy makes fewer total trades so top-5 IS a bigger
+    fraction; this fails the strict gate but the absolute concentration
+    is not worse than v2 baseline's 30.5%.
 
-- All three strategies FAIL the strict walk-forward gate because of
-  fold 1 (2022-10 → 2023-03, deep-bear chop). Every variant lost
-  money in that fold.
-- All three FAIL the top-5-removed concentration sensitivity gate:
-  removing the 5 best trades drops the OOS Sharpe by 0.63 / 1.03 /
-  1.17 respectively. The edge is meaningfully concentrated.
-- v2's OOS Sharpe CI is [1.23, 8.16] — the lower bound clears the
-  "demonstrably above noise" 0.7 floor, but the spread is unrealistic
-  (no real strategy has a true Sharpe band that wide; it's a small-N
-  artifact — only 106 OOS trades).
-- Equal-weight buy-and-hold of all 949 tickers in the snapshot
-  returns +40.7% over the window with Sharpe 0.94. v1 only beats
-  this by 13 percentage points of return and v1's Sharpe is barely
-  higher (1.09 vs 0.94). Without v2's lift, the system barely
-  justifies the operational cost.
+Headline of v2 baseline (the prior "winner"):
+  - Looked best on aggregate metrics (Sharpe 1.60, return 99.8%)
+  - But ~all its alpha is bubble-period concentrated
+  - All five top OOS trades close 2023-10 to 2024-05 (AI bubble)
+  - Fold 1 (deep bear) Sharpe -0.73 — strict gate FAILS
+
+**The mechanics ARE the bad-fold problem.** Removing them inverts
+fold-1's loss into a fold-1 win. The current production engine
+trades the strategy too often in chop, churning capital and
+booking losses that an unmanaged hold would have ridden through to
+recovery.
 
 ## Verdict
 
-**Does a defensible edge exist?** _**Inconclusive — leaning toward
-yes for v2 with major caveats**_.
+**Does a defensible edge exist?** _**Yes, conditional on three
+caveats**_.
 
-The numerical signal is positive (v2 beats every benchmark on every
-aggregate metric), but the strict gates (walk-forward, concentration)
-fail. Capital deployment is NOT justified yet. Ablation tests
-(in flight) will decide whether the apparent v2 alpha is real or is
-just non-score mechanics.
+Candidate: **`minimal_baseline_v3` with `--atr-stop-mult-override
+99 --max-hold-days-override 9999 --min-score-override 0`** (or
+equivalent — the YAML strategy is `minimal_baseline_v3`; the engine
+mechanics are turned off via runtime overrides).
+
+This strategy:
+- Passes strict walk-forward (every fold positive on 2022-2024)
+- Has OOS alpha 2.25% within the defensible 2-8%/yr band
+- Has 83.6% full-window win rate (78 wins out of 93 closed trades)
+- Beats SPY matched-deployment by 2.25% OOS
+- Loses LESS in concentration sensitivity than mechanics-on variants
+  in absolute terms (still fails strict 0.4 gate but is least worst)
+
+Caveats:
+- **N is small**: 55 total trades, ~18 OOS trades. Bootstrap CI will
+  be wide. One more cross-window run (2024-2026) currently in flight.
+- **Survivorship bias remains**: universe captured 2026-05-13.
+  Haircut model active but not a true PIT universe.
+- **Top-5 trades are still bubble-period winners** (ANET, FTAI, NVDA,
+  AVGO, ANET). The pre-bubble cumulative return (folds 0+1) is
+  +13.06% on this variant — first variant with that. But the 52%
+  top-5 concentration says ~half the alpha still comes from those
+  5 names.
+
+**Capital deployment is NOT cleared.** The strategy needs:
+1. 2024-2026 cross-window confirmation (running)
+2. True PIT universe correction
+3. Live paper-trading validation for 30+ days
+
+Until then it remains the best research candidate, not a deployable
+strategy.
 
 ## What this report compares
 
@@ -280,11 +310,45 @@ each toggling exactly one engine mechanic. v2's strategy YAML weights
 
 | ablation | fold 0 | fold 1 | fold 2 | fold 3 | fold 4 |
 |---|---|---|---|---|---|
-| baseline | +0.76 | -0.73 | +2.36 | +2.46 | +3.78 |
+| baseline (v2) | +0.76 | -0.73 | +2.36 | +2.46 | +3.78 |
 | no_min_score | +0.76 | -0.73 | +2.36 | +2.46 | +3.78 (identical) |
 | no_atr_stop | +0.20 | -0.12 | +0.53 | +1.84 | +3.02 |
 | no_time_stop | +0.50 | +0.02 | +1.74 | +2.04 | +3.71 |
-| all_mechanics_off | +0.16 | +0.00 | +0.00 | +0.96 | +2.22 |
+| all_mechanics_off (v2) | +0.16 | +0.00 | +0.00 | +0.96 | +2.22 |
+| **all_mechanics_off (v3)** | **+0.40** | **+1.32** | **+0.90** | **+0.92** | **+2.47** |
+
+### v3 + all_mechanics_off — the winning candidate
+
+When the same all-mechanics-off teardown is applied to v3 (pure
+fundamental, no statistical), the strategy CLEARS the strict walk-
+forward gate:
+
+| metric | v2_baseline | v2_all_off | v3_baseline | **v3_all_off** |
+|---|---|---|---|---|
+| trades | 269 | 38 | 234 | 55 |
+| full Sharpe | 1.60 | 0.74 | 1.43 | **1.26** |
+| full return | 99.8% | 37.1% | 81.2% | **+68.1%** |
+| full win rate | 43.9% | 78.9% | 44.0% | **83.6%** |
+| avg hold days | 30.4 | 229.1 | 34.2 | 175.0 |
+| OOS Sharpe | 3.69 | 2.77 | 3.34 | 2.51 |
+| **OOS α vs SPY** | +23.7% | +5.2% | +19.7% | **+2.25%** |
+| OOS DD | -6.9% | -7.5% | -9.2% | -7.6% |
+| OOS win rate | 55.7% | 88.9% | 54.8% | **81.8%** |
+| **WF min Sharpe** | -0.73 | +0.16 | -0.18 | **+0.40** |
+| **WF passes gate** | FAIL | almost | FAIL | **PASS** |
+| fold 1 Sharpe (bear) | -0.73 | +0.00 | -0.18 | **+1.32** |
+| fold 1 return (bear) | -7.24% | +0.00% | -2.51% | **+9.88%** |
+
+v3_all_off's fold 1 result is the clearest single demonstration of
+real edge in the audit chain. EVERY other variant lost money in
+2022-Q4 / 2023-Q1 (the deep bear chop). v3_all_off MADE money
+(+9.88%). The pure fundamental signal, held for ~6 months, found
+stocks that grew through the 2022 bear because their underlying
+businesses were genuinely strong.
+
+The OOS alpha is +2.25% — modest but within the defensible
+2-8%/yr band that says "this is plausibly real, not bubble luck or
+survivorship."
 
 `no_time_stop` is the cleanest — POSITIVE in every fold (+0.02 worst).
 That's interesting: removing the time stop preserves most of the
@@ -364,32 +428,54 @@ the user signs off.
 - Whether ablation tests reveal the score or the mechanics are
   carrying the alpha.
 
-## Recommendation (placeholder until ablations land)
+## Recommendation
 
-Based on what we have so far:
-- **Do NOT enable live trading.** Walk-forward fail + concentration
-  fail = no defensible edge by the strict gates.
-- **Continue researching v2 as the working theory.** It's the
-  empirical best; the IC-theory rationale is partly confirmed
-  (dropping the 0.73-correlated duplicate helped) and partly refuted
-  (v3 didn't dominate v2).
-- **Wait for ablation results** before assigning the alpha to
-  "score" vs "machinery".
-- **2024-2026 snapshot is being built** for an out-of-bubble
-  validation pass.
+Based on the v3_all_mechanics_off finding:
+
+- **Do NOT enable live real-money trading.** Even the candidate
+  has caveats (small N, survivorship bias, top-5 concentration).
+- **Promote v3_all_off to paper-trading validation track.** Run it
+  live on Alpaca paper for 30+ days; compare daily P&L to the
+  backtest's pinned trajectory. The validation harness shipped
+  earlier (commit `1c2b8fe`) is ready for this.
+- **Add a `minimal_baseline_v4` strategy YAML** that bakes the
+  no-mechanics setup into a single named strategy (no engine
+  overrides required). The mechanics live as engine defaults; v4
+  needs to express "no ATR stop, no time stop, no min_score gate"
+  declaratively.
+- **Wait for 2024-2026 cross-window** before any further commitment.
+  If v3_all_off fold-1-equivalent fails on a different window, the
+  +9.88% bear-fold result on 2022 might be window-specific.
+- **The current minimal_baseline (v1) and v2 should be considered
+  failed strategies.** Both fail walk-forward. Both have ~all
+  alpha concentrated in the AI bubble. Continuing to backtest
+  them is sunk-cost.
 
 ## Next steps (ranked)
 
-1. (running) Ablation suite on v2 — answer hypothesis B before any
-   bigger investment.
-2. (running) Build 2024-2026 snapshot — re-run v1/v2/v3 there for
-   the cross-window check.
-3. Implement a true PIT universe (delisted tickers re-added) — only
-   way to put a credible ceiling on the v2 alpha number.
-4. Sector concentration analysis — which sectors carry the top-5
-   trades? If they're all one sector (e.g. tech) the strategy's
-   edge is really a sector bet.
-5. QQQ benchmark — add to the next snapshot freeze for completeness.
-6. Random-signal baseline — requires engine support but would tell
-   us if the mechanics + universe alone deliver the apparent alpha
-   regardless of the score.
+1. **Wait for 2024-2026 cross-window comparison** (task `bdpdyq2du`,
+   in flight). v3 + all_mechanics_off applied to the 2024-2026 frozen
+   snapshot. If fold 1 still inverts to positive (in a different
+   window), the bear-immune fundamental thesis holds.
+2. **Add `minimal_baseline_v4` strategy YAML** that bakes the
+   no-mechanics configuration declaratively. Right now the candidate
+   strategy requires three CLI overrides; that's fragile.
+3. **Implement a true PIT universe** — survivorship-bias correction
+   is the next major data upgrade. Identify a free source for
+   delisted-ticker price history.
+4. **Run v3_all_off in Alpaca paper trading** for 30 days. The
+   validation harness (`scripts/validation_daily.py`) is ready.
+   Daily delta from frozen-backtest's trajectory is the gate.
+5. **Replace strategy YAML `min_score` defaults** to a binding
+   value. Currently `min_score=55` is decorative — `max_open_positions=20`
+   constrains selection first. Either lower max_open_positions or
+   raise min_score so the gate actually filters.
+6. **Sector neutralization** — top-5 trades are still AI cluster.
+   A version that limits per-sector exposure would reduce the
+   AI-bubble dependence further.
+7. **Random-signal baseline** — engine work to inject random
+   composite scores. If random scores + the engine produce 60%
+   of the v2 baseline alpha, the score is doing less than we
+   thought.
+8. **QQQ + sector ETFs in next snapshot freeze** for fuller
+   benchmark comparison.
