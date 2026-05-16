@@ -262,6 +262,11 @@ def analyze(
 
     latest_date = in_window.index.max()
     latest_row = in_window.loc[latest_date]
+    # yfinance can return duplicate rows at the same timestamp (rare but
+    # real); .loc[ts] then yields a DataFrame, which breaks downstream
+    # scalar extraction. Collapse to the first row.
+    if isinstance(latest_row, pd.DataFrame):
+        latest_row = latest_row.iloc[0]
     days_since = (as_of_date - latest_date).days
     indicators["pead_days_since_earnings"] = int(days_since)
 
@@ -348,32 +353,45 @@ def analyze(
 
 def _extract_surprise_pct(row) -> Optional[float]:
     """Pull the surprise % from a yfinance earnings_dates row. Schema varies."""
+
+    def _scalar(val):
+        """Coerce a Series / array / scalar to a single float-or-None.
+
+        DataFrame.loc[ts].get(col) can return a Series if there are duplicate
+        timestamps; iterrows() on the dup-collapsed frame yields Series rows
+        where .get returns scalars. Tolerate both.
+        """
+        if val is None:
+            return None
+        if isinstance(val, pd.Series):
+            val = val.dropna()
+            if val.empty:
+                return None
+            val = val.iloc[0]
+        try:
+            if pd.isna(val):
+                return None
+        except (TypeError, ValueError):
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
     candidates = [
         "Surprise(%)", "Surprise (%)", "surprisePercent",
         "Earnings Surprise (%)", "earnings_surprise_pct",
     ]
     for key in candidates:
         if hasattr(row, "get"):
-            val = row.get(key)
-            if val is not None and pd.notna(val):
-                try:
-                    return float(val)
-                except (TypeError, ValueError):
-                    continue
+            scalar = _scalar(row.get(key))
+            if scalar is not None:
+                return scalar
     # Fallback: compute from EPS columns if present.
-    try:
-        actual = row.get("EPS Estimate") if hasattr(row, "get") else None
-        reported = row.get("Reported EPS") if hasattr(row, "get") else None
-        if (
-            actual is not None
-            and reported is not None
-            and pd.notna(actual)
-            and pd.notna(reported)
-            and actual != 0
-        ):
-            return float((reported - actual) / abs(actual)) * 100
-    except Exception:
-        pass
+    actual = _scalar(row.get("EPS Estimate")) if hasattr(row, "get") else None
+    reported = _scalar(row.get("Reported EPS")) if hasattr(row, "get") else None
+    if actual is not None and reported is not None and actual != 0:
+        return (reported - actual) / abs(actual) * 100
     return None
 
 

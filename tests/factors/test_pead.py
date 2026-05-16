@@ -66,6 +66,21 @@ def test_drift_decay_shrinks_signal_at_window_edge() -> None:
     )
 
 
+def test_duplicate_timestamp_doesnt_crash() -> None:
+    """yfinance can emit duplicate rows for the same earnings timestamp.
+    The analyzer used to crash on ``pd.notna(Series)`` — verify it now
+    collapses to a single row instead of raising.
+    """
+    ts = pd.Timestamp("2026-05-10")
+    df = pd.DataFrame(
+        {"Surprise(%)": [12.0, 12.0]},
+        index=pd.DatetimeIndex([ts, ts]),
+    )
+    out = pead_factor({"DUPE": df}, as_of="2026-05-15")
+    assert len(out) == 1
+    assert out.iloc[0]["ticker"] == "DUPE"
+
+
 def test_z_score_is_finite_and_zero_mean_within_floating_tolerance() -> None:
     histories = {
         "A": _make_earnings("2026-05-10", surprise_pct=12.0),
