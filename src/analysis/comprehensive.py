@@ -43,6 +43,8 @@ PER_PICK_TARGET_RETURN_PCT = 8.0     # median expected over hold window
 PER_PICK_BULL_RETURN_PCT = 18.0      # 75th percentile rough estimate
 PER_PICK_BEAR_RETURN_PCT = -6.0      # 25th percentile rough estimate
 ATR_STOP_MULTIPLE = 2.5              # stop = entry - 2.5 * ATR(20)
+MIN_STOP_PCT = 0.05                  # floor: don't stop tighter than 5%
+MAX_STOP_PCT = 0.12                  # ceiling: don't stop wider than 12%
 EARNINGS_BLACKOUT_DAYS = 5           # warn if earnings within N days
 
 
@@ -291,11 +293,14 @@ def compute_trading_plan(
     """
     entry = close
     if atr_20 is not None and atr_20 > 0:
-        stop_loss = entry - ATR_STOP_MULTIPLE * atr_20
-        stop_pct = -ATR_STOP_MULTIPLE * atr_20 / entry
+        atr_stop_pct = ATR_STOP_MULTIPLE * atr_20 / entry
     else:
-        stop_loss = entry * 0.92
-        stop_pct = -0.08
+        atr_stop_pct = 0.08
+    # Bound the stop in [MIN, MAX] so low-vol names don't get hair-trigger
+    # stops and high-vol names don't risk a third of the position.
+    bounded_stop_pct = max(MIN_STOP_PCT, min(MAX_STOP_PCT, atr_stop_pct))
+    stop_pct = -bounded_stop_pct
+    stop_loss = entry * (1 + stop_pct)
     target = entry * (1.0 + PER_PICK_TARGET_RETURN_PCT / 100.0)
     target_pct = PER_PICK_TARGET_RETURN_PCT / 100.0
     time_exit = as_of + pd.tseries.offsets.BDay(REBALANCE_TRADING_DAYS)

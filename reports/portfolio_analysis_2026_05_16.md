@@ -7,7 +7,7 @@
 ## Portfolio-level expectations
 
 - Average position target return: **+8.0%** over 63 trading days
-- Average position stop: -7.0% (reward/risk ratio: 1.41×)
+- Average position stop: -7.1% (reward/risk ratio: 1.22×)
 - Portfolio target equity at exit: $44,326.05 (P&L $3,283.41)
 
 **Honest caveats:**
@@ -19,21 +19,12 @@
 
 | Sector | Count | % of portfolio |
 |---|---|---|
-| Financial Services | 10 | 41.7% ⚠️ |
-| Healthcare | 3 | 12.5% |
-| Basic Materials | 3 | 12.5% |
-| Energy | 2 | 8.3% |
-| Communication Services | 2 | 8.3% |
-| Technology | 1 | 4.2% |
-| Consumer Defensive | 1 | 4.2% |
-| Real Estate | 1 | 4.2% |
-| Utilities | 1 | 4.2% |
+| Unknown | 24 | 100.0% ⚠️ |
 
 ⚠️ **Sector concentration warning.** One sector exceeds 30% of the portfolio — single-sector drawdowns will hit harder than the broad market.
 
 ## Portfolio-wide risk summary
 
-- Earnings within 14 days: DELL(12d)
 - >30% above 200d SMA (overbought): APA, VTRS, GOOG, GOOGL, DELL, CF, DOW
 
 ---
@@ -42,12 +33,12 @@
 
 Each pick below has: factor breakdown that earned it the spot, technical setup, fundamentals from the latest EDGAR filing, a specific trading plan with entry/stop/target, and risk flags. Stops are sized off 20-day ATR (2.5×) so they breathe with the stock's normal volatility instead of tripping on noise.
 
-### #1. **APA** — Energy
+### #1. **APA**
 
 _APA sits at composite z=+2.90. Top by strong momentum (rank #24, +123% past year) + cheap valuation (rank #14, earnings yield 11.4%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$38.96** | Composite z: **+2.90** | Analyst tgt: $41.92 (+7.62%) — *hold* | β=0.37
+Price: **$38.96** | Composite z: **+2.90**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -73,7 +64,7 @@ Price: **$38.96** | Composite z: **+2.90** | Analyst tgt: $41.92 (+7.62%) — *h
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $38.96 | Market at next open. Position: 43 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $35.15 | -9.8% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $35.15 | -9.8% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $42.07 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.82× | risk $3.81/sh, reward $3.11/sh |
@@ -88,12 +79,12 @@ Price: **$38.96** | Composite z: **+2.90** | Analyst tgt: $41.92 (+7.62%) — *h
 
 ---
 
-### #2. **VTRS** — Healthcare
+### #2. **VTRS**
 
 _VTRS sits at composite z=+2.38. Top by strong momentum (rank #41, +105% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$16.49** | Composite z: **+2.38** | Analyst tgt: $17.50 (+6.16%) — *buy* | β=0.87
+Price: **$16.49** | Composite z: **+2.38**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -119,7 +110,7 @@ Price: **$16.49** | Composite z: **+2.38** | Analyst tgt: $17.50 (+6.16%) — *b
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $16.49 | Market at next open. Position: 103 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $15.08 | -8.5% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $15.08 | -8.5% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $17.80 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.94× | risk $1.40/sh, reward $1.31/sh |
@@ -134,12 +125,12 @@ Price: **$16.49** | Composite z: **+2.38** | Analyst tgt: $17.50 (+6.16%) — *b
 
 ---
 
-### #3. **GOOG** — Communication Services
+### #3. **GOOG**
 
 _GOOG sits at composite z=+2.24. Top by strong momentum (rank #27, +137% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$393.24** | Composite z: **+2.24** | Analyst tgt: $418.47 (+6.42%) — *strong_buy* | β=1.27
+Price: **$393.24** | Composite z: **+2.24**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -165,7 +156,7 @@ Price: **$393.24** | Composite z: **+2.24** | Analyst tgt: $418.47 (+6.42%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $393.24 | Market at next open. Position: 4 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $368.82 | -6.2% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $368.82 | -6.2% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $424.70 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.29× | risk $24.42/sh, reward $31.46/sh |
@@ -180,12 +171,12 @@ Price: **$393.24** | Composite z: **+2.24** | Analyst tgt: $418.47 (+6.42%) — 
 
 ---
 
-### #4. **GOOGL** — Communication Services
+### #4. **GOOGL**
 
 _GOOGL sits at composite z=+2.24. Top by strong momentum (rank #25, +141% past year) + high quality (rank #44, op-margin 36%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$396.64** | Composite z: **+2.24** | Analyst tgt: $427.89 (+7.88%) — *strong_buy* | β=1.27
+Price: **$396.64** | Composite z: **+2.24**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -211,7 +202,7 @@ Price: **$396.64** | Composite z: **+2.24** | Analyst tgt: $427.89 (+7.88%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $396.64 | Market at next open. Position: 4 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $371.43 | -6.4% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $371.43 | -6.4% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $428.38 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.26× | risk $25.21/sh, reward $31.74/sh |
@@ -226,12 +217,12 @@ Price: **$396.64** | Composite z: **+2.24** | Analyst tgt: $427.89 (+7.88%) — 
 
 ---
 
-### #5. **DELL** — Technology
+### #5. **DELL**
 
 _DELL sits at composite z=+2.21. Top by strong momentum (rank #38, +122% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$242.80** | Composite z: **+2.21** | Analyst tgt: $197.04 (-18.85%) — *buy* | β=1.06
+Price: **$242.80** | Composite z: **+2.21**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -257,10 +248,10 @@ Price: **$242.80** | Composite z: **+2.21** | Analyst tgt: $197.04 (-18.85%) —
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $242.80 | Market at next open. Position: 7 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $211.58 | -12.9% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $213.66 | -12.0% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $262.22 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
-| **Risk/Reward** | 0.62× | risk $31.22/sh, reward $19.42/sh |
+| **Risk/Reward** | 0.67× | risk $29.14/sh, reward $19.42/sh |
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $262.22
@@ -268,17 +259,16 @@ Price: **$242.80** | Composite z: **+2.21** | Analyst tgt: $197.04 (-18.85%) —
 - Bear case (25th pct): -1.5% → ~$239.07
 
 **Risk flags**
-- Earnings in 12 days (outside blackout but worth tracking)
 - ⚠️ Extended >30% above 200d SMA — pullback risk
 
 ---
 
-### #6. **CF** — Basic Materials
+### #6. **CF**
 
 _CF sits at composite z=+2.16. Top by high quality (rank #51, op-margin 43%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$125.04** | Composite z: **+2.16** | Analyst tgt: $122.58 (-1.97%) — *hold* | β=0.42
+Price: **$125.04** | Composite z: **+2.16**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -304,7 +294,7 @@ Price: **$125.04** | Composite z: **+2.16** | Analyst tgt: $122.58 (-1.97%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $125.04 | Market at next open. Position: 13 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $111.67 | -10.7% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $111.67 | -10.7% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $135.04 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.75× | risk $13.37/sh, reward $10.00/sh |
@@ -319,12 +309,12 @@ Price: **$125.04** | Composite z: **+2.16** | Analyst tgt: $122.58 (-1.97%) — 
 
 ---
 
-### #7. **NEM** — Basic Materials
+### #7. **NEM**
 
 _NEM sits at composite z=+2.16. Top by strong momentum (rank #18, +127% past year). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$108.85** | Composite z: **+2.16** | Analyst tgt: $144.01 (+32.30%) — *buy* | β=0.45
+Price: **$108.85** | Composite z: **+2.16**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -350,7 +340,7 @@ Price: **$108.85** | Composite z: **+2.16** | Analyst tgt: $144.01 (+32.30%) —
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $108.85 | Market at next open. Position: 15 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $96.79 | -11.1% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $96.79 | -11.1% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $117.56 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.72× | risk $12.06/sh, reward $8.71/sh |
@@ -362,12 +352,12 @@ Price: **$108.85** | Composite z: **+2.16** | Analyst tgt: $144.01 (+32.30%) —
 
 ---
 
-### #8. **DOW** — Basic Materials
+### #8. **DOW**
 
 _DOW sits at composite z=+2.13. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$38.76** | Composite z: **+2.13** | Analyst tgt: $43.06 (+11.11%) — *buy* | β=0.45
+Price: **$38.76** | Composite z: **+2.13**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -393,7 +383,7 @@ Price: **$38.76** | Composite z: **+2.13** | Analyst tgt: $43.06 (+11.11%) — *
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $38.76 | Market at next open. Position: 44 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $34.71 | -10.4% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $34.71 | -10.4% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $41.86 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 0.77× | risk $4.05/sh, reward $3.10/sh |
@@ -408,12 +398,12 @@ Price: **$38.76** | Composite z: **+2.13** | Analyst tgt: $43.06 (+11.11%) — *
 
 ---
 
-### #9. **RF** — Financial Services
+### #9. **RF**
 
 _RF sits at composite z=+2.09. Top by cheap valuation (rank #23, earnings yield 8.7%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$26.64** | Composite z: **+2.09** | Analyst tgt: $30.69 (+15.20%) — *hold* | β=1.03
+Price: **$26.64** | Composite z: **+2.09**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -439,7 +429,7 @@ Price: **$26.64** | Composite z: **+2.09** | Analyst tgt: $30.69 (+15.20%) — *
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $26.64 | Market at next open. Position: 64 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $25.10 | -5.8% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $25.10 | -5.8% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $28.77 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.38× | risk $1.54/sh, reward $2.13/sh |
@@ -451,12 +441,12 @@ Price: **$26.64** | Composite z: **+2.09** | Analyst tgt: $30.69 (+15.20%) — *
 
 ---
 
-### #10. **SYF** — Financial Services
+### #10. **SYF**
 
 _SYF sits at composite z=+2.02. Top by cheap valuation (rank #10, earnings yield 13.4%). Price is BELOW the 200-day SMA — countertrend pick, respect the stop._
 
 **Snapshot**
-Price: **$71.22** | Composite z: **+2.02** | Analyst tgt: $89.59 (+25.79%) — *buy* | β=1.36
+Price: **$71.22** | Composite z: **+2.02**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -482,7 +472,7 @@ Price: **$71.22** | Composite z: **+2.02** | Analyst tgt: $89.59 (+25.79%) — *
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $71.22 | Market at next open. Position: 24 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $66.58 | -6.5% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $66.58 | -6.5% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $76.92 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.23× | risk $4.64/sh, reward $5.70/sh |
@@ -494,12 +484,12 @@ Price: **$71.22** | Composite z: **+2.02** | Analyst tgt: $89.59 (+25.79%) — *
 
 ---
 
-### #11. **GS** — Financial Services
+### #11. **GS**
 
 _GS sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$949.92** | Composite z: **+2.01** | Analyst tgt: $947.60 (-0.24%) — *hold* | β=1.27
+Price: **$949.92** | Composite z: **+2.01**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -525,7 +515,7 @@ Price: **$949.92** | Composite z: **+2.01** | Analyst tgt: $947.60 (-0.24%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $949.92 | Market at next open. Position: 1 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $894.15 | -5.9% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $894.15 | -5.9% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $1,025.91 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.36× | risk $55.77/sh, reward $75.99/sh |
@@ -537,12 +527,12 @@ Price: **$949.92** | Composite z: **+2.01** | Analyst tgt: $947.60 (-0.24%) — 
 
 ---
 
-### #12. **BK** — Financial Services
+### #12. **BK**
 
 _BK sits at composite z=+2.01. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$134.99** | Composite z: **+2.01** | Analyst tgt: $142.64 (+5.67%) — *buy* | β=1.07
+Price: **$134.99** | Composite z: **+2.01**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -568,7 +558,7 @@ Price: **$134.99** | Composite z: **+2.01** | Analyst tgt: $142.64 (+5.67%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $134.99 | Market at next open. Position: 12 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $128.17 | -5.0% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $128.17 | -5.0% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $145.79 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.58× | risk $6.82/sh, reward $10.80/sh |
@@ -580,12 +570,12 @@ Price: **$134.99** | Composite z: **+2.01** | Analyst tgt: $142.64 (+5.67%) — 
 
 ---
 
-### #13. **OXY** — Energy
+### #13. **OXY**
 
 _OXY sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$59.60** | Composite z: **+1.89** | Analyst tgt: $64.33 (+7.93%) — *hold* | β=0.17
+Price: **$59.60** | Composite z: **+1.89**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -611,7 +601,7 @@ Price: **$59.60** | Composite z: **+1.89** | Analyst tgt: $64.33 (+7.93%) — *h
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $59.60 | Market at next open. Position: 28 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $55.15 | -7.5% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $55.15 | -7.5% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $64.37 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.07× | risk $4.46/sh, reward $4.77/sh |
@@ -623,12 +613,12 @@ Price: **$59.60** | Composite z: **+1.89** | Analyst tgt: $64.33 (+7.93%) — *h
 
 ---
 
-### #14. **MS** — Financial Services
+### #14. **MS**
 
 _MS sits at composite z=+1.89. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$192.50** | Composite z: **+1.89** | Analyst tgt: $203.29 (+5.60%) — *buy* | β=1.21
+Price: **$192.50** | Composite z: **+1.89**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -654,7 +644,7 @@ Price: **$192.50** | Composite z: **+1.89** | Analyst tgt: $203.29 (+5.60%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $192.50 | Market at next open. Position: 8 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $182.19 | -5.3% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $182.19 | -5.3% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $207.90 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.49× | risk $10.31/sh, reward $15.40/sh |
@@ -666,12 +656,12 @@ Price: **$192.50** | Composite z: **+1.89** | Analyst tgt: $203.29 (+5.60%) — 
 
 ---
 
-### #15. **USB** — Financial Services
+### #15. **USB**
 
 _USB sits at composite z=+1.87. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$53.13** | Composite z: **+1.87** | Analyst tgt: $63.48 (+19.46%) — *buy* | β=1.02
+Price: **$53.13** | Composite z: **+1.87**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -697,7 +687,7 @@ Price: **$53.13** | Composite z: **+1.87** | Analyst tgt: $63.48 (+19.46%) — *
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $53.13 | Market at next open. Position: 32 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $50.32 | -5.3% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $50.32 | -5.3% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $57.39 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.51× | risk $2.82/sh, reward $4.26/sh |
@@ -709,12 +699,12 @@ Price: **$53.13** | Composite z: **+1.87** | Analyst tgt: $63.48 (+19.46%) — *
 
 ---
 
-### #16. **TFC** — Financial Services
+### #16. **TFC**
 
 _TFC sits at composite z=+1.87. Top by cheap valuation (rank #32, earnings yield 8.3%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$46.91** | Composite z: **+1.87** | Analyst tgt: $55.68 (+18.69%) — *buy* | β=0.91
+Price: **$46.91** | Composite z: **+1.87**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -740,7 +730,7 @@ Price: **$46.91** | Composite z: **+1.87** | Analyst tgt: $55.68 (+18.69%) — *
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $46.91 | Market at next open. Position: 36 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $44.30 | -5.6% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $44.30 | -5.6% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $50.67 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.43× | risk $2.62/sh, reward $3.76/sh |
@@ -752,12 +742,12 @@ Price: **$46.91** | Composite z: **+1.87** | Analyst tgt: $55.68 (+18.69%) — *
 
 ---
 
-### #17. **MO** — Consumer Defensive
+### #17. **MO**
 
 _MO sits at composite z=+1.81. Top by high quality (rank #12, op-margin 54%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$73.01** | Composite z: **+1.81** | Analyst tgt: $69.45 (-4.87%) — *hold* | β=0.52
+Price: **$73.01** | Composite z: **+1.81**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -783,7 +773,7 @@ Price: **$73.01** | Composite z: **+1.81** | Analyst tgt: $69.45 (-4.87%) — *h
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $73.01 | Market at next open. Position: 23 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $68.84 | -5.7% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $68.84 | -5.7% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $78.85 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.40× | risk $4.17/sh, reward $5.84/sh |
@@ -795,12 +785,12 @@ Price: **$73.01** | Composite z: **+1.81** | Analyst tgt: $69.45 (-4.87%) — *h
 
 ---
 
-### #18. **MTB** — Financial Services
+### #18. **MTB**
 
 _MTB sits at composite z=+1.78. Top by high quality (rank #17). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$205.31** | Composite z: **+1.78** | Analyst tgt: $233.53 (+13.74%) — *hold* | β=0.59
+Price: **$205.31** | Composite z: **+1.78**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -826,7 +816,7 @@ Price: **$205.31** | Composite z: **+1.78** | Analyst tgt: $233.53 (+13.74%) —
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $205.31 | Market at next open. Position: 8 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $194.69 | -5.2% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $194.69 | -5.2% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $221.73 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.55× | risk $10.62/sh, reward $16.42/sh |
@@ -838,12 +828,12 @@ Price: **$205.31** | Composite z: **+1.78** | Analyst tgt: $233.53 (+13.74%) —
 
 ---
 
-### #19. **HCA** — Healthcare
+### #19. **HCA**
 
 _HCA sits at composite z=+1.77. Top by high quality (rank #50). Price is BELOW the 200-day SMA — countertrend pick, respect the stop._
 
 **Snapshot**
-Price: **$422.96** | Composite z: **+1.77** | Analyst tgt: $513.10 (+21.31%) — *buy* | β=1.19
+Price: **$422.96** | Composite z: **+1.77**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -869,7 +859,7 @@ Price: **$422.96** | Composite z: **+1.77** | Analyst tgt: $513.10 (+21.31%) —
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $422.96 | Market at next open. Position: 4 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $390.44 | -7.7% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $390.44 | -7.7% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $456.80 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.04× | risk $32.52/sh, reward $33.84/sh |
@@ -881,12 +871,12 @@ Price: **$422.96** | Composite z: **+1.77** | Analyst tgt: $513.10 (+21.31%) —
 
 ---
 
-### #20. **HST** — Real Estate
+### #20. **HST**
 
 _HST sits at composite z=+1.73. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$21.39** | Composite z: **+1.73** | Analyst tgt: $22.88 (+6.97%) — *buy* | β=1.12
+Price: **$21.39** | Composite z: **+1.73**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -912,7 +902,7 @@ Price: **$21.39** | Composite z: **+1.73** | Analyst tgt: $22.88 (+6.97%) — *b
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $21.39 | Market at next open. Position: 79 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $20.28 | -5.2% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $20.28 | -5.2% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $23.10 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.55× | risk $1.11/sh, reward $1.71/sh |
@@ -924,12 +914,12 @@ Price: **$21.39** | Composite z: **+1.73** | Analyst tgt: $22.88 (+6.97%) — *b
 
 ---
 
-### #21. **AES** — Utilities
+### #21. **AES**
 
 _AES sits at composite z=+1.71. Top by cheap valuation (rank #29, earnings yield 10.3%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$14.46** | Composite z: **+1.71** | Analyst tgt: $15.11 (+4.50%) — *hold* | β=0.96
+Price: **$14.46** | Composite z: **+1.71**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -955,10 +945,10 @@ Price: **$14.46** | Composite z: **+1.71** | Analyst tgt: $15.11 (+4.50%) — *h
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $14.46 | Market at next open. Position: 118 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $14.28 | -1.3% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $13.74 | -5.0% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $15.62 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
-| **Risk/Reward** | 6.34× | risk $0.18/sh, reward $1.16/sh |
+| **Risk/Reward** | 1.60× | risk $0.72/sh, reward $1.16/sh |
 
 **Expected outcome (63 trading days)**
 - Base case (median): **+6.9%** → target $15.62
@@ -967,12 +957,12 @@ Price: **$14.46** | Composite z: **+1.71** | Analyst tgt: $15.11 (+4.50%) — *h
 
 ---
 
-### #22. **INCY** — Healthcare
+### #22. **INCY**
 
 _INCY sits at composite z=+1.70. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$95.30** | Composite z: **+1.70** | Analyst tgt: $108.50 (+13.85%) — *buy* | β=0.80
+Price: **$95.30** | Composite z: **+1.70**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -998,7 +988,7 @@ Price: **$95.30** | Composite z: **+1.70** | Analyst tgt: $108.50 (+13.85%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $95.30 | Market at next open. Position: 17 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $87.83 | -7.8% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $87.83 | -7.8% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $102.92 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.02× | risk $7.48/sh, reward $7.62/sh |
@@ -1010,12 +1000,12 @@ Price: **$95.30** | Composite z: **+1.70** | Analyst tgt: $108.50 (+13.85%) — 
 
 ---
 
-### #23. **C** — Financial Services
+### #23. **C**
 
 _C sits at composite z=+1.69. Top by strong momentum (rank #40, +68% past year) + cheap valuation (rank #22, earnings yield 5.9%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$123.34** | Composite z: **+1.69** | Analyst tgt: $146.84 (+19.05%) — *buy* | β=1.12
+Price: **$123.34** | Composite z: **+1.69**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -1041,7 +1031,7 @@ Price: **$123.34** | Composite z: **+1.69** | Analyst tgt: $146.84 (+19.05%) —
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $123.34 | Market at next open. Position: 13 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $115.64 | -6.2% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $115.64 | -6.2% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $133.21 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.28× | risk $7.70/sh, reward $9.87/sh |
@@ -1053,12 +1043,12 @@ Price: **$123.34** | Composite z: **+1.69** | Analyst tgt: $146.84 (+19.05%) —
 
 ---
 
-### #24. **STT** — Financial Services
+### #24. **STT**
 
 _STT sits at composite z=+1.64. Picked on cross-factor consistency rather than any single factor extreme. Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$152.88** | Composite z: **+1.64** | Analyst tgt: $160.54 (+5.01%) — *buy* | β=1.46
+Price: **$152.88** | Composite z: **+1.64**
 
 **Factor breakdown**
 | Factor | Rank | Detail |
@@ -1084,7 +1074,7 @@ Price: **$152.88** | Composite z: **+1.64** | Analyst tgt: $160.54 (+5.01%) — 
 | Action | Price | Note |
 |---|---|---|
 | **ENTRY** | $152.88 | Market at next open. Position: 11 sh (~$1,710.11, 4.2% of equity) |
-| **STOP LOSS** | $144.54 | -5.5% from entry — 2.5×ATR below or fixed 8%, whichever is bigger |
+| **STOP LOSS** | $144.54 | -5.5% from entry — 2.5×ATR bounded to [5%, 12%] so low-vol names aren't hair-triggered and high-vol names don't risk too much |
 | **PROFIT TARGET** | $165.11 | +8.0% from entry (strategy median per-pick) |
 | **TIME EXIT** | n/a | 2026-08-12 (~63 trading days) — next quarterly rebalance |
 | **Risk/Reward** | 1.47× | risk $8.34/sh, reward $12.23/sh |

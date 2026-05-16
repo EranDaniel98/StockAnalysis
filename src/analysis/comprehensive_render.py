@@ -181,7 +181,8 @@ def render_one_stock(a: StockAnalysis) -> str:
     lines.append(
         f"| **STOP LOSS** | {_money(p.stop_loss_price)} | "
         f"{p.stop_loss_pct:+.1f}% from entry — "
-        f"2.5×ATR below or fixed 8%, whichever is bigger |"
+        f"2.5×ATR bounded to [5%, 12%] so low-vol names aren't "
+        f"hair-triggered and high-vol names don't risk too much |"
     )
     lines.append(
         f"| **PROFIT TARGET** | {_money(p.target_price)} | "
