@@ -258,6 +258,56 @@ strategies:
   # deployment. The yfinance non-determinism finding
   # ([[project-yfinance-nondeterminism]]) means the comparison should
   # be averaged over 3+ independent pulls to clear noise.
+  # ---- minimal_baseline_v3 ----------------------------------------------
+  # Tightened in light of the EXTENDED IC report (5/11/23/44D horizons,
+  # overnight loop 2026-05-16) which extended the 5D-only finding:
+  #
+  #   At the strategy's 35.9-day avg-hold horizon (44D bucket):
+  #     - fundamental IC = +0.041, Bonferroni-p < 0.0001 (MODEST)
+  #     - technical    IC = -0.015 (NOISE, ANTI-predictive)
+  #     - statistical  IC = -0.016 (NOISE, ANTI-predictive)
+  #     - composite    IC = +0.008, top-bottom -0.91% (NOISE)
+  #
+  # v2's plan (0.60 fundamental + 0.40 statistical) is questionable
+  # because statistical goes anti-predictive at 44D. v3 takes the
+  # extreme: 100% fundamental. This is the cleanest test of hypothesis
+  # A (fundamental is doing all the alpha work alone). If v3 preserves
+  # or beats v1/v2 alpha-vs-SPY-matched on 2022-2024 OOS, then we have
+  # proof that the composite was inflating noise into a positive
+  # backtest by accident.
+  #
+  # If v3 collapses, the alpha is being carried elsewhere (entry
+  # filters, stops, sizing) and the score IC results are misleading.
+  minimal_baseline_v3:
+    description: "Pure-fundamental control: weight 1.0 on the only Bonferroni-significant analyzer at the strategy's hold horizon (44D IC +0.041)."
+    time_horizon: "5-30 days"
+    weights:
+      fundamental: 1.0
+      technical: 0.0
+      statistical: 0.0
+      pattern: 0.0
+      trend: 0.0
+      alpha158: 0.0
+      insider_flow: 0.0
+      catalyst: 0.0
+      short_interest: 0.0
+      sector_flows: 0.0
+    emphasis:
+      - "revenue_growth"
+      - "free_cash_flow"
+      - "z_score"
+    min_score: 55
+    min_market_cap: 2_000_000_000
+    prefer_profitable: true
+    use_consensus_scaling: false
+    thresholds:
+      strong_buy: 70
+      buy: 60
+      hold_upper: 50
+      hold_lower: 40
+      sell: 25
+    time_stop_days: 365
+
   minimal_baseline_v2:
     description: "IC-driven control: fundamental 0.60 + statistical 0.40. Drops technical (0.73 correlated with statistical) and every experimental analyzer. See commit fc1cb43+f469d02 for rationale."
     time_horizon: "5-30 days"
