@@ -258,10 +258,53 @@ def render_one_stock(a: StockAnalysis) -> str:
     return "\n".join(lines)
 
 
+def render_correlation_section(corr_summary: dict | None) -> list[str]:
+    """Render the correlation section if data is available."""
+    if not corr_summary or corr_summary.get("mean_off_diagonal") is None:
+        return []
+    lines = []
+    lines.append("## Correlation structure (60-day daily returns)")
+    lines.append("")
+    moc = corr_summary["mean_off_diagonal"]
+    eff_n = corr_summary["effective_n"]
+    n = corr_summary["n_tickers"]
+    lines.append(f"- Average pairwise correlation: **{moc:.3f}**")
+    lines.append(f"- Effective independent positions: **~{eff_n:.1f}** "
+                 f"(out of {n} actual positions)")
+    if moc > 0.6:
+        lines.append("- ⚠️ **Very high correlation** — portfolio behaves like "
+                     "fewer than half the actual position count. Single shock "
+                     "moves the whole book.")
+    elif moc > 0.4:
+        lines.append("- High correlation — diversification benefit is limited.")
+    elif moc > 0.2:
+        lines.append("- Moderate correlation — typical for an equity-only "
+                     "portfolio.")
+    else:
+        lines.append("- Low correlation — good diversification.")
+    lines.append("")
+    top_pairs = corr_summary.get("top_pairs", [])
+    if top_pairs:
+        lines.append("**Most correlated pairs** (potential concentration):")
+        lines.append("")
+        for a, b, c in top_pairs:
+            lines.append(f"- {a} ↔ {b}: ρ={c:+.2f}")
+        lines.append("")
+    bottom_pairs = corr_summary.get("bottom_pairs", [])
+    if bottom_pairs:
+        lines.append("**Least correlated pairs** (good diversifiers):")
+        lines.append("")
+        for a, b, c in bottom_pairs:
+            lines.append(f"- {a} ↔ {b}: ρ={c:+.2f}")
+        lines.append("")
+    return lines
+
+
 def render_portfolio_summary(
     analyses: list[StockAnalysis],
     equity_usd: float,
     as_of: str,
+    corr_summary: dict | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Portfolio Analysis — {as_of}")
@@ -325,6 +368,9 @@ def render_portfolio_summary(
                      "harder than the broad market.")
         lines.append("")
 
+    # Correlation structure
+    lines.extend(render_correlation_section(corr_summary))
+
     # Risk flag summary
     earnings_blackout = [a.ticker for a in analyses
                         if a.risk_flags.earnings_within_blackout]
@@ -363,8 +409,9 @@ def render_full_report(
     analyses: list[StockAnalysis],
     equity_usd: float,
     as_of: str,
+    corr_summary: dict | None = None,
 ) -> str:
-    parts = [render_portfolio_summary(analyses, equity_usd, as_of)]
+    parts = [render_portfolio_summary(analyses, equity_usd, as_of, corr_summary)]
     parts.append("---")
     parts.append("")
     parts.append("## Per-stock analysis")

@@ -292,9 +292,20 @@ def main() -> int:
         )
         analyses.append(a)
 
+    # Correlation structure (60d daily returns)
+    from src.analysis.comprehensive import compute_correlation_matrix
+    _, corr_summary = compute_correlation_matrix(
+        prices, [a.ticker for a in analyses], as_of_ts, window_days=60,
+    )
+    if corr_summary.get("mean_off_diagonal") is not None:
+        logger.info(
+            "Correlation: mean=%.3f, effective_n=%.1f",
+            corr_summary["mean_off_diagonal"], corr_summary["effective_n"],
+        )
+
     logger.info("Rendering report for %d analyses...", len(analyses))
     from src.analysis.comprehensive_render import render_full_report
-    md = render_full_report(analyses, equity, as_of_str)
+    md = render_full_report(analyses, equity, as_of_str, corr_summary)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

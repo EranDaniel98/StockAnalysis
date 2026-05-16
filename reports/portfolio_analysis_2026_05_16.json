@@ -1,6 +1,6 @@
 {
   "as_of": "2026-05-16",
-  "generated_at_utc": "2026-05-16T15:51:15.790730+00:00",
+  "generated_at_utc": "2026-05-16T15:57:34.204779+00:00",
   "strategy": "composite_d05_r63",
   "equity_usd": 41042.6,
   "n_positions": 24,
@@ -22,8 +22,8 @@
       "position_size_usd": 1710.11,
       "expected_return_pct": 6.891659488475654,
       "rationale": "APA sits at composite z=+2.90. Top by strong momentum (rank #24, +123% past year) + cheap valuation (rank #14, earnings yield 11.4%). Price is above the 200-day SMA (confirmed uptrend).",
-      "analyst_target": null,
-      "sector": null,
+      "analyst_target": 41.92308,
+      "sector": "Energy",
       "days_to_earnings": 81
     },
     {

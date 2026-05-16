@@ -478,6 +478,76 @@ def build_rationale(
     return " ".join(bits)
 
 
+def compute_correlation_matrix(
+    prices: dict[str, pd.DataFrame],
+    tickers: list[str],
+    as_of: pd.Timestamp,
+    window_days: int = 60,
+) -> tuple[pd.DataFrame, dict]:
+    """Pairwise daily-return correlations over the trailing ``window_days``.
+
+    Returns (corr_df, summary) where summary is:
+      - mean_off_diagonal: average pairwise correlation (excluding diag)
+      - effective_n: 1/mean_off_diagonal (rough "independent positions")
+      - top_pairs:  list of (ticker_a, ticker_b, corr) — highest 5
+      - bottom_pairs: lowest 5 (best diversifiers)
+    """
+    as_of_ts = pd.Timestamp(as_of)
+    # Build a returns matrix
+    rets: dict[str, pd.Series] = {}
+    for t in tickers:
+        df = prices.get(t)
+        if df is None or df.empty or "Close" not in df.columns:
+            continue
+        eligible = df[df.index <= as_of_ts].iloc[-(window_days + 1):]
+        if len(eligible) < window_days // 2:
+            continue
+        rets[t] = eligible["Close"].pct_change().dropna()
+    if len(rets) < 2:
+        return pd.DataFrame(), {
+            "mean_off_diagonal": None, "effective_n": None,
+            "top_pairs": [], "bottom_pairs": [],
+        }
+
+    rets_df = pd.DataFrame(rets).dropna(how="all")
+    corr = rets_df.corr()
+
+    # Off-diagonal stats
+    n = len(corr)
+    tri = corr.where(~np.eye(n, dtype=bool))
+    flat = tri.stack().dropna()
+    mean_off = float(flat.mean())
+    # Effective N for an equal-weight portfolio under uniform correlation:
+    # N_eff = N / (1 + (N-1) * rho). Reduces to N when rho=0, to 1 when
+    # rho=1. The intuition: high pairwise correlation collapses the
+    # portfolio toward a single bet.
+    if mean_off >= 0.99:
+        effective_n = 1.0
+    elif mean_off <= 0:
+        effective_n = float(n)
+    else:
+        effective_n = float(n) / (1.0 + (n - 1) * mean_off)
+
+    # Top/bottom pairs (one per pair, not duplicates)
+    pair_records: list[tuple[str, str, float]] = []
+    cols = list(corr.columns)
+    for i in range(n):
+        for j in range(i + 1, n):
+            pair_records.append((cols[i], cols[j], float(corr.iat[i, j])))
+    pair_records.sort(key=lambda x: x[2], reverse=True)
+    top_pairs = pair_records[:5]
+    bottom_pairs = pair_records[-5:][::-1]  # most negative first
+
+    return corr, {
+        "mean_off_diagonal": round(mean_off, 3),
+        "effective_n": round(effective_n, 1),
+        "top_pairs": top_pairs,
+        "bottom_pairs": bottom_pairs,
+        "n_tickers": n,
+        "window_days": window_days,
+    }
+
+
 def estimate_per_pick_returns(
     backtest_trade_log: list[dict] | None = None,
 ) -> tuple[float, float, float]:

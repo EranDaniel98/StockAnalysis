@@ -22,15 +22,36 @@
 | Financial Services | 10 | 41.7% ⚠️ |
 | Healthcare | 3 | 12.5% |
 | Basic Materials | 3 | 12.5% |
+| Energy | 2 | 8.3% |
 | Communication Services | 2 | 8.3% |
-| Unknown | 1 | 4.2% |
 | Technology | 1 | 4.2% |
-| Energy | 1 | 4.2% |
 | Consumer Defensive | 1 | 4.2% |
 | Real Estate | 1 | 4.2% |
 | Utilities | 1 | 4.2% |
 
 ⚠️ **Sector concentration warning.** One sector exceeds 30% of the portfolio — single-sector drawdowns will hit harder than the broad market.
+
+## Correlation structure (60-day daily returns)
+
+- Average pairwise correlation: **0.142**
+- Effective independent positions: **~5.6** (out of 24 actual positions)
+- Low correlation — good diversification.
+
+**Most correlated pairs** (potential concentration):
+
+- GOOG ↔ GOOGL: ρ=+1.00
+- RF ↔ TFC: ρ=+0.92
+- RF ↔ MTB: ρ=+0.91
+- USB ↔ TFC: ρ=+0.90
+- TFC ↔ MTB: ρ=+0.89
+
+**Least correlated pairs** (good diversifiers):
+
+- GS ↔ OXY: ρ=-0.57
+- APA ↔ GS: ρ=-0.54
+- CF ↔ GS: ρ=-0.54
+- GOOGL ↔ CF: ρ=-0.53
+- GOOG ↔ CF: ρ=-0.53
 
 ## Portfolio-wide risk summary
 
@@ -43,12 +64,12 @@
 
 Each pick below has: factor breakdown that earned it the spot, technical setup, fundamentals from the latest EDGAR filing, a specific trading plan with entry/stop/target, and risk flags. Stops are sized off 20-day ATR (2.5×) so they breathe with the stock's normal volatility instead of tripping on noise.
 
-### #1. **APA**
+### #1. **APA** — Energy
 
 _APA sits at composite z=+2.90. Top by strong momentum (rank #24, +123% past year) + cheap valuation (rank #14, earnings yield 11.4%). Price is above the 200-day SMA (confirmed uptrend)._
 
 **Snapshot**
-Price: **$38.96** | Composite z: **+2.90**
+Price: **$38.96** | Composite z: **+2.90** | Analyst tgt: $41.92 (+7.62%) — *hold* | β=0.37
 
 **Factor breakdown**
 | Factor | Rank | Detail |
