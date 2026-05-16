@@ -1,0 +1,7 @@
+source: https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
+fetched_at_utc: 2026-05-16T14:40:02.091975+00:00
+current_count: 503
+changes_count: 752
+changes_earliest: 1976-07-01
+changes_latest: 2026-05-07
+WARNING: Wikipedia 'Selected changes' table is NOT comprehensive. Do not claim PIT coverage older than changes_earliest.
