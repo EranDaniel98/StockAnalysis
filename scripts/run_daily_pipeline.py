@@ -36,6 +36,8 @@ STEPS = [
     "comprehensive_analysis",
     "exit_analysis",
     "position_monitor",
+    "stress_test",
+    "generate_watchlist",
     "morning_briefing",
 ]
 
@@ -110,7 +112,23 @@ def main() -> int:
         "position_monitor",
     )
 
-    # 5. Morning briefing (reads picks JSON + analysis JSON)
+    # 5. Stress test (uses the comprehensive analysis JSON)
+    results["stress_test"] = _run(
+        ["scripts.stress_test",
+         "--output", f"reports/stress_test_{date_us}.md"],
+        "stress_test",
+    )
+
+    # 6. Watchlist (ranks 25-75 — names on the bubble)
+    results["generate_watchlist"] = _run(
+        ["scripts.generate_watchlist",
+         "--as-of", date_str,
+         "--start-rank", "25", "--end-rank", "75",
+         "--output", f"reports/watchlist_{date_us}.md"],
+        "generate_watchlist",
+    )
+
+    # 7. Morning briefing (reads picks JSON + analysis JSON)
     results["morning_briefing"] = _run(
         ["scripts.morning_briefing",
          "--picks-date", date_str,

@@ -244,11 +244,44 @@ def main() -> int:
                      "Backtest 3-window avg alpha vs SPY: **+1.88%/yr**.")
         lines.append("")
 
+    # ---- STRESS-TEST WORST CASE ----
+    date_us = date_str.replace("-", "_")
+    stress_path = Path(f"reports/stress_test_{date_us}.md")
+    if stress_path.exists():
+        # Parse the summary table for worst case
+        try:
+            content = stress_path.read_text(encoding="utf-8")
+            # Crude parse: find the worst-case line
+            worst_line = next(
+                (l for l in content.splitlines()
+                 if l.startswith("- **Worst case")),
+                None,
+            )
+            best_line = next(
+                (l for l in content.splitlines()
+                 if l.startswith("- **Best case")),
+                None,
+            )
+            if worst_line or best_line:
+                lines.append("## Stress-test range")
+                lines.append("")
+                if worst_line:
+                    lines.append(worst_line)
+                if best_line:
+                    lines.append(best_line)
+                lines.append(f"- Full detail: `reports/stress_test_{date_us}.md`")
+                lines.append("")
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---- DEEPER LINKS ----
     lines.append("## Drill-down")
     lines.append("")
-    lines.append(f"- **Per-stock plans:** `reports/portfolio_analysis_{date_str.replace('-', '_')}.md`")
-    lines.append(f"- **Exit plan:** `reports/exit_plan_{date_str.replace('-', '_')}.md`")
+    lines.append(f"- **Per-stock plans:** `reports/portfolio_analysis_{date_us}.md`")
+    lines.append(f"- **Exit plan:** `reports/exit_plan_{date_us}.md`")
+    lines.append(f"- **Stress test:** `reports/stress_test_{date_us}.md`")
+    lines.append(f"- **Watchlist:** `reports/watchlist_{date_us}.md`")
+    lines.append(f"- **Position monitor:** `reports/position_monitor_{date_us}.md`")
     lines.append(f"- **Raw picks JSON:** `data/daily_picks/{date_str}.json`")
     lines.append(f"- **Strategy verdict:** `reports/factor_strategy_report_2026_05_16.md`")
     lines.append(f"- **User guide:** `FACTOR_STRATEGY.md`")

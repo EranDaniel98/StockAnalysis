@@ -32,7 +32,7 @@
 
 ## Sector exposure
 
-- Financial Services 10 (42%) | Healthcare 3 (12%) | Basic Materials 3 (12%) | Communication Services 2 (8%)
+- Financial Services 10 (42%) | Healthcare 3 (12%) | Basic Materials 3 (12%) | Energy 2 (8%)
 - ⚠️ **Financial Services concentration > 30%** — single-sector drawdown will hit harder than SPY
 
 ## Earnings calendar overlap
@@ -47,10 +47,19 @@
 
 **Honest caveat:** these are backtest per-pick distributions on a 63-day hold, scaled to the equity. Real-world drift is real. Backtest 3-window avg alpha vs SPY: **+1.88%/yr**.
 
+## Stress-test range
+
+- **Worst case (COVID-style -35% crash):** portfolio -46.2% ($-18,963)
+- **Best case (SPY +10% rally):** portfolio +9.1% ($+3,754)
+- Full detail: `reports/stress_test_2026_05_16.md`
+
 ## Drill-down
 
 - **Per-stock plans:** `reports/portfolio_analysis_2026_05_16.md`
 - **Exit plan:** `reports/exit_plan_2026_05_16.md`
+- **Stress test:** `reports/stress_test_2026_05_16.md`
+- **Watchlist:** `reports/watchlist_2026_05_16.md`
+- **Position monitor:** `reports/position_monitor_2026_05_16.md`
 - **Raw picks JSON:** `data/daily_picks/2026-05-16.json`
 - **Strategy verdict:** `reports/factor_strategy_report_2026_05_16.md`
 - **User guide:** `FACTOR_STRATEGY.md`
