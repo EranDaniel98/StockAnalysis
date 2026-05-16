@@ -81,6 +81,34 @@ def _parse_args() -> argparse.Namespace:
              "yfinance drift across pulls. Build snapshots with "
              "scripts/freeze_snapshot.py.",
     )
+    # Ablation overrides. Each leaves the strategy YAML untouched and
+    # only the engine-side mechanic is disabled / loosened. Used to
+    # answer the hypothesis "non-score machinery is delivering the
+    # apparent alpha" (project_yfinance_nondeterminism follow-up).
+    p.add_argument(
+        "--min-score-override", type=float, default=None,
+        help="Override the strategy's min_score floor. Setting to 0 "
+             "ablates the min_score gate entirely.",
+    )
+    p.add_argument(
+        "--atr-stop-mult-override", type=float, default=None,
+        help="Override engine atr_stop_mult. Setting to a very large "
+             "value (e.g. 99) effectively disables the ATR stop.",
+    )
+    p.add_argument(
+        "--atr-target-mult-override", type=float, default=None,
+        help="Override engine atr_target_mult (take-profit).",
+    )
+    p.add_argument(
+        "--max-hold-days-override", type=int, default=None,
+        help="Override engine max_hold_days (time stop). Setting to "
+             "9999 ablates the hold-time exit.",
+    )
+    p.add_argument(
+        "--ablation-label", default="",
+        help="Free-text label stamped into the slim JSON so a comparison "
+             "harness can tell ablation runs apart.",
+    )
     return p.parse_args()
 
 
@@ -285,19 +313,44 @@ def main() -> int:
                 "Re-run with EDGAR DB populated to fix.", exc,
             )
 
-    bt_cfg = BacktestConfig(
-        start_date=start,
-        end_date=end,
-        starting_cash=args.starting_cash,
-        universe_label=args.universe,
-        apply_survivorship_haircut=True,
-        refuse_survivor_only_window=True,
-        walk_forward_folds=args.walk_forward_folds,
-        walk_forward_min_mean_sharpe=args.min_mean_sharpe,
-        bootstrap_resamples=500,
-        compound=False,
-        min_score=strategy.get("min_score", 55),
+    # Resolve final mechanic values: CLI override wins, else strategy
+    # YAML, else engine default. Each override gets a log line so the
+    # ablation provenance is loud.
+    resolved_min_score = (
+        args.min_score_override
+        if args.min_score_override is not None
+        else strategy.get("min_score", 55)
     )
+    if args.min_score_override is not None:
+        logger.warning("ABLATION: min_score override = %.2f (strategy YAML was %s)",
+                       resolved_min_score, strategy.get("min_score", 55))
+
+    bt_kwargs: dict = {
+        "start_date": start,
+        "end_date": end,
+        "starting_cash": args.starting_cash,
+        "universe_label": args.universe,
+        "apply_survivorship_haircut": True,
+        "refuse_survivor_only_window": True,
+        "walk_forward_folds": args.walk_forward_folds,
+        "walk_forward_min_mean_sharpe": args.min_mean_sharpe,
+        "bootstrap_resamples": 500,
+        "compound": False,
+        "min_score": resolved_min_score,
+    }
+    if args.atr_stop_mult_override is not None:
+        bt_kwargs["atr_stop_mult"] = args.atr_stop_mult_override
+        logger.warning("ABLATION: atr_stop_mult override = %.2f",
+                       args.atr_stop_mult_override)
+    if args.atr_target_mult_override is not None:
+        bt_kwargs["atr_target_mult"] = args.atr_target_mult_override
+        logger.warning("ABLATION: atr_target_mult override = %.2f",
+                       args.atr_target_mult_override)
+    if args.max_hold_days_override is not None:
+        bt_kwargs["max_hold_days"] = args.max_hold_days_override
+        logger.warning("ABLATION: max_hold_days override = %d",
+                       args.max_hold_days_override)
+    bt_cfg = BacktestConfig(**bt_kwargs)
 
     logger.info("Backtest start: %s end: %s walk_forward_folds=%d",
                 start.date(), end.date(), args.walk_forward_folds)
@@ -353,6 +406,19 @@ def main() -> int:
         "regime_mode": args.regime_mode,
         "snapshot_id": snapshot_id_for_record,
         "git_sha": git_sha,
+        "ablation_label": args.ablation_label or None,
+        "ablation_overrides": {
+            "min_score": args.min_score_override,
+            "atr_stop_mult": args.atr_stop_mult_override,
+            "atr_target_mult": args.atr_target_mult_override,
+            "max_hold_days": args.max_hold_days_override,
+        },
+        "effective_config": {
+            "min_score": resolved_min_score,
+            "atr_stop_mult": bt_kwargs.get("atr_stop_mult", 2.0),
+            "atr_target_mult": bt_kwargs.get("atr_target_mult", 6.0),
+            "max_hold_days": bt_kwargs.get("max_hold_days", 90),
+        },
         "full": result.get("full"),
         "in_sample": result.get("in_sample"),
         "out_of_sample": result.get("out_of_sample"),
