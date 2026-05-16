@@ -116,15 +116,53 @@ ranked decisions are:
   shifted ~1.1-1.4 Sharpe each. Diff against the original is in
   commit message `234fe17`.
 
-- **IC report (2022-2024, task `bxw50bdxk`)** —
+- **IC report 5D (2022-2024, task `bxw50bdxk`)** —
   `reports/analyzer_ic_2022_2024.md`. Bonferroni k=6, panel 97k rows.
-  **Only `fundamental` is significant (Bonferroni-p < 0.0001).**
-  `trend` IC -0.001 NOISE, `alpha158` IC +0.002 NOISE,
-  `technical` and `statistical` carry IC 0.014/0.020 (not significant
-  after Bonferroni). `pattern` was refused by alphalens (>80% NaN —
-  too sparse as a quintile factor). Composite IC +0.024 but top
-  quintile UNDERPERFORMS bottom at 5D (-0.067% spread).
-  See commit `fc1cb43` for full table.
+  Only `fundamental` is significant (Bonferroni-p < 0.0001) at 5D.
+  `trend` IC -0.001 NOISE, `alpha158` IC +0.002 NOISE. `technical`
+  and `statistical` IC 0.014/0.020 (not significant). `pattern`
+  refused by alphalens (>80% NaN, too sparse). Composite top-Q
+  UNDERPERFORMS bottom at 5D. Commit `fc1cb43`.
+
+- **EXTENDED IC report 5/11/23/44D (2022-2024)** —
+  `reports/analyzer_ic_2022_2024_extended.md`. **Deepest finding of
+  the night.** At the strategy's actual hold horizon (44D ≈ avg
+  35.9-day hold):
+
+  | factor      | 5D     | 11D    | 23D    | 44D     |
+  |-------------|--------|--------|--------|---------|
+  | technical   | +.014  | +.004  | -.001  | **-.015** (anti) |
+  | fundamental | +.018* | +.023* | +.029* | **+.041*** (MODEST) |
+  | statistical | +.020  | +.016  | +.011  | **-.016** (anti) |
+  | composite   | +.024  | +.020  | +.020  | **+.008** (NOISE) |
+
+  (* = Bonferroni-significant)
+
+  Reading: at the horizon the strategy actually trades on,
+  `fundamental` is MODEST signal (IC +0.041, top-bottom spread +1.2%),
+  while `technical` and `statistical` go ANTI-predictive (their top-
+  quintile UNDERPERFORMS bottom-quintile by 1.2% and 1.8% over 44
+  trading days). The composite top-quintile underperforms bottom by
+  0.91% at 44D.
+
+  **How is the strategy generating +6.1% OOS alpha if its composite
+  has zero predictive power at its hold horizon?** Three hypotheses
+  remain to test:
+    A. fundamental alone is doing all the work; tech/stat noise
+       partially cancels and lets fundamental's signal through.
+    B. The strategy's NON-SCORE machinery (min_score filter, ATR
+       stop, time stop, position sizing, earnings blackout) is
+       capturing positive expectancy independent of the score.
+    C. Survivorship bias + AI-bubble window inflated the apparent
+       alpha. On a truly PIT universe with delisted tickers, the
+       6.1% would shrink.
+
+  See commit `fefd43d`. Two new strategies shipped to test
+  hypothesis A:
+    - `minimal_baseline_v2` — 0.60 fundamental + 0.40 statistical
+      (commit `208f0ce`)
+    - `minimal_baseline_v3` — 1.00 fundamental
+      (commit `58ab177`)
 
 - **Correlation matrix (2022-2024)** — `reports/analyzer_correlation_2022_2024.md`.
   Exactly one flagged pair: `technical ↔ statistical = +0.73`. Pearson
@@ -132,11 +170,21 @@ ranked decisions are:
   this duplicated pair; effectively the strategy is voting one column
   twice. Implications detailed in commit `f469d02`.
 
+- **Regime A/B `skip_bear` vs `off` on 2022-2024** (task `bkm9clcat`,
+  completed). Result: the gate **did not fire**. Folds 0/1 are
+  byte-identical to baseline; the bear classifier requires both
+  SPY<SMA200 AND VIX>25, but VIX>25 was intermittent in 2022, so most
+  Mondays got labeled "chop" which skip_bear permits. Trade telemetry
+  confirms: `regimes.vix_high.n = 0` for the entire window. Commit
+  `c7fe153`. The skip_bear hypothesis remains unfalsified by this run
+  — we just chose the wrong gate.
+
 ### Runs queued / in-flight
-- **Regime A/B `skip_bear` vs `off` on 2022-2024** (task `bkm9clcat`).
-  Tests whether refusing entries when SPY < 200d-SMA AND VIX > 25
-  neutralizes folds 0 and 1 (the 2022 bear drag) without killing
-  folds 2-4. Output: `data/baseline/minimal_baseline_2022_2024_skip_bear.json`.
+- **`skip_bear_and_chop` on 2022-2024** (task `blv6po4nq`). This gate
+  ALSO refuses on chop (SPY<SMA200 OR VIX in 20-25 zone), which
+  matches the 2022 grinding-bear pattern. If folds 0/1 turn neutral
+  here without killing 2-4, regime-filtering is a real fix. If folds
+  2-4 collapse too, the strategy's edge is just being long in 2023.
 
 ## What you should look at first
 
