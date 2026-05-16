@@ -36,6 +36,7 @@ import pandas as pd
 
 from src.factors.composite import combine as combine_factors
 from src.factors.momentum import momentum_12_1
+from src.factors.pead import pead_factor
 from src.factors.quality import quality_factor
 from src.factors.value import value_factor
 
@@ -53,6 +54,14 @@ def _parse_args() -> argparse.Namespace:
                    help="As-of date (YYYY-MM-DD). Default = today.")
     p.add_argument("--output-dir", default="data/daily_picks",
                    help="Where to write the JSON.")
+    p.add_argument("--include-pead", action="store_true",
+                   help="Include the PEAD factor in the composite. Requires "
+                        "an earnings-history fetch (yfinance, slow on a cold "
+                        "cache; ~3-5 min for the full S&P 500). Default OFF "
+                        "until validated against frozen snapshots.")
+    p.add_argument("--earnings-cache-dir", default="data/earnings_history",
+                   help="Where to cache per-ticker earnings parquets so "
+                        "subsequent --include-pead runs are fast.")
     return p.parse_args()
 
 
@@ -97,6 +106,70 @@ def _load_universe_and_prices(snapshot_id: str | None, as_of: pd.Timestamp):
     return tickers, normalized
 
 
+def _load_earnings_histories(
+    tickers: list[str],
+    cache_dir: Path,
+    *,
+    max_age_hours: int = 24,
+) -> dict[str, pd.DataFrame]:
+    """Pull recent earnings + surprise history for each ticker.
+
+    Caches per-ticker parquets under ``cache_dir`` so subsequent runs
+    don't re-hammer yfinance. Surprise columns vary by ticker (yfinance
+    is patchy); we keep whatever yfinance returns and let the analyzer
+    pick the surprise column it can parse.
+    """
+    import time
+    import yfinance as yf
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    out: dict[str, pd.DataFrame] = {}
+    n_fetched = 0
+    n_cached = 0
+    n_missing = 0
+
+    for t in tickers:
+        cache_path = cache_dir / f"{t}.parquet"
+        if cache_path.exists():
+            age = (now - cache_path.stat().st_mtime) / 3600.0
+            if age <= max_age_hours:
+                try:
+                    df = pd.read_parquet(cache_path)
+                    if not df.empty:
+                        out[t] = df
+                        n_cached += 1
+                        continue
+                except Exception:
+                    pass  # fall through to refetch
+
+        try:
+            df = yf.Ticker(t).get_earnings_dates(limit=40)
+        except Exception as e:
+            logger.debug("earnings fetch failed for %s: %s", t, e)
+            n_missing += 1
+            continue
+        if df is None or df.empty:
+            n_missing += 1
+            continue
+        try:
+            # Reset index → parquet round-trip preserves the timestamp.
+            df_out = df.reset_index().rename(
+                columns={df.index.name or "index": "earnings_ts"}
+            )
+            df_out.to_parquet(cache_path, index=False)
+        except Exception as e:
+            logger.debug("earnings cache write failed for %s: %s", t, e)
+        out[t] = df
+        n_fetched += 1
+
+    logger.info(
+        "Earnings histories: %d cached + %d fetched + %d missing (of %d)",
+        n_cached, n_fetched, n_missing, len(tickers),
+    )
+    return out
+
+
 def _load_fundamentals(tickers: list[str]):
     """Sync wrapper around the async EDGAR PIT loader."""
     from src.db.repositories.fundamentals import (
@@ -123,16 +196,26 @@ def _render_markdown(picks: pd.DataFrame, as_of: pd.Timestamp,
     lines.append(f"**Strategy:** equal-weight rank-blend of momentum + quality + value")
     lines.append(f"**Selection:** top {len(picks)} by composite rank "
                  f"(~{100*len(picks)/max(1,total_universe):.1f}% of universe)\n")
-    lines.append("| Rank | Ticker | Momentum | Quality | Value | Composite z |")
-    lines.append("|------|--------|----------|---------|-------|-------------|")
+    has_pead = "pead_rank" in picks.columns
+    if has_pead:
+        lines.append("| Rank | Ticker | Momentum | Quality | Value | PEAD | Composite z |")
+        lines.append("|------|--------|----------|---------|-------|------|-------------|")
+    else:
+        lines.append("| Rank | Ticker | Momentum | Quality | Value | Composite z |")
+        lines.append("|------|--------|----------|---------|-------|-------------|")
     for _, r in picks.iterrows():
-        lines.append(
-            f"| {int(r['rank']):>4d} | {r['ticker']:>6s} | "
-            f"{r['mom_rank'] if pd.notna(r['mom_rank']) else '-':>8} | "
-            f"{r['qual_rank'] if pd.notna(r['qual_rank']) else '-':>7} | "
-            f"{r['val_rank'] if pd.notna(r['val_rank']) else '-':>5} | "
-            f"{r['z_score']:>+10.2f} |"
-        )
+        cells = [
+            f"{int(r['rank']):>4d}",
+            f"{r['ticker']:>6s}",
+            f"{r['mom_rank'] if pd.notna(r['mom_rank']) else '-':>8}",
+            f"{r['qual_rank'] if pd.notna(r['qual_rank']) else '-':>7}",
+            f"{r['val_rank'] if pd.notna(r['val_rank']) else '-':>5}",
+        ]
+        if has_pead:
+            pead_cell = r['pead_rank'] if pd.notna(r['pead_rank']) else '-'
+            cells.append(f"{pead_cell:>4}")
+        cells.append(f"{r['z_score']:>+10.2f}")
+        lines.append("| " + " | ".join(cells) + " |")
     lines.append("")
     lines.append("**Allocation:** equal-weight (1/N each)")
     lines.append("**Hold period:** quarterly rebalance recommended "
@@ -168,16 +251,27 @@ def main() -> int:
                 n_covered, len(universe),
                 100.0 * n_covered / max(1, len(universe)))
 
-    # Compute the three factors at as_of.
+    # Compute factors at as_of.
     mom = momentum_12_1(prices, as_of)
     qual = quality_factor(loader, universe, as_of)
     val = value_factor(loader, prices, universe, as_of)
+
+    factor_frames = [mom, qual, val]
+    pead = pd.DataFrame()
+    if args.include_pead:
+        logger.info("Loading earnings histories for PEAD (--include-pead)...")
+        earnings = _load_earnings_histories(
+            universe, Path(args.earnings_cache_dir),
+        )
+        pead = pead_factor(earnings, as_of, prices=prices)
+        factor_frames.append(pead)
+
     logger.info(
-        "Factor coverage: momentum=%d, quality=%d, value=%d",
-        len(mom), len(qual), len(val),
+        "Factor coverage: momentum=%d, quality=%d, value=%d, pead=%d",
+        len(mom), len(qual), len(val), len(pead),
     )
 
-    composite = combine_factors([mom, qual, val], min_overlap=2)
+    composite = combine_factors(factor_frames, min_overlap=2)
     if composite.empty:
         logger.error("Composite factor returned no names")
         return 2
@@ -196,15 +290,24 @@ def main() -> int:
         val[["ticker", "rank"]].rename(columns={"rank": "val_rank"}),
         on="ticker", how="left",
     )
+    if not pead.empty:
+        top = top.merge(
+            pead[["ticker", "rank"]].rename(columns={"rank": "pead_rank"}),
+            on="ticker", how="left",
+        )
     top = top.sort_values("rank").reset_index(drop=True)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_json = out_dir / f"{as_of.date().isoformat()}.json"
+    factors_used = ["momentum", "quality", "value"]
+    if args.include_pead:
+        factors_used.append("pead")
     payload = {
         "as_of": as_of.date().isoformat(),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "strategy": "composite_d05_r63",
+        "factors": factors_used,
         "universe_size": len(composite),
         "top_n": len(top),
         "picks": top.to_dict(orient="records"),
