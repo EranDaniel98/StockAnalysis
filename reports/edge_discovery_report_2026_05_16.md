@@ -11,12 +11,32 @@ the research environment? Answers are recorded with full provenance
 
 ## Executive summary
 
-**The audit chain produced one defensible candidate.**
-`minimal_baseline_v3` (100% fundamental weight) with **all engine
-mechanics off** (no ATR stop, no time stop, no min_score gate) is
-the only strategy variant in the entire investigation that passes
-the strict walk-forward gate (every fold > 0 Sharpe, min +0.40,
-mean +1.20) on the 2022-2024 frozen snapshot.
+**Verdict: INCONCLUSIVE-LEANING-NEGATIVE. No strategy variant survives
+clean cross-window validation.** The 2022-2024 candidate
+(`v3_all_mechanics_off`, the only variant to clear walk-forward on
+that window) has NOT been re-tested on 2024-2026 yet (task
+`bypxgjjnv` in flight), but v3-baseline's 2024-2026 result is a
+critical warning shot:
+
+  - **v3 on 2024-2026 OOS underperforms SPY by 6.49%.** Same
+    strategy that produced +19.69% OOS alpha on 2022-2024 loses
+    money relative to the benchmark in the next window. The
+    "bear-immune fundamental thesis" doesn't transfer.
+  - All three strategies have **>50% top-5 trade concentration on
+    2024-2026**, with v3 at **148.96%** — meaning v3's non-top-5
+    trades are net NEGATIVE.
+  - The walk-forward picture FLIPPED across windows: v3 fails on
+    2022-2024, passes on 2024-2026; v2 fails 2022-2024, passes
+    2024-2026; v1 fails BOTH. None of the variants is consistent.
+  - **v2 wins full-window α-vs-SPY on BOTH windows** (+67% and
+    +72%) but its OOS alpha collapses from +23.7% to +4.44% across
+    windows. That's not a stable edge — that's regime exposure.
+
+If `v3_all_mechanics_off` ALSO fails on 2024-2026, the
+"defensible candidate" from 2022-2024 was window-specific. The
+audit chain will conclude with **no defensible edge proven**.
+Capital deployment must remain blocked; the system needs to keep
+researching.
 
 Headline of v3_all_mechanics_off:
   - Full Sharpe 1.26, return +68.1%, 55 trades, 83.6% win rate
@@ -43,13 +63,18 @@ recovery.
 
 ## Verdict
 
-**Does a defensible edge exist?** _**Yes, conditional on three
-caveats**_.
+**Does a defensible edge exist?** _**Pending the final v3_all_off
+2024-2026 run. Currently leaning NO.**_
 
-Candidate: **`minimal_baseline_v3` with `--atr-stop-mult-override
-99 --max-hold-days-override 9999 --min-score-override 0`** (or
-equivalent — the YAML strategy is `minimal_baseline_v3`; the engine
-mechanics are turned off via runtime overrides).
+The 2022-2024 candidate (`v3_all_mechanics_off`) needs to clear
+2024-2026 walk-forward AND alpha-vs-SPY before being called real.
+Even then the caveats below apply.
+
+Candidate (provisional): **`minimal_baseline_v3` with
+`--atr-stop-mult-override 99 --max-hold-days-override 9999
+--min-score-override 0`** (or equivalent — the YAML strategy is
+`minimal_baseline_v3`; the engine mechanics are turned off via
+runtime overrides).
 
 This strategy:
 - Passes strict walk-forward (every fold positive on 2022-2024)
@@ -317,7 +342,63 @@ each toggling exactly one engine mechanic. v2's strategy YAML weights
 | all_mechanics_off (v2) | +0.16 | +0.00 | +0.00 | +0.96 | +2.22 |
 | **all_mechanics_off (v3)** | **+0.40** | **+1.32** | **+0.90** | **+0.92** | **+2.47** |
 
-### v3 + all_mechanics_off — the winning candidate
+## Cross-window validation (2022-2024 vs 2024-2026)
+
+Same three strategies on each frozen snapshot. The 2024-2026 snapshot
+(`1dd88cad8e1f7534`, 996 tickers) covers the AI-bubble continuation
+period.
+
+### Side-by-side comparison
+
+| strategy | metric | 2022-2024 | 2024-2026 | delta |
+|---|---|---|---|---|
+| v1 | OOS α vs SPY | +23.09% | +18.79% | -4.30pp |
+| v1 | OOS Sharpe | +3.24 | +2.36 | -0.88 |
+| v1 | WF min Sharpe | -0.91 (FAIL) | -1.08 (FAIL) | both fail |
+| v1 | top-5 % of P&L | 23.6% | 50.4% | +27pp worse |
+| v2 | OOS α vs SPY | +23.69% | **+4.44%** | **-19.25pp** |
+| v2 | OOS Sharpe | +3.69 | +1.64 | -2.05 |
+| v2 | WF min Sharpe | -0.73 (FAIL) | +1.62 (PASS) | flipped |
+| v2 | top-5 % of P&L | 30.5% | 73.8% | +43pp worse |
+| v3 | OOS α vs SPY | +19.69% | **-6.49%** | **-26.18pp** |
+| v3 | OOS Sharpe | +3.34 | +0.55 | -2.79 |
+| v3 | WF min Sharpe | -0.18 (FAIL) | +0.83 (PASS) | flipped |
+| v3 | top-5 % of P&L | 36.4% | **148.96%** | rest of trades NEGATIVE |
+
+Reading:
+
+1. **Every strategy's OOS alpha shrinks dramatically going from
+   2022-2024 to 2024-2026.** v3 actually goes NEGATIVE vs SPY.
+   v2's alpha drops by 19 percentage points. No alpha is stable
+   across windows.
+2. **Walk-forward verdicts FLIP across windows.** v2 and v3 both
+   fail 2022-2024 but pass 2024-2026. v1 fails both. The fold-1
+   problem in 2022-2024 was the 2022 deep-bear chop; 2024-2026
+   has no equivalent. The strict walk-forward gate is detecting a
+   regime exposure, not a real edge.
+3. **Concentration is WORSE on 2024-2026** across all variants.
+   v3's top-5 carry 148.96% of total P&L — the non-top-5 trades
+   are net negative. This is a single-window-specific phenomenon
+   (bubble persistence) that masks the fact that 60+ of v3's
+   trades net out to negative.
+
+### Implication for the audit chain
+
+A real edge would persist across windows. Variants whose alpha
+collapses from +19-23% to -6 to +4% across windows are not
+edges — they're regime exposures.
+
+**v2** has the most consistent full-window numbers (+67% then +72%
+alpha vs SPY) but its OOS slice — where the bootstrap CI lives —
+collapses from +23.7% to +4.4%. The bootstrap CI on 2024-2026 v2
+is [-0.99, 5.15] — lower bound is NEGATIVE.
+
+**The verdict shifts from "v3_all_off is a candidate" to "wait for
+v3_all_off on 2024-2026, then probably conclude no defensible edge."**
+If v3_all_off generalizes (positive WF + positive alpha on 2024-2026),
+that's the strongest result. If it doesn't, we have no candidate.
+
+### v3 + all_mechanics_off — the 2022-2024 candidate (NOT YET cross-validated)
 
 When the same all-mechanics-off teardown is applied to v3 (pure
 fundamental, no statistical), the strategy CLEARS the strict walk-
