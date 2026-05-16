@@ -82,8 +82,19 @@ def _load_universe_and_prices(snapshot_id: str | None, as_of: pd.Timestamp):
     )
     fetcher = DataFetcher(config, cache)
     logger.info("Fetching prices for %d tickers (live)...", len(tickers))
-    prices = fetcher.fetch_batch(tickers)
-    return tickers, {t: df for t, df in prices.items() if df is not None and not df.empty}
+    raw = fetcher.fetch_batch(tickers)
+    # Normalize to the same shape the snapshot path produces: tz-naive
+    # DatetimeIndex. yfinance live returns UTC-aware indices which
+    # break tz-naive comparisons in the factor code.
+    normalized: dict[str, pd.DataFrame] = {}
+    for t, df in raw.items():
+        if df is None or df.empty:
+            continue
+        d = df.copy()
+        if isinstance(d.index, pd.DatetimeIndex) and d.index.tz is not None:
+            d.index = d.index.tz_convert("UTC").tz_localize(None)
+        normalized[t] = d
+    return tickers, normalized
 
 
 def _load_fundamentals(tickers: list[str]):
