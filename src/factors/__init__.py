@@ -22,7 +22,17 @@ Design rules
    the user hasn't authorized.
 """
 
+from src.factors.composite import combine as combine_factors
 from src.factors.momentum import momentum_12_1
+from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
+from src.factors.value import value_factor
 
-__all__ = ["momentum_12_1", "is_risk_on", "trend_state_series"]
+__all__ = [
+    "combine_factors",
+    "is_risk_on",
+    "momentum_12_1",
+    "quality_factor",
+    "trend_state_series",
+    "value_factor",
+]

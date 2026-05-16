@@ -42,8 +42,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.factors.composite import combine as combine_factors
 from src.factors.momentum import momentum_12_1
+from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
+from src.factors.value import value_factor
 from src.storage.snapshot import load_snapshot
 
 logger = logging.getLogger("run_factor_backtest")
@@ -64,9 +67,62 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-regime-filter", action="store_true",
                    help="Disable the SPY 200d-SMA trend filter (run "
                         "always-on momentum). Use only for ablation.")
+    p.add_argument("--factor",
+                   default="momentum",
+                   choices=("momentum", "quality", "value", "composite"),
+                   help="Which factor to rank by. composite = "
+                        "equal-weight rank-blend of all three.")
     p.add_argument("--output", required=True,
                    help="Output JSON path.")
     return p.parse_args()
+
+
+def _load_pit_fundamentals(tickers: list[str]):
+    """Sync wrapper around the async EDGAR PIT loader.
+
+    Pulls the full panel of EDGAR rows for the universe once at
+    startup. The loader is then in-memory and serves O(log n)
+    point-in-time lookups inside the rebalance loop.
+    """
+    from src.db.repositories.fundamentals import (
+        PostgresFundamentalsRepository,
+    )
+    from src.db.session import get_sessionmaker, run_with_dispose
+    from src.scoring.fundamentals_pit_loader import (
+        FundamentalsPITLoader,
+    )
+
+    async def _go():
+        async with get_sessionmaker()() as session:
+            repo = PostgresFundamentalsRepository(session)
+            return await FundamentalsPITLoader.from_repository(repo, tickers)
+
+    return run_with_dispose(_go())
+
+
+def _resolve_ranking(
+    factor: str,
+    prices: dict,
+    fund_loader,
+    as_of: pd.Timestamp,
+    universe_tickers: list[str],
+) -> pd.DataFrame:
+    """Dispatch to the requested factor. Returns a tidy ranking frame."""
+    if factor == "momentum":
+        return momentum_12_1(prices, as_of)
+    if factor == "quality":
+        return quality_factor(fund_loader, universe_tickers, as_of)
+    if factor == "value":
+        return value_factor(fund_loader, prices, universe_tickers, as_of)
+    if factor == "composite":
+        m = momentum_12_1(prices, as_of)
+        q = quality_factor(fund_loader, universe_tickers, as_of)
+        v = value_factor(fund_loader, prices, universe_tickers, as_of)
+        # Permissive overlap: a ticker that's in 2 of 3 factors still
+        # gets ranked. Strict overlap (must be in all 3) drops too
+        # many names from the universe at any given as_of.
+        return combine_factors([m, q, v], min_overlap=2)
+    raise ValueError(f"unknown factor {factor!r}")
 
 
 def _annualize_sharpe(daily_rets: pd.Series, periods_per_year: int = 252) -> float:
@@ -148,6 +204,24 @@ def run(args: argparse.Namespace) -> dict:
     if spy is None or spy.empty:
         raise SystemExit(f"snapshot {args.snapshot_id} has no SPY frame")
 
+    universe_tickers = sorted(prices.keys())
+    # Quality/value/composite need EDGAR PIT fundamentals. Pull once.
+    fund_loader = None
+    if args.factor in ("quality", "value", "composite"):
+        logger.info(
+            "Pre-loading EDGAR PIT fundamentals for %d tickers...",
+            len(universe_tickers),
+        )
+        fund_loader = _load_pit_fundamentals(universe_tickers)
+        cov = fund_loader.coverage()
+        n_covered = sum(1 for c in cov.values() if c > 0)
+        logger.info(
+            "Fundamentals coverage: %d/%d tickers have ≥1 EDGAR row "
+            "(%.1f%%)",
+            n_covered, len(universe_tickers),
+            100.0 * n_covered / max(1, len(universe_tickers)),
+        )
+
     window_start = pd.Timestamp(snap.manifest.window_start)
     window_end = pd.Timestamp(snap.manifest.window_end)
 
@@ -207,11 +281,13 @@ def run(args: argparse.Namespace) -> dict:
             continue
 
         # Compute factor; pick top decile.
-        mom = momentum_12_1(prices, d)
-        if mom.empty:
+        ranking = _resolve_ranking(
+            args.factor, prices, fund_loader, d, universe_tickers,
+        )
+        if ranking.empty:
             continue
-        n_pick = max(1, int(round(len(mom) * args.top_decile)))
-        top = mom.iloc[:n_pick]
+        n_pick = max(1, int(round(len(ranking) * args.top_decile)))
+        top = ranking.iloc[:n_pick]
         target_set = set(top["ticker"].tolist())
 
         # Sell names not in target.
