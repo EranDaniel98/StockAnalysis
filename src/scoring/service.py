@@ -413,7 +413,21 @@ def analyze_and_score(
                 {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
             )
         except Exception as e:
+            # Don't drop the ticker silently — that turns into a
+            # confusing 404 at the API. Emit a sentinel result with
+            # every required analyzer marked as error so the engine
+            # produces score_valid=False, the recommender forces
+            # HOLD/Low, and the FE renders a Data-Quality warning
+            # instead of "no data found".
             logger.error("Error analyzing %s: %s", ticker, e)
+            analysis_results[ticker] = {
+                "technical": {"score": None, "error": f"analyzer crashed: {e}"},
+                "alpha158": None,
+                "fundamental": {"score": None, "error": f"analyzer crashed: {e}"},
+                "pattern": {"score": None, "error": f"analyzer crashed: {e}"},
+                "statistical": {"score": None, "error": f"analyzer crashed: {e}"},
+                "trend": {"score": None, "error": f"analyzer crashed: {e}"},
+            }
             emit(
                 {
                     "stage": "analyze_ticker_failed",

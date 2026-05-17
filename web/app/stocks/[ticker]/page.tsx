@@ -19,6 +19,10 @@ import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { MyPositionCard } from "@/components/stocks/my-position-card";
+import {
+  RecommendationWarnings,
+  actionLabelForGate,
+} from "@/components/stocks/recommendation-warnings";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,6 +47,7 @@ type BadgeVariant = "bullish" | "bearish" | "neutral" | "default" | "outline";
 function actionBadgeVariant(action: string): BadgeVariant {
   if (action === "STRONG BUY" || action === "BUY") return "bullish";
   if (action === "STRONG SELL" || action === "SELL") return "bearish";
+  if (action === "REFUSED") return "bearish";
   if (action === "HOLD") return "neutral";
   return "outline";
 }
@@ -307,7 +312,9 @@ function StockDetail({
         actions={
           rec ? (
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant={actionBadgeVariant(rec.action)}>{rec.action}</Badge>
+              <Badge variant={actionBadgeVariant(actionLabelForGate(rec))}>
+                {actionLabelForGate(rec)}
+              </Badge>
               {timeStop ? (
                 <Badge
                   variant="neutral"
@@ -349,6 +356,8 @@ function StockDetail({
       />
 
       {error ? <ErrorState error={error} /> : null}
+
+      {rec ? <RecommendationWarnings rec={rec} /> : null}
 
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile

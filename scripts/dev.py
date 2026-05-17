@@ -43,14 +43,30 @@ def _label(name: str, color: str, width: int = 5) -> str:
 
 def _pump_output(stream: IO[bytes], label: str) -> None:
     """Read stream line-by-line and re-emit with a labeled prefix. Blocks
-    until the child closes its stdout."""
+    until the child closes its stdout.
+
+    Wrapped in a broad ``except`` so even if a child emits a glyph our
+    own ``sys.stdout`` can't render, the pump survives — pump death
+    used to wedge the child by filling its stdout pipe buffer.
+    """
     try:
         for raw in iter(stream.readline, b""):
             try:
                 line = raw.decode("utf-8", errors="replace").rstrip()
             except Exception:
                 line = repr(raw)
-            print(f"{label} {line}", flush=True)
+            try:
+                print(f"{label} {line}", flush=True)
+            except Exception:
+                # Last-ditch: write bytes directly to stdout.buffer so
+                # an encoding fault in print() can't kill the pump.
+                try:
+                    sys.stdout.buffer.write(
+                        (f"{label} {line}\n").encode("utf-8", "replace")
+                    )
+                    sys.stdout.flush()
+                except Exception:
+                    pass
     finally:
         try:
             stream.close()
@@ -101,6 +117,19 @@ def _terminate(p: subprocess.Popen, name: str) -> None:
 
 
 def main() -> int:
+    # Force UTF-8 on the launcher's own stdout. Without this, the pump
+    # threads crash the first time Next.js prints a non-ASCII glyph (its
+    # startup banner has ▲), the pump dies, the child's stdout pipe
+    # fills, and the web server stalls — externally indistinguishable
+    # from "the UI isn't loading."
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
     root = Path(__file__).parent.parent.resolve()
     web_dir = root / "web"
     if not (web_dir / "package.json").exists():

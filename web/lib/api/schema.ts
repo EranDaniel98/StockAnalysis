@@ -882,9 +882,9 @@ export interface components {
             cash: number;
             /**
              * Hold Days
-             * @default 90
+             * @description Calendar days a position can hold before forced exit (triple-barrier time stop). None → resolve from the strategy's `time_stop_days` field, falling back to 90.
              */
-            hold_days: number;
+            hold_days?: number | null;
             /**
              * Earnings Blackout
              * @default 3
@@ -1709,6 +1709,14 @@ export interface components {
          * ScanResultItem
          * @description One recommendation row in a scan response. Permissive shape — accepts
          *     the existing recommender dict; web layer narrows what it renders.
+         *
+         *     Integrity fields (``score_valid``, ``error_count``, ``error_slots``,
+         *     ``analyzer_status``, ``instrument_warning``, ``insufficient_history``)
+         *     are surfaced so the FE can render a Data-Quality warning when the
+         *     composite was built from a degraded analyzer chain, a leveraged /
+         *     inverse ETF, or a ticker with too little history. The recommender
+         *     already forces ``action="HOLD"``/``confidence="None"`` in those
+         *     cases — these fields tell the operator WHY.
          */
         ScanResultItem: {
             /** Ticker */
@@ -1763,6 +1771,35 @@ export interface components {
             name: string;
             /** Market Cap */
             market_cap?: number | null;
+            /**
+             * Score Valid
+             * @default true
+             */
+            score_valid: boolean;
+            /**
+             * Error Count
+             * @default 0
+             */
+            error_count: number;
+            /** Error Slots */
+            error_slots?: string[];
+            /** Analyzer Status */
+            analyzer_status?: {
+                [key: string]: string;
+            };
+            /** Instrument Warning */
+            instrument_warning?: string | null;
+            /** Instrument Warning Reason */
+            instrument_warning_reason?: string | null;
+            /**
+             * Insufficient History
+             * @default false
+             */
+            insufficient_history: boolean;
+            /** History Bars Available */
+            history_bars_available?: number | null;
+            /** History Bars Required */
+            history_bars_required?: number | null;
         };
         /**
          * ScanSummary

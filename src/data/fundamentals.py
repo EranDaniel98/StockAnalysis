@@ -51,7 +51,32 @@ class FundamentalsFetcher:
             # FetchOutcome-returning shape in src.data.fetch_outcome.
             return None
         try:
-            if not info or info.get("trailingPE") is None and info.get("sector") is None:
+            if not info:
+                logger.warning(f"No fundamental data for {ticker}")
+                return None
+
+            # Both trailingPE and sector missing usually means yfinance
+            # returned a stub (delisted ticker, ETF, fund). Don't return
+            # the full dict in that case — but DO preserve the
+            # identifying fields (name, longName) so the instrument
+            # classifier downstream can detect leveraged / inverse /
+            # daily ETFs that previously slipped through with name=ticker.
+            if info.get("trailingPE") is None and info.get("sector") is None:
+                long_name = info.get("longName") or info.get("shortName")
+                if long_name:
+                    logger.warning(
+                        "No fundamental data for %s (name=%r) — returning "
+                        "name-only stub so the instrument classifier can "
+                        "still flag non-stock instruments.",
+                        ticker, long_name,
+                    )
+                    return {
+                        "ticker": ticker,
+                        "name": long_name,
+                        "sector": None,
+                        "industry": None,
+                        "market_cap": None,
+                    }
                 logger.warning(f"No fundamental data for {ticker}")
                 return None
 

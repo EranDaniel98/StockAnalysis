@@ -29,10 +29,15 @@ def analyze_stock_trend(df, fundamentals, config):
     signals = []
     scores = []
 
-    stock_sector = fundamentals.get("sector", "")
-    stock_industry = fundamentals.get("industry", "")
-    stock_description = fundamentals.get("description", "").lower()
-    ticker = fundamentals.get("ticker", "")
+    # ``or ""`` (not the .get default) because the fundamentals stub
+    # for name-only-known instruments (leveraged ETFs, unrecognized
+    # tickers) carries explicit ``None`` values rather than missing
+    # keys — and downstream code does ``.lower()`` which crashes on
+    # None.
+    stock_sector = fundamentals.get("sector") or ""
+    stock_industry = fundamentals.get("industry") or ""
+    stock_description = (fundamentals.get("description") or "").lower()
+    ticker = fundamentals.get("ticker") or ""
 
     focused_sectors = config.get_focused_sectors()
     themes = config.get_all_themes()

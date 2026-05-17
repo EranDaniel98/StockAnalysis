@@ -47,7 +47,16 @@ class ScanRequest(BaseModel):
 
 class ScanResultItem(BaseModel):
     """One recommendation row in a scan response. Permissive shape — accepts
-    the existing recommender dict; web layer narrows what it renders."""
+    the existing recommender dict; web layer narrows what it renders.
+
+    Integrity fields (``score_valid``, ``error_count``, ``error_slots``,
+    ``analyzer_status``, ``instrument_warning``, ``insufficient_history``)
+    are surfaced so the FE can render a Data-Quality warning when the
+    composite was built from a degraded analyzer chain, a leveraged /
+    inverse ETF, or a ticker with too little history. The recommender
+    already forces ``action="HOLD"``/``confidence="None"`` in those
+    cases — these fields tell the operator WHY.
+    """
 
     ticker: str
     action: Literal["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
@@ -63,6 +72,16 @@ class ScanResultItem(BaseModel):
     industry: str = "Unknown"
     name: str = ""
     market_cap: Optional[float] = None
+    # Integrity flags — see docstring above.
+    score_valid: bool = True
+    error_count: int = 0
+    error_slots: list[str] = Field(default_factory=list)
+    analyzer_status: dict[str, str] = Field(default_factory=dict)
+    instrument_warning: Optional[str] = None
+    instrument_warning_reason: Optional[str] = None
+    insufficient_history: bool = False
+    history_bars_available: Optional[int] = None
+    history_bars_required: Optional[int] = None
 
 
 class ScanResponse(BaseModel):

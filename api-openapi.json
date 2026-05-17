@@ -2015,11 +2015,18 @@
             "default": 10000.0
           },
           "hold_days": {
-            "type": "integer",
-            "maximum": 400.0,
-            "exclusiveMinimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 400.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Hold Days",
-            "default": 90
+            "description": "Calendar days a position can hold before forced exit (triple-barrier time stop). None \u2192 resolve from the strategy's `time_stop_days` field, falling back to 90."
           },
           "earnings_blackout": {
             "type": "integer",
@@ -4049,6 +4056,79 @@
               }
             ],
             "title": "Market Cap"
+          },
+          "score_valid": {
+            "type": "boolean",
+            "title": "Score Valid",
+            "default": true
+          },
+          "error_count": {
+            "type": "integer",
+            "title": "Error Count",
+            "default": 0
+          },
+          "error_slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Error Slots"
+          },
+          "analyzer_status": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Analyzer Status"
+          },
+          "instrument_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Warning"
+          },
+          "instrument_warning_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Warning Reason"
+          },
+          "insufficient_history": {
+            "type": "boolean",
+            "title": "Insufficient History",
+            "default": false
+          },
+          "history_bars_available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Bars Available"
+          },
+          "history_bars_required": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Bars Required"
           }
         },
         "type": "object",
@@ -4059,7 +4139,7 @@
           "confidence"
         ],
         "title": "ScanResultItem",
-        "description": "One recommendation row in a scan response. Permissive shape \u2014 accepts\nthe existing recommender dict; web layer narrows what it renders."
+        "description": "One recommendation row in a scan response. Permissive shape \u2014 accepts\nthe existing recommender dict; web layer narrows what it renders.\n\nIntegrity fields (``score_valid``, ``error_count``, ``error_slots``,\n``analyzer_status``, ``instrument_warning``, ``insufficient_history``)\nare surfaced so the FE can render a Data-Quality warning when the\ncomposite was built from a degraded analyzer chain, a leveraged /\ninverse ETF, or a ticker with too little history. The recommender\nalready forces ``action=\"HOLD\"``/``confidence=\"None\"`` in those\ncases \u2014 these fields tell the operator WHY."
       },
       "ScanSummary": {
         "properties": {

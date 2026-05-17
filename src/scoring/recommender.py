@@ -49,23 +49,51 @@ def generate_recommendation(
     Returns:
         dict with action, confidence, reasoning, risk management params
     """
+    from src.scoring.instrument_classifier import (
+        MIN_HISTORY_DAYS,
+        classify_instrument,
+        evaluate_history,
+    )
+
     composite = score_result["composite_score"]
     thresholds = dict(config.get_scoring_thresholds())
     if strategy:
         thresholds.update(strategy.get("thresholds", {}) or {})
 
-    # --- Validity gate (Tier-1 B1 reviewer finding) ---
-    # When the engine returned score_valid=False, composite is the 50.0
-    # placeholder over a broken analyzer chain. Force HOLD/Low so the
-    # threshold pyramid can't classify the placeholder as BUY/STRONG BUY
-    # via PEAD/consensus lift (those are now also gated in the engine).
-    # Downstream gates in paper_trade_service / backtest also refuse on
-    # score_valid=False — this is the second line of defence.
+    name = (fundamentals.get("name") if fundamentals else None) or ticker
+    instrument = classify_instrument(ticker, name, fundamentals)
+    insufficient, bars_available = evaluate_history(price_data)
+
+    # --- Validity gates ---
+    # Three independent reasons to refuse a confident Action:
+    #   1. Engine reports score_valid=False (no required analyzer fired).
+    #      Composite is the 50.0 placeholder, lifting it via PEAD or
+    #      consensus would manufacture a BUY from zero signal.
+    #   2. classify_instrument flagged a leveraged / inverse ETF or a
+    #      non-stock instrument the composite isn't calibrated for.
+    #   3. Insufficient price history (<252 daily bars, i.e. recent IPO
+    #      or low-coverage ticker) so technical / statistical /
+    #      alpha158 couldn't produce reliable sub-scores.
+    #
+    # When ANY gate fires we set ``action="HOLD"``/``confidence="None"``
+    # and emit the per-gate flag so the FE can render a Data-Quality
+    # warning panel above the action badge.
     score_valid = bool(score_result.get("score_valid", True))
-    if not score_valid:
+    new_gates_failed = (instrument.warning is not None) or insufficient
+    gates_failed = (not score_valid) or new_gates_failed
+    if new_gates_failed:
+        # New instrument / history gates: the system can't reliably
+        # score this kind of input. Use confidence="None" so the FE
+        # treats this as "we refuse" rather than "we ran but are
+        # unsure" (which is what confidence="Low" historically meant).
+        action, confidence = "HOLD", "None"
+    elif not score_valid:
+        # Pre-existing engine-validity gate. Composite is the 50.0
+        # placeholder over a broken analyzer chain. Keep the legacy
+        # "HOLD/Low" output here so existing callers / tests that
+        # check this exact shape don't shift.
         action, confidence = "HOLD", "Low"
     else:
-        # --- Determine Action ---
         action, confidence = _determine_action(composite, thresholds)
 
     # --- Collect Key Reasoning ---
@@ -73,7 +101,10 @@ def generate_recommendation(
 
     # --- Risk Management ---
     risk = {}
-    if price_data is not None and not price_data.empty:
+    if price_data is not None and not price_data.empty and not gates_failed:
+        # Skip risk-management math when gates failed — the entry/stop/
+        # target levels would be misleading for an instrument the
+        # system can't reliably score.
         risk = _calculate_risk_management(
             ticker, price_data, fundamentals, config, action, strategy
         )
@@ -90,16 +121,25 @@ def generate_recommendation(
         "bearish_signals": score_result.get("bearish_signals", 0),
         "all_signals": score_result.get("all_signals", []),
         "risk_management": risk,
-        "name": fundamentals.get("name", ticker) if fundamentals else ticker,
-        "sector": fundamentals.get("sector", "Unknown") if fundamentals else "Unknown",
-        "industry": fundamentals.get("industry", "Unknown") if fundamentals else "Unknown",
+        # ``or X`` rather than .get("k", X) — the stub fundamentals
+        # for non-stock instruments carry explicit ``None`` values
+        # which .get's default doesn't catch.
+        "name": (fundamentals.get("name") if fundamentals else None) or ticker,
+        "sector": (fundamentals.get("sector") if fundamentals else None) or "Unknown",
+        "industry": (fundamentals.get("industry") if fundamentals else None) or "Unknown",
         "market_cap": fundamentals.get("market_cap") if fundamentals else None,
-        # Engine-level validity surfaced for downstream gates (paper-trade,
-        # backtest, web UI). Default True if caller passed a pre-typed
-        # CompositeScore (which already validated). Reviewer B1.
+        # Engine-level validity flags surfaced for downstream gates
+        # (paper-trade, backtest, web UI). The FE renders a warning
+        # whenever any of these flag a problem.
         "score_valid": score_valid,
         "error_count": int(score_result.get("error_count", 0) or 0),
         "error_slots": list(score_result.get("error_slots", []) or []),
+        "analyzer_status": dict(score_result.get("analyzer_status", {}) or {}),
+        "instrument_warning": instrument.warning,
+        "instrument_warning_reason": instrument.reason,
+        "insufficient_history": insufficient,
+        "history_bars_available": bars_available,
+        "history_bars_required": MIN_HISTORY_DAYS,
     }
 
 
