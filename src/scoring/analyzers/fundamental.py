@@ -4,7 +4,11 @@ Scores stocks on valuation, growth, profitability, and financial health.
 All thresholds come from config.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import Any, Optional
+
 import numpy as np
 
 from src.data.numeric import coerce_numeric
@@ -25,7 +29,12 @@ _SECTOR_RELATIVE_BANDS: dict[str, int] = {
 }
 
 
-def analyze(fundamentals, config, *, sector_stats=None):
+def analyze(
+    fundamentals: Optional[dict],
+    config,
+    *,
+    sector_stats: Optional[dict] = None,
+) -> dict:
     """
     Score a stock's fundamental data.
 
@@ -68,8 +77,12 @@ def analyze(fundamentals, config, *, sector_stats=None):
     # --- Analyst Sentiment ---
     category_scores["analyst"] = _score_analyst(fundamentals, config, signals)
 
-    # Composite: weighted average of categories
-    weights = {
+    # Composite: weighted average of categories. Weights are config-
+    # driven so operators can rebalance valuation vs. growth without
+    # touching analyzer code. The defaults preserve the original
+    # hardcoded ratios.
+    filters = config.get("fundamental_filters", default={})
+    weights = filters.get("category_weights") or {
         "valuation": 0.25,
         "growth": 0.25,
         "profitability": 0.20,
@@ -78,12 +91,17 @@ def analyze(fundamentals, config, *, sector_stats=None):
         "analyst": 0.10,
     }
 
-    valid_scores = {k: v for k, v in category_scores.items() if v is not None}
+    valid_scores = {
+        k: v for k, v in category_scores.items()
+        if v is not None and weights.get(k, 0) > 0
+    }
     if not valid_scores:
         return {"scores": category_scores, "signals": signals, "score": 50}
 
     # Redistribute weights for missing categories
     total_weight = sum(weights[k] for k in valid_scores)
+    if total_weight <= 0:
+        return {"scores": category_scores, "signals": signals, "score": 50}
     composite = sum(
         valid_scores[k] * weights[k] / total_weight for k in valid_scores
     )

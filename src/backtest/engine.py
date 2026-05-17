@@ -180,87 +180,30 @@ class SurvivorshipGuardError(RuntimeError):
 
 
 def fetch_earnings_dates(tickers: list[str], workers: int = 8) -> dict[str, list[pd.Timestamp]]:
+    """Earnings dates (sorted lists) for the blackout filter.
+
+    Thin wrapper around the shared earnings cache so we don't bypass
+    its 24 h TTL parquet store. Empty list on failure (no entry for
+    that ticker is returned by the cache; we normalize to ``[]`` here).
     """
-    Fetch historical + upcoming earnings dates for each ticker via yfinance.
-    Returns {ticker: sorted list of tz-naive Timestamps}. Empty list on failure.
-    Parallelized — each yfinance call is network-bound.
+    from src.scoring.earnings_cache import load_earnings_date_lists
 
-    Each yfinance call is wrapped in a 30s timeout (audit Tier-1 #8 / E#6):
-    yfinance has no native timeout, and a single stuck Yahoo connection
-    used to wedge a worker for the duration of the backtest. The wrapper
-    converts timeouts into empty earnings lists — same shape downstream
-    code expects, but logged at warning level so misses are visible.
-    """
-    import yfinance as yf
-
-    from src.data.fetch_outcome import call_with_timeout
-
-    def _fetch_one(t):
-        df, err = call_with_timeout(
-            lambda: yf.Ticker(t).get_earnings_dates(limit=40),
-            timeout_seconds=30.0,
-            name=f"yf.get_earnings_dates({t})",
-        )
-        if err is not None:
-            return t, []
-        if df is None or df.empty:
-            return t, []
-        idx = df.index
-        if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
-            idx = idx.tz_localize(None)
-        return t, sorted(pd.to_datetime(idx).tolist())
-
-    results: dict[str, list[pd.Timestamp]] = {}
-    workers = max(1, min(workers, len(tickers)))
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = [ex.submit(_fetch_one, t) for t in tickers]
-        for fut in as_completed(futures):
-            try:
-                t, dates = fut.result()
-                results[t] = dates
-            except Exception:
-                pass
-    return results
+    out = load_earnings_date_lists(tickers, workers=workers)
+    # Preserve the legacy contract: every input ticker has a key,
+    # missing data becomes [].
+    return {t: out.get(t, []) for t in tickers}
 
 
 def fetch_earnings_history(tickers: list[str], workers: int = 8) -> dict[str, pd.DataFrame]:
+    """Full earnings-history frames for the PEAD detector.
+
+    Thin wrapper around the shared earnings cache. Missing tickers
+    get an empty DataFrame (legacy contract).
     """
-    Fetch full earnings-history DataFrames (with surprise %) per ticker. Used
-    by PEAD detector. Parallelized; falls back to empty DataFrame on failure.
+    from src.scoring.earnings_cache import load_earnings_histories
 
-    Same 30s yfinance timeout wrapping as ``fetch_earnings_dates`` (audit
-    Tier-1 #8 / E#6).
-    """
-    import yfinance as yf
-
-    from src.data.fetch_outcome import call_with_timeout
-
-    def _fetch_one(t):
-        df, err = call_with_timeout(
-            lambda: yf.Ticker(t).get_earnings_dates(limit=40),
-            timeout_seconds=30.0,
-            name=f"yf.get_earnings_dates({t})",
-        )
-        if err is not None:
-            return t, pd.DataFrame()
-        if df is None or df.empty:
-            return t, pd.DataFrame()
-        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
-            df = df.copy()
-            df.index = df.index.tz_localize(None)
-        return t, df
-
-    results: dict[str, pd.DataFrame] = {}
-    workers = max(1, min(workers, len(tickers)))
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = [ex.submit(_fetch_one, t) for t in tickers]
-        for fut in as_completed(futures):
-            try:
-                t, df = fut.result()
-                results[t] = df
-            except Exception:
-                pass
-    return results
+    out = load_earnings_histories(tickers, workers=workers)
+    return {t: out.get(t, pd.DataFrame()) for t in tickers}
 
 
 def _is_in_earnings_blackout(

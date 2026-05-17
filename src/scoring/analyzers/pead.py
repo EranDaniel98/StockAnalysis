@@ -396,13 +396,13 @@ def _extract_surprise_pct(row) -> Optional[float]:
 
 
 def fetch_earnings_history(ticker: str) -> Optional[pd.DataFrame]:
-    """Fetch historical earnings dates + surprises via yfinance.
+    """Fetch historical earnings dates + surprises via the shared cache.
 
-    Returns a DataFrame indexed by datetime, or None on failure.
+    Returns a DataFrame indexed by datetime, or None on failure. Routed
+    through ``src.scoring.earnings_cache`` so the 24 h parquet cache,
+    DatetimeIndex restoration, tz normalization, and yfinance timeout
+    wrapping all live in one place.
     """
-    import yfinance as yf
-    try:
-        return yf.Ticker(ticker).get_earnings_dates(limit=40)
-    except Exception as e:
-        logger.debug(f"PEAD earnings fetch failed for {ticker}: {e}")
-        return None
+    from src.scoring.earnings_cache import load_earnings_history
+
+    return load_earnings_history(ticker)

@@ -85,6 +85,16 @@ fundamental_filters:
   min_current_ratio: 1.0
   min_profit_margin_pct: 5
   min_free_cash_flow: 0
+  # Category weights for the fundamental composite. Each category
+  # returns a 0-100 sub-score; missing categories are skipped and the
+  # remaining weights are renormalized. Must sum to a positive value.
+  category_weights:
+    valuation: 0.25
+    growth: 0.25
+    profitability: 0.20
+    health: 0.15
+    dividend: 0.05
+    analyst: 0.10
 
 # --- Scoring Thresholds ---
 scoring:
@@ -99,7 +109,7 @@ scoring:
 # --- Risk Management ---
 risk_management:
   position_sizing:
-    method: "fixed_fractional"      # fixed_fractional, kelly
+    method: "fixed_fractional"      # only "fixed_fractional" is implemented; "kelly" is refused at runtime (no per-strategy win-rate calibration table) and falls back to fixed_fractional with a warning
     max_portfolio_pct: 10           # max % of portfolio in one position
     max_sector_pct: 30              # max % of portfolio in one sector
     default_portfolio_value: 100000
@@ -204,13 +214,13 @@ trading:
     # operability — fewer positions == easier to babysit. The cap is
     # checked AFTER the strategy emits recommendations, so it can
     # silently truncate a top-N list.
-    max_open_positions: 10
+    max_open_positions: 30
 
     # Maximum notional value per single order submission, in USD. A
     # bracket entry of qty * limit_price exceeding this is refused.
     # 1000 = matches the paper-trade default; raise deliberately for
     # later capital ladder rungs.
-    max_order_value_usd: 1000
+    max_order_value_usd: 3000
 
 # --- Alerts ---
 alerts:

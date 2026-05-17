@@ -63,28 +63,9 @@ def _load_picks(picks_dir: str, date_str: str | None) -> dict:
 
 
 def _fetch_prices(tickers: list[str]) -> dict[str, pd.DataFrame]:
-    from src.config_loader import Config
-    from src.data.cache import DataCache
-    from src.data.fetcher import DataFetcher
+    from src.storage.universe_loader import load_prices
 
-    config = Config()
-    cache = DataCache(
-        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
-        market_hours_expiry_minutes=config.get(
-            "data", "market_hours_cache_minutes", default=5,
-        ),
-    )
-    fetcher = DataFetcher(config, cache)
-    raw = fetcher.fetch_batch(tickers)
-    out: dict[str, pd.DataFrame] = {}
-    for t, df in raw.items():
-        if df is None or df.empty:
-            continue
-        d = df.copy()
-        if isinstance(d.index, pd.DatetimeIndex) and d.index.tz is not None:
-            d.index = d.index.tz_convert("UTC").tz_localize(None)
-        out[t] = d
-    return out
+    return load_prices(tickers)
 
 
 def _fetch_yf_info(tickers: list[str]) -> dict[str, dict]:
@@ -109,27 +90,15 @@ def _fetch_yf_info(tickers: list[str]) -> dict[str, dict]:
 def _fetch_earnings_dates(tickers: list[str]) -> dict[str, pd.Timestamp]:
     """Next earnings date per ticker, as_of "now". Best-effort.
 
-    Returns the earliest future earnings event from yfinance's
-    `get_earnings_dates` (which is upcoming + recent). Empty dict if
-    the call fails. Drop tz before returning.
+    Thin wrapper around the shared earnings cache so a single
+    daily run shares one set of yfinance fetches across the whole
+    pipeline (daily_factor_picks, comprehensive analysis, exit
+    analysis, backtest engine) instead of paying the round-trip
+    five times.
     """
-    import yfinance as yf
-    out: dict[str, pd.Timestamp] = {}
-    today = pd.Timestamp.utcnow().tz_localize(None)
-    for t in tickers:
-        try:
-            df = yf.Ticker(t).get_earnings_dates(limit=4)
-            if df is None or df.empty:
-                continue
-            idx = df.index
-            if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
-                idx = idx.tz_convert("UTC").tz_localize(None)
-            future = sorted([d for d in idx if d >= today])
-            if future:
-                out[t] = future[0]
-        except Exception:  # noqa: BLE001
-            continue
-    return out
+    from src.scoring.earnings_cache import load_next_earnings_dates
+
+    return load_next_earnings_dates(tickers)
 
 
 def _load_fundamentals(tickers: list[str]):

@@ -80,23 +80,11 @@ def _fetch_quotes(tickers: list[str]) -> dict[str, float]:
 
 def _fetch_earnings(tickers: list[str]) -> dict[str, int]:
     """Days until next earnings per ticker. Empty for tickers without dates."""
-    import yfinance as yf
+    from src.scoring.earnings_cache import load_next_earnings_dates
+
     today = pd.Timestamp.utcnow().tz_localize(None)
-    out: dict[str, int] = {}
-    for t in tickers:
-        try:
-            df = yf.Ticker(t).get_earnings_dates(limit=4)
-            if df is None or df.empty:
-                continue
-            idx = df.index
-            if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
-                idx = idx.tz_convert("UTC").tz_localize(None)
-            future = sorted([d for d in idx if d >= today])
-            if future:
-                out[t] = max(0, (future[0] - today).days)
-        except Exception:  # noqa: BLE001
-            continue
-    return out
+    next_dates = load_next_earnings_dates(tickers, as_of=today)
+    return {t: max(0, (d - today).days) for t, d in next_dates.items()}
 
 
 def _composite_rank_for(ticker: str, universe_ranks: list[dict]) -> int | None:

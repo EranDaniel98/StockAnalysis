@@ -4,19 +4,25 @@ Calculates RSI, MACD, Moving Averages, Bollinger Bands, Stochastic, Volume,
 and ATR from price data. All parameters come from config.
 """
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
 import logging
+from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def analyze(df, config):
-    """
-    Run full technical analysis on OHLCV data.
+def analyze(df: Optional[pd.DataFrame], config) -> dict:
+    """Run full technical analysis on OHLCV data.
 
     Args:
-        df: DataFrame with Open, High, Low, Close, Volume columns
+        df: DataFrame with Open, High, Low, Close, Volume columns.
+            None or fewer than 50 rows returns a neutral-50 result
+            tagged with ``error="Insufficient data"`` which the engine's
+            ``_infer_status`` excludes from the weighted denominator.
         config: Config object
 
     Returns:
@@ -111,6 +117,19 @@ def _calc_moving_averages(close, config, indicators, signals):
     current_price = close.iloc[-1]
 
     # SMAs
+    #
+    # Price-vs-SMA scoring is a "distance band": being above the SMA is
+    # baseline 60 (mild bullish) and being further above adds up to +20
+    # points (cap). The coefficient 200 means a 10% distance fills the
+    # full 20-point bonus: (1.10 - 1) * 200 = 20. Below the SMA mirrors.
+    # The 60/40 baseline and 20-pt cap match the band the recommender
+    # uses for "moderate" technical signals — see the RSI/MACD bands
+    # below which top out at 70-90 for stronger setups so SMA distance
+    # alone never dominates the technical composite.
+    _SMA_BASELINE_BULL = 60
+    _SMA_BASELINE_BEAR = 40
+    _SMA_DISTANCE_CAP = 20      # max ±points from baseline
+    _SMA_DISTANCE_COEF = 200    # 1% distance → 2 points
     for period in sma_periods:
         if len(close) < period:
             continue
@@ -120,10 +139,16 @@ def _calc_moving_averages(close, config, indicators, signals):
         # Price vs SMA
         if current_price > sma.iloc[-1]:
             signals.append({"type": "bullish", "source": f"SMA{period}", "detail": f"Price above SMA{period}"})
-            scores.append(60 + min(20, (current_price / sma.iloc[-1] - 1) * 200))
+            scores.append(_SMA_BASELINE_BULL + min(
+                _SMA_DISTANCE_CAP,
+                (current_price / sma.iloc[-1] - 1) * _SMA_DISTANCE_COEF,
+            ))
         else:
             signals.append({"type": "bearish", "source": f"SMA{period}", "detail": f"Price below SMA{period}"})
-            scores.append(40 - min(20, (1 - current_price / sma.iloc[-1]) * 200))
+            scores.append(_SMA_BASELINE_BEAR - min(
+                _SMA_DISTANCE_CAP,
+                (1 - current_price / sma.iloc[-1]) * _SMA_DISTANCE_COEF,
+            ))
 
     # Golden Cross / Death Cross (SMA50 vs SMA200)
     if len(close) >= 200 and 50 in sma_periods and 200 in sma_periods:
@@ -264,6 +289,18 @@ def _calc_bollinger(close, config, indicators, signals):
             signals.append({"type": "neutral", "source": "Bollinger", "detail": "Squeeze detected - breakout imminent"})
 
     # Position within bands
+    #
+    # Endpoints: touching the lower band = mean-reversion long setup
+    # (score 70), touching the upper band = mean-reversion short setup
+    # (score 30). The 70/30 baseline matches the band the technical
+    # composite uses for "single-indicator buy/sell" — see RSI's
+    # oversold/overbought banding which uses the same magnitudes.
+    #
+    # Interior linear map: band_pos ∈ [0, 1] → score ∈ [70, 30] with the
+    # midline at 50. The coefficient 40 makes the map continuous with
+    # the endpoint scores (band_pos=0 → 50 + 0.5*40 = 70, band_pos=1 →
+    # 50 - 0.5*40 = 30). Lower position = more bullish per the Bollinger
+    # mean-reversion convention.
     if current_price <= lower.iloc[-1]:
         signals.append({"type": "bullish", "source": "Bollinger", "detail": "Price at/below lower band"})
         return 70
@@ -274,7 +311,7 @@ def _calc_bollinger(close, config, indicators, signals):
         # Position within band (0 = lower, 1 = upper)
         band_pos = (current_price - lower.iloc[-1]) / (upper.iloc[-1] - lower.iloc[-1])
         indicators["bb_position"] = round(float(band_pos), 2)
-        return 50 + (0.5 - band_pos) * 40  # Lower = more bullish
+        return 50 + (0.5 - band_pos) * 40
 
 
 def _calc_volume(volume, config, indicators, signals):

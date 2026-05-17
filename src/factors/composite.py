@@ -29,6 +29,12 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+_OUT_COLUMNS = ["ticker", "mean_normalized_rank", "raw", "rank", "z_score"]
+
+
+def _empty_result() -> pd.DataFrame:
+    return pd.DataFrame(columns=_OUT_COLUMNS)
+
 
 def combine(
     frames: list[pd.DataFrame],
@@ -49,9 +55,7 @@ def combine(
     'rank', 'z_score'] sorted by rank ascending (1 = best composite).
     """
     if not frames:
-        return pd.DataFrame(
-            columns=["ticker", "mean_normalized_rank", "raw", "rank", "z_score"],
-        )
+        return _empty_result()
 
     threshold = min_overlap if min_overlap is not None else len(frames)
 
@@ -71,9 +75,7 @@ def combine(
         normalized.append(sub[["ticker", f"nr_{i}"]])
 
     if not normalized:
-        return pd.DataFrame(
-            columns=["ticker", "mean_normalized_rank", "raw", "rank", "z_score"],
-        )
+        return _empty_result()
 
     # Outer merge so we can count overlap per ticker.
     merged = normalized[0]
@@ -84,9 +86,7 @@ def combine(
     present = merged[nr_cols].notna().sum(axis=1)
     merged = merged[present >= threshold].copy()
     if merged.empty:
-        return pd.DataFrame(
-            columns=["ticker", "mean_normalized_rank", "raw", "rank", "z_score"],
-        )
+        return _empty_result()
 
     merged["mean_normalized_rank"] = merged[nr_cols].mean(axis=1, skipna=True)
     # raw = -mean_normalized_rank so HIGHER raw = better (matches the
@@ -102,8 +102,7 @@ def combine(
     else:
         merged["z_score"] = (merged["raw"] - mu) / sigma
 
-    out_cols = ["ticker", "mean_normalized_rank", "raw", "rank", "z_score"]
-    out = merged[out_cols].sort_values("rank").reset_index(drop=True)
+    out = merged[_OUT_COLUMNS].sort_values("rank").reset_index(drop=True)
     logger.debug(
         "composite.combine: %d frames -> %d tickers (min_overlap=%d)",
         len(frames), len(out), threshold,

@@ -63,35 +63,13 @@ def main() -> int:
     # factor ranks for our subjects. Pull the current PIT S&P 500 + the
     # subjects (in case a subject isn't in S&P 500).
     from src.config_loader import Config
-    from src.data.cache import DataCache
-    from src.data.fetcher import DataFetcher
+    from src.storage.universe_loader import load_pit_sp500_with_prices
 
     config = Config()
-    universe = config.get_sp500_pit_tickers(as_of)
-    universe_set = set(universe)
-    for t in tickers:
-        if t not in universe_set:
-            universe.append(t)
-            universe_set.add(t)
-    logger.info("Universe: %d names (incl. requested subjects)", len(universe))
-
-    cache = DataCache(
-        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
-        market_hours_expiry_minutes=config.get(
-            "data", "market_hours_cache_minutes", default=5,
-        ),
+    universe, prices = load_pit_sp500_with_prices(
+        as_of, extra_tickers=tickers, config=config,
     )
-    fetcher = DataFetcher(config, cache)
-    logger.info("Fetching prices for %d tickers...", len(universe))
-    raw = fetcher.fetch_batch(universe)
-    prices: dict[str, pd.DataFrame] = {}
-    for t, df in raw.items():
-        if df is None or df.empty:
-            continue
-        d = df.copy()
-        if isinstance(d.index, pd.DatetimeIndex) and d.index.tz is not None:
-            d.index = d.index.tz_convert("UTC").tz_localize(None)
-        prices[t] = d
+    logger.info("Universe: %d names (incl. requested subjects)", len(universe))
     logger.info("Got prices for %d/%d", len(prices), len(universe))
 
     # Confirm we have prices for the subjects

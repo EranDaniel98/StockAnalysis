@@ -4,10 +4,14 @@ Generates buy/sell/hold recommendations with position sizing,
 stop-loss/take-profit levels, and diversification checks.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import date, timedelta
+from typing import Any, Optional
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +26,25 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIME_STOP_DAYS = 365
 
 
-def generate_recommendation(ticker, score_result, price_data, fundamentals, config, strategy=None):
-    """
-    Generate a full investment recommendation for a stock.
+def generate_recommendation(
+    ticker: str,
+    score_result: dict,
+    price_data: Optional[pd.DataFrame],
+    fundamentals: Optional[dict],
+    config,
+    strategy: Optional[dict] = None,
+) -> dict:
+    """Generate a full investment recommendation for a stock.
 
     Args:
         ticker: stock ticker symbol
         score_result: dict from scoring.engine.calculate_composite_score()
-        price_data: DataFrame with OHLCV
+        price_data: DataFrame with OHLCV (None / empty → no risk plan)
         fundamentals: dict of fundamental data
         config: Config object
-        strategy: optional strategy dict — if it contains a `thresholds` block,
-                  those values override the global ones (per-strategy calibration)
+        strategy: optional strategy dict — if it contains a ``thresholds``
+            block, those values override the global ones (per-strategy
+            calibration)
 
     Returns:
         dict with action, confidence, reasoning, risk management params
@@ -92,7 +103,9 @@ def generate_recommendation(ticker, score_result, price_data, fundamentals, conf
     }
 
 
-def _determine_action(composite, thresholds):
+def _determine_action(
+    composite: float, thresholds: dict,
+) -> tuple[str, str]:
     """Map composite score to action label and confidence."""
     if composite >= thresholds.get("strong_buy", 80):
         return "STRONG BUY", "High"
@@ -108,7 +121,9 @@ def _determine_action(composite, thresholds):
         return "STRONG SELL", "High"
 
 
-def _build_reasoning(score_result, fundamentals):
+def _build_reasoning(
+    score_result: dict, fundamentals: Optional[dict],
+) -> list[str]:
     """Build a list of key reasons for the recommendation."""
     reasons = []
     signals = score_result.get("all_signals", [])
@@ -137,8 +152,13 @@ def _build_reasoning(score_result, fundamentals):
 
 
 def _calculate_risk_management(
-    ticker, price_data, fundamentals, config, action, strategy=None
-):
+    ticker: str,
+    price_data: pd.DataFrame,
+    fundamentals: Optional[dict],
+    config,
+    action: str,
+    strategy: Optional[dict] = None,
+) -> dict:
     """Calculate position sizing, stop-loss, take-profit, and time-stop."""
     close = price_data["Close"]
     current_price = float(close.iloc[-1])

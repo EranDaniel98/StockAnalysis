@@ -2,6 +2,33 @@
 # Trading & Investing Strategies
 # Each strategy defines its own scoring weights and parameters
 # =============================================================================
+#
+# Scoring envelope — IMPORTANT for tuning thresholds
+# --------------------------------------------------
+# A strategy's `weights` are applied to per-analyzer 0-100 sub-scores
+# yielding a weighted composite in [0, 100]. After that weighted sum,
+# src/scoring/engine.py applies three POST-COMPOSITE adjustments that
+# can lift or compress the score before it hits the buy/hold/sell
+# thresholds in settings.yaml -> scoring.thresholds:
+#
+#   1. PEAD bonus (additive, optional). When the PEAD analyzer fires a
+#      composite_bonus, it adds directly to the composite. Range is
+#      [-10, +10] depending on surprise magnitude and drift decay
+#      (src/scoring/analyzers/pead.py).
+#   2. Carver consensus scaling (multiplicative, opt-in via
+#      `use_consensus_scaling: true`). When sub-scores disagree, the
+#      composite is pulled toward 50. Empirical compression is up to
+#      ±60% on the distance from 50 (src/scoring/diversification.py).
+#   3. Signal-consensus nudge (additive, ±5). Each analyzer contributes
+#      at most one bullish + one bearish vote; the net consensus moves
+#      the composite by up to ±5.
+#
+# Net practical envelope: a weighted-sum composite of 60 can reach
+# ~80 with a strong PEAD beat + bullish consensus, or fall to ~40 with
+# the opposite mix. If you adjust scoring.thresholds, remember the
+# active strategies' weighted-sum range is typically [40, 70] and the
+# post-composite adjustments can shift any one pick by ±15.
+# =============================================================================
 
 default_strategy: "long_term_growth"
 

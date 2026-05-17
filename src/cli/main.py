@@ -174,6 +174,29 @@ def main():
     p_boot.add_argument("--yes", action="store_true",
                         help="Actually submit (default is preview-only)")
 
+    # --- factor-picks command ---
+    fp_parser = subparsers.add_parser(
+        "factor-picks",
+        help="Live picks from the composite factor pipeline (momentum + "
+             "quality + value, optional PEAD). This is the source of truth "
+             "for real-money rebalances — `scan` is the legacy per-stock "
+             "diagnostic.",
+    )
+    fp_parser.add_argument("--top-n", type=int, default=24,
+                           help="Number of picks (default 24 = top 5%% of ~500).")
+    fp_parser.add_argument("--as-of", default=None,
+                           help="As-of date (YYYY-MM-DD). Default = today.")
+    fp_parser.add_argument("--snapshot-id", default=None,
+                           help="Frozen snapshot for deterministic reruns.")
+    fp_parser.add_argument("--include-pead", action="store_true",
+                           help="Add the PEAD factor (opt-in; needs yfinance "
+                                "earnings history).")
+    fp_parser.add_argument("--earnings-cache-dir", default="data/earnings_history")
+    fp_parser.add_argument("--save-dir", default=None,
+                           help="If set, write JSON + markdown picks file "
+                                "to this directory (same layout as "
+                                "data/daily_picks).")
+
     # --- backtest command ---
     bt_parser = subparsers.add_parser(
         "backtest",
@@ -295,6 +318,8 @@ def main():
         cmd_backtest(config, args)
     elif args.command == "diagnose":
         cmd_diagnose(config, args)
+    elif args.command == "factor-picks":
+        cmd_factor_picks(config, args)
 
 
 def _build_cache(config, args):
@@ -320,12 +345,27 @@ def _build_cache(config, args):
 
 
 def cmd_scan(config, args):
-    """Full market scan: discover -> filter -> analyze -> score -> display."""
+    """Full market scan: discover -> filter -> analyze -> score -> display.
+
+    NOTE: this command runs the legacy 6-analyzer composite (technical
+    + fundamental + pattern + statistical + trend + alpha158). It is
+    the per-stock diagnostic pipeline — useful for explaining WHY a
+    name looks attractive but NOT the source of truth for live picks.
+
+    Live rebalance candidates come from ``factor-picks`` (momentum +
+    quality + value + optional PEAD). The two pipelines can and do
+    disagree; that's a feature, not a bug — they answer different
+    questions.
+    """
     strategy_name = args.strategy
     strategy = config.get_strategy(strategy_name)
     if strategy_name is None:
         strategy_name = config.strategies.get("default_strategy", "default")
 
+    console.print(
+        "\n[bold yellow]Diagnostic scan[/bold yellow] (legacy 6-analyzer composite). "
+        "For live rebalance picks use [bold cyan]factor-picks[/bold cyan]."
+    )
     console.print(f"\n[bold cyan]Starting market scan...[/bold cyan]")
     console.print(f"Strategy: [bold]{strategy_name}[/bold] - {strategy.get('description', '')}")
     console.print()
@@ -680,54 +720,34 @@ def cmd_paper(config, args):
         run_paper_bootstrap(config, args)
 
 
-def cmd_backtest(config, args):
-    """Walk-forward backtest of the scoring engine over historical data."""
-    import json
-    import pandas as pd
+def _resolve_backtest_universe(config, args) -> tuple[list[str], str]:
+    """Resolve the ticker universe for a backtest run.
 
-    from src.backtest.engine import (
-        BacktestConfig, LookaheadGuardError,
-        fetch_earnings_dates, fetch_earnings_history, run_backtest,
-    )
-    from src.backtest.display import display_backtest_results
-
-    strategy_name = args.strategy or config.strategies.get("default_strategy", "long_term_growth")
-    strategy = config.get_strategy(strategy_name)
-
-    # Resolve universe
+    Returns ``(tickers, label)``. Empty list = no eligible universe.
+    """
     if args.tickers:
         tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
-        universe_label = f"custom ({len(tickers)} tickers)"
-    elif args.universe == "portfolio":
+        return tickers, f"custom ({len(tickers)} tickers)"
+    if args.universe == "portfolio":
         from src.portfolio import Portfolio
         tickers = Portfolio(config).get_tickers()
-        universe_label = f"portfolio ({len(tickers)})"
-    elif args.universe == "themes":
+        return tickers, f"portfolio ({len(tickers)})"
+    if args.universe == "themes":
         tickers = config.get_theme_tickers()
-        universe_label = f"themes ({len(tickers)})"
-    else:
-        tickers = config.get_watchlist()
-        universe_label = f"watchlist ({len(tickers)})"
+        return tickers, f"themes ({len(tickers)})"
+    tickers = config.get_watchlist()
+    return tickers, f"watchlist ({len(tickers)})"
 
-    if not tickers:
-        console.print(f"[red]No tickers found for universe '{args.universe}'[/red]")
-        return
 
-    # Resolve dates
-    end = pd.Timestamp(args.end) if args.end else pd.Timestamp.now().normalize()
-    start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=int(365.25 * args.years))
+def _fetch_backtest_inputs(
+    config, args, tickers: list[str], fetch_period: str,
+) -> dict:
+    """Pull every input the backtest needs in one pass: prices,
+    fundamentals snapshot, SPY/VIX, and earnings (history + dates)."""
+    import pandas as pd  # noqa: F401 (used by downstream)
 
-    # Need extra history before start_date for SMA200 etc.
-    fetch_period_years = max(args.years + 2, 5)
-    fetch_period = f"{int(fetch_period_years)}y"
+    from src.backtest.engine import fetch_earnings_history
 
-    console.print(f"\n[bold cyan]Backtest[/bold cyan]")
-    console.print(f"  Strategy: [bold]{strategy_name}[/bold]")
-    console.print(f"  Universe: [bold]{universe_label}[/bold]")
-    console.print(f"  Window:   {start.strftime('%Y-%m-%d')} -> {end.strftime('%Y-%m-%d')}")
-    console.print(f"  Min score: {args.min_score or strategy.get('min_score', 65)}\n")
-
-    # Fetch data
     cache = _build_cache(config, args)
     fetcher = DataFetcher(config, cache)
     fund_fetcher = FundamentalsFetcher(config, cache)
@@ -740,22 +760,16 @@ def cmd_backtest(config, args):
     fundamentals = fund_fetcher.fetch_batch(tickers)
     console.print(f"  Got fundamentals for {len(fundamentals)}/{len(tickers)} tickers\n")
 
-    # SPY + VIX (regime tagging)
     console.print("[bold]Fetching SPY + VIX...[/bold]")
     bench_map = fetcher.fetch_batch(["SPY", "^VIX"], period=fetch_period)
-    spy_df = bench_map.get("SPY")
-    vix_df = bench_map.get("^VIX")
 
-    # Earnings dates for blackout + earnings history for PEAD detector
-    earnings_dates = {}
-    earnings_history = {}
-    need_earnings = args.earnings_blackout > 0
     console.print("[bold]Fetching earnings history (PEAD + blackout)...[/bold]")
     earnings_history = fetch_earnings_history(list(price_data.keys()))
     with_history = sum(1 for v in earnings_history.values() if v is not None and not v.empty)
     console.print(f"  Got earnings history for {with_history}/{len(price_data)} tickers")
-    # Derive blackout date list from history (avoids second yfinance call)
-    if need_earnings:
+
+    earnings_dates: dict[str, list] = {}
+    if args.earnings_blackout > 0:
         for t, df_h in earnings_history.items():
             if df_h is None or df_h.empty:
                 earnings_dates[t] = []
@@ -763,15 +777,38 @@ def cmd_backtest(config, args):
                 earnings_dates[t] = sorted(df_h.index.tolist())
     print()
 
-    # Build engine config
+    return {
+        "price_data": price_data,
+        "fundamentals": fundamentals,
+        "spy_df": bench_map.get("SPY"),
+        "vix_df": bench_map.get("^VIX"),
+        "earnings_dates": earnings_dates,
+        "earnings_history": earnings_history,
+    }
+
+
+def _build_backtest_config(args, strategy: dict):
+    """Translate argparse + strategy yaml into a BacktestConfig."""
+    from src.backtest.engine import BacktestConfig
+
+    import pandas as pd
+
+    end = pd.Timestamp(args.end) if args.end else pd.Timestamp.now().normalize()
+    start = (
+        pd.Timestamp(args.start) if args.start
+        else end - pd.Timedelta(days=int(365.25 * args.years))
+    )
     hold_days = (
         args.hold_days if args.hold_days is not None
         else int(strategy.get("time_stop_days", 90))
     )
-    bt_cfg = BacktestConfig(
+    cfg = BacktestConfig(
         start_date=start,
         end_date=end,
-        min_score=args.min_score if args.min_score is not None else strategy.get("min_score", 65),
+        min_score=(
+            args.min_score if args.min_score is not None
+            else strategy.get("min_score", 65)
+        ),
         max_open_positions=args.max_positions,
         max_position_pct=args.position_pct,
         starting_cash=args.cash,
@@ -786,91 +823,233 @@ def cmd_backtest(config, args):
         bootstrap_resamples=args.bootstrap_resamples,
         vol_target_risk_pct=args.vol_target_risk,
     )
+    return cfg, start, end
+
+
+def _dispatch_backtest_mode(
+    config, args, strategy: dict, strategy_name: str,
+    universe_label: str, inputs: dict, bt_cfg,
+) -> None:
+    """Run the backtest in one of three modes: sweep, compare, single."""
+    import itertools
+    import json
+
+    from src.backtest.engine import LookaheadGuardError, run_backtest
 
     if args.sweep is not None:
-        from src.backtest.sweep import parameter_sweep, parse_grid
         from src.backtest.display import display_sweep_results
+        from src.backtest.sweep import parameter_sweep, parse_grid
+
         sweep_spec = None if args.sweep == "default" else args.sweep
         try:
             grid = parse_grid(sweep_spec)
         except ValueError as e:
             console.print(f"[red]Bad --sweep spec: {e}[/red]")
             return
+        n_combos = sum(1 for _ in itertools.product(*grid.values()))
         console.print(
-            f"\n[bold cyan]Sweeping {sum(1 for _ in __import__('itertools').product(*grid.values()))} "
-            f"combinations of {list(grid.keys())}[/bold cyan]\n"
+            f"\n[bold cyan]Sweeping {n_combos} combinations of "
+            f"{list(grid.keys())}[/bold cyan]\n"
         )
         rows = parameter_sweep(
-            price_data, fundamentals, config, strategy, bt_cfg, grid,
-            spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+            inputs["price_data"], inputs["fundamentals"], config, strategy,
+            bt_cfg, grid,
+            spy_df=inputs["spy_df"], vix_df=inputs["vix_df"],
+            earnings_dates=inputs["earnings_dates"],
         )
         display_sweep_results(rows, strategy_name, universe_label)
-        if args.save:
-            with open(Path(args.save), "w", encoding="utf-8") as f:
-                json.dump(rows, f, indent=2, default=str)
-            console.print(f"\n[dim]Sweep results saved to {args.save}[/dim]")
+        _maybe_save_json(args.save, rows, "Sweep results")
         return
 
     if args.compare:
         from src.backtest.display import display_strategy_comparison
+
         comparison_rows = []
         for name in config.get_strategy_names():
             strat = config.get_strategy(name)
             try:
                 r = run_backtest(
-                    price_data, fundamentals, config, strat, bt_cfg,
-                    spy_df=spy_df, vix_df=vix_df, earnings_dates=earnings_dates,
+                    inputs["price_data"], inputs["fundamentals"], config, strat,
+                    bt_cfg,
+                    spy_df=inputs["spy_df"], vix_df=inputs["vix_df"],
+                    earnings_dates=inputs["earnings_dates"],
                 )
                 comparison_rows.append({"strategy": name, "result": r})
             except LookaheadGuardError as e:
                 comparison_rows.append({"strategy": name, "error": str(e)[:80]})
         display_strategy_comparison(comparison_rows, universe_label)
-        if args.save:
-            with open(Path(args.save), "w", encoding="utf-8") as f:
-                json.dump(comparison_rows, f, indent=2, default=str)
-            console.print(f"\n[dim]Comparison saved to {args.save}[/dim]")
+        _maybe_save_json(args.save, comparison_rows, "Comparison")
         return
 
+    # Single-run mode.
     try:
         result = run_backtest(
-            price_data, fundamentals, config, strategy, bt_cfg,
-            spy_df=spy_df, vix_df=vix_df,
-            earnings_dates=earnings_dates,
-            earnings_history=earnings_history,
+            inputs["price_data"], inputs["fundamentals"], config, strategy,
+            bt_cfg,
+            spy_df=inputs["spy_df"], vix_df=inputs["vix_df"],
+            earnings_dates=inputs["earnings_dates"],
+            earnings_history=inputs["earnings_history"],
         )
     except LookaheadGuardError as e:
         console.print(f"\n[red]LOOKAHEAD GUARD:[/red] {e}\n")
         console.print(
-            "[yellow]Pick a strategy with low fundamental weight (e.g. short_term_momentum, "
-            "swing_trading) or pass --accept-lookahead to override.[/yellow]\n"
+            "[yellow]Pick a strategy with low fundamental weight "
+            "(e.g. short_term_momentum, swing_trading) or pass "
+            "--accept-lookahead to override.[/yellow]\n"
         )
         return
+
+    _render_backtest_outputs(args, result, strategy_name, universe_label)
+
+
+def _render_backtest_outputs(
+    args, result: dict, strategy_name: str, universe_label: str,
+) -> None:
+    """Display + optionally save the three flavors of single-run output:
+    Rich console, HTML chart report, quantstats tearsheet, raw JSON."""
+    from src.backtest.display import display_backtest_results
 
     display_backtest_results(result, strategy_name, universe_label)
 
     if args.html_report:
         from src.backtest.report import render_html_report
-        report_path = render_html_report(result, strategy_name, universe_label, args.html_report)
+
+        report_path = render_html_report(
+            result, strategy_name, universe_label, args.html_report,
+        )
         console.print(f"\n[bold green]HTML report saved to {report_path}[/bold green]")
 
     if args.quantstats_report:
         from src.research.quantstats_service import render_quantstats_report
+
         try:
             qs_path = render_quantstats_report(
                 result.get("equity_curve", []),
                 args.quantstats_report,
                 title=f"{strategy_name} on {universe_label}",
             )
-            console.print(f"[bold green]Quantstats tearsheet saved to {qs_path}[/bold green]")
+            console.print(
+                f"[bold green]Quantstats tearsheet saved to {qs_path}[/bold green]"
+            )
         except Exception as e:
             console.print(f"[red]Quantstats report failed: {e}[/red]")
 
-    if args.save:
-        out_path = Path(args.save)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, default=str)
-        console.print(f"\n[dim]Full results saved to {out_path}[/dim]")
+    _maybe_save_json(args.save, result, "Full results")
+
+
+def _maybe_save_json(path: str | None, payload, label: str) -> None:
+    """Write ``payload`` as JSON to ``path`` if provided. No-op otherwise."""
+    if not path:
+        return
+    import json
+
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, default=str)
+    console.print(f"\n[dim]{label} saved to {out_path}[/dim]")
+
+
+def cmd_factor_picks(config, args):
+    """Run the composite-factor pipeline and print the top-N picks.
+
+    Single source of truth for live rebalance candidates. Identical
+    pipeline as ``scripts/daily_factor_picks.py``; both call
+    ``src.factors.pipeline.run_factor_picks``.
+    """
+    import pandas as pd
+
+    from src.factors.pipeline import run_factor_picks
+
+    as_of = (
+        pd.Timestamp(args.as_of) if args.as_of
+        else pd.Timestamp.utcnow().normalize().tz_localize(None)
+    )
+    console.print(f"\n[bold cyan]Factor composite picks[/bold cyan]")
+    console.print(f"  As-of:        [bold]{as_of.date().isoformat()}[/bold]")
+    console.print(f"  Top-N:        [bold]{args.top_n}[/bold]")
+    console.print(f"  PEAD:         {'ON' if args.include_pead else 'OFF'}")
+    console.print(f"  Snapshot:     {args.snapshot_id or '(live yfinance)'}\n")
+
+    result = run_factor_picks(
+        as_of=as_of,
+        top_n=args.top_n,
+        snapshot_id=args.snapshot_id,
+        include_pead=args.include_pead,
+        earnings_cache_dir=args.earnings_cache_dir,
+    )
+    if result.composite.empty:
+        console.print("[red]Composite factor returned no names — check universe / fundamentals coverage.[/red]")
+        return
+
+    console.print(
+        f"[dim]Universe size {result.universe_size} | "
+        f"factors: {', '.join(result.factors_used)}[/dim]\n"
+    )
+
+    # Compact Rich table for the operator.
+    from rich.table import Table
+    has_pead = "pead_rank" in result.top_n.columns
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Rank", justify="right")
+    table.add_column("Ticker", justify="left", style="bold")
+    table.add_column("Mom", justify="right")
+    table.add_column("Qual", justify="right")
+    table.add_column("Val", justify="right")
+    if has_pead:
+        table.add_column("PEAD", justify="right")
+    table.add_column("Composite z", justify="right")
+    for _, r in result.top_n.iterrows():
+        row = [
+            str(int(r["rank"])),
+            r["ticker"],
+            f"{int(r['mom_rank'])}" if pd.notna(r["mom_rank"]) else "-",
+            f"{int(r['qual_rank'])}" if pd.notna(r["qual_rank"]) else "-",
+            f"{int(r['val_rank'])}" if pd.notna(r["val_rank"]) else "-",
+        ]
+        if has_pead:
+            row.append(
+                f"{int(r['pead_rank'])}" if pd.notna(r["pead_rank"]) else "-"
+            )
+        row.append(f"{r['z_score']:+.2f}")
+        table.add_row(*row)
+    console.print(table)
+
+    if args.save_dir:
+        # Reuse the script's writer for consistency.
+        from scripts.daily_factor_picks import _write_outputs
+        _write_outputs(result, Path(args.save_dir))
+
+
+def cmd_backtest(config, args):
+    """Walk-forward backtest of the scoring engine over historical data."""
+    strategy_name = args.strategy or config.strategies.get(
+        "default_strategy", "long_term_growth",
+    )
+    strategy = config.get_strategy(strategy_name)
+
+    tickers, universe_label = _resolve_backtest_universe(config, args)
+    if not tickers:
+        console.print(f"[red]No tickers found for universe '{args.universe}'[/red]")
+        return
+
+    bt_cfg, start, end = _build_backtest_config(args, strategy)
+    fetch_period = f"{int(max(args.years + 2, 5))}y"  # extra history for SMA200
+
+    console.print("\n[bold cyan]Backtest[/bold cyan]")
+    console.print(f"  Strategy: [bold]{strategy_name}[/bold]")
+    console.print(f"  Universe: [bold]{universe_label}[/bold]")
+    console.print(
+        f"  Window:   {start.strftime('%Y-%m-%d')} -> {end.strftime('%Y-%m-%d')}"
+    )
+    console.print(
+        f"  Min score: {args.min_score or strategy.get('min_score', 65)}\n"
+    )
+
+    inputs = _fetch_backtest_inputs(config, args, tickers, fetch_period)
+    _dispatch_backtest_mode(
+        config, args, strategy, strategy_name, universe_label, inputs, bt_cfg,
+    )
 
 
 def cmd_diagnose(config, args):

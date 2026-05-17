@@ -3,8 +3,10 @@ Composite scoring engine.
 Combines all analysis results into a weighted score using strategy-defined weights.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -17,8 +19,29 @@ logger = logging.getLogger(__name__)
 # a broken alpha158 or fundamentals module could never harm a score.
 AnalyzerStatus = Literal["ok", "disabled", "error"]
 
+# Default weights when a strategy doesn't supply its own. Kept here so
+# `calculate_composite_score` is callable in unit tests without a full
+# strategy yaml.
+DEFAULT_WEIGHTS: dict[str, float] = {
+    "technical": 0.30,
+    "fundamental": 0.25,
+    "pattern": 0.15,
+    "statistical": 0.20,
+    "trend": 0.10,
+}
 
-def _infer_status(result, *, required: bool) -> AnalyzerStatus:
+# Maximum points the signal-consensus nudge can move the composite.
+# Documented in config/strategies.yaml's envelope comment.
+_CONSENSUS_NUDGE_CAP = 5
+
+# Composite placeholder used when no required analyzer contributed.
+# The ``score_valid=False`` flag travels with this number so callers
+# can refuse the score; we keep it at 50 (neutral) rather than 0 so
+# downstream UI doesn't show a misleading "FAIL" red bar.
+_INVALID_COMPOSITE = 50.0
+
+
+def _infer_status(result: Any, *, required: bool) -> AnalyzerStatus:
     """Map an analyzer result dict to a status label.
 
     Required analyzers (technical/fundamental/pattern/statistical/trend)
@@ -63,51 +86,232 @@ _SLOT_SPECS: list[tuple[str, bool]] = [
 ]
 
 
+def _collect_sub_scores(
+    raw_results: dict[str, Any],
+) -> tuple[dict[str, AnalyzerStatus], dict[str, float]]:
+    """Build the (status, sub_score) maps for every slot.
+
+    Excluded slots (status == error or disabled) don't appear in
+    ``sub_scores`` so the weighted denominator only counts contributors.
+    """
+    analyzer_status: dict[str, AnalyzerStatus] = {}
+    sub_scores: dict[str, float] = {}
+    for slot, required in _SLOT_SPECS:
+        result = raw_results[slot]
+        status = _infer_status(result, required=required)
+        analyzer_status[slot] = status
+        if status == "ok":
+            sub_scores[slot] = float(result["score"])
+            continue
+        if status == "error":
+            # Don't WARN per call — a backtest scoring R1000 across 100+
+            # Mondays will emit tens of thousands of identical lines and
+            # bury real issues. The structured analyzer_status field on
+            # every CompositeScore already surfaces this for dashboards
+            # and downstream gating.
+            logger.debug(
+                "Analyzer %s returned no usable score (status=%s); excluding "
+                "from weighted denominator. result=%r",
+                slot, status,
+                {k: result.get(k) for k in ("error", "score")}
+                if isinstance(result, dict) else result,
+            )
+    return analyzer_status, sub_scores
+
+
+def _collect_signals(
+    raw_results: dict[str, Any],
+    sub_scores: dict[str, float],
+    pead_result: Any,
+) -> list[dict]:
+    """Aggregate signals from every contributing analyzer plus PEAD.
+
+    Each signal is shallow-copied and tagged with ``_analyzer_slot`` so
+    the per-source consensus normalization can dedupe (e.g. SMA20 +
+    SMA50 from the technical analyzer count as one vote).
+    """
+    all_signals: list[dict] = []
+    for slot in sub_scores:
+        result = raw_results[slot]
+        if isinstance(result, dict):
+            for sig in (result.get("signals", []) or []):
+                tagged = dict(sig)
+                tagged.setdefault("_analyzer_slot", slot)
+                all_signals.append(tagged)
+    if pead_result is not None and isinstance(pead_result, dict):
+        for sig in (pead_result.get("signals", []) or []):
+            tagged = dict(sig)
+            tagged.setdefault("_analyzer_slot", "pead")
+            all_signals.append(tagged)
+    return all_signals
+
+
+def _weighted_composite(
+    sub_scores: dict[str, float],
+    weights: dict[str, float],
+) -> tuple[float, float, bool]:
+    """Return ``(composite, total_weight, score_valid)``.
+
+    Renormalizes the denominator over the slots that actually
+    contributed, so missing slots can't silently shrink the composite.
+    When no slot contributed, falls back to the invalid placeholder.
+    """
+    total_weight = sum(weights.get(slot, 0) for slot in sub_scores)
+    if total_weight > 0:
+        composite = sum(
+            sub_scores[slot] * weights.get(slot, 0) for slot in sub_scores
+        ) / total_weight
+        return composite, total_weight, True
+    return _INVALID_COMPOSITE, 0.0, False
+
+
+def _count_signals(all_signals: list[dict]) -> tuple[int, int, int, int]:
+    """Return ``(display_bull, display_bear, consensus_bull, consensus_bear)``.
+
+    Display counts vote every sub-indicator (UI honesty). Consensus
+    counts dedupe to one bullish + one bearish vote per analyzer slot,
+    so analyzers with many sub-indicators don't dominate the ±5 nudge.
+    """
+    bullish_count = sum(1 for s in all_signals if s.get("type") == "bullish")
+    bearish_count = sum(1 for s in all_signals if s.get("type") == "bearish")
+
+    per_analyzer_votes: dict[str, set[str]] = {}
+    for s in all_signals:
+        sig_type = s.get("type")
+        if sig_type not in ("bullish", "bearish"):
+            continue
+        slot = s.get("_analyzer_slot", "unknown")
+        per_analyzer_votes.setdefault(slot, set()).add(sig_type)
+    consensus_bullish = sum(
+        1 for votes in per_analyzer_votes.values() if "bullish" in votes
+    )
+    consensus_bearish = sum(
+        1 for votes in per_analyzer_votes.values() if "bearish" in votes
+    )
+    return bullish_count, bearish_count, consensus_bullish, consensus_bearish
+
+
+def _apply_pead_bonus(composite: float, pead_result: Any) -> float:
+    """Additive PEAD bonus (range typically [-10, +10])."""
+    if pead_result is None or not isinstance(pead_result, dict):
+        return composite
+    pead_bonus = pead_result.get("composite_bonus", 0.0) or 0.0
+    try:
+        return composite + float(pead_bonus)
+    except (TypeError, ValueError):
+        return composite
+
+
+def _apply_consensus_scaling(
+    composite: float,
+    sub_scores: dict[str, float],
+    strategy_config: dict,
+) -> tuple[float, dict]:
+    """Carver-style scaling: opt-in via strategy.use_consensus_scaling."""
+    if not strategy_config.get("use_consensus_scaling", False) or not sub_scores:
+        return composite, {}
+    from src.scoring.diversification import apply_consensus_scaling
+
+    return apply_consensus_scaling(composite, sub_scores)
+
+
+def _apply_signal_consensus_nudge(
+    composite: float,
+    consensus_bullish: int,
+    consensus_bearish: int,
+) -> float:
+    """Per-analyzer bullish/bearish consensus moves composite up to ±5."""
+    total = consensus_bullish + consensus_bearish
+    if total <= 0:
+        return composite
+    ratio = (consensus_bullish - consensus_bearish) / total
+    return composite + ratio * _CONSENSUS_NUDGE_CAP
+
+
+def _build_breakdown(
+    analyzer_status: dict[str, AnalyzerStatus],
+    sub_scores: dict[str, float],
+    weights: dict[str, float],
+    total_weight: float,
+) -> list[dict]:
+    """Display rows. Disabled optional slots are hidden; errored slots
+    appear with ``status='error'`` so operators can see why a number
+    looks off."""
+    breakdown: list[dict] = []
+    for slot, status in analyzer_status.items():
+        if status == "disabled":
+            continue
+        w = weights.get(slot, 0)
+        if status == "ok":
+            s = sub_scores[slot]
+            effective_w = w / total_weight if total_weight > 0 else 0
+            contribution = s * effective_w
+            breakdown.append({
+                "category": slot.capitalize(),
+                "score": round(s, 1),
+                "weight": f"{w*100:.0f}%",
+                "contribution": round(contribution, 1),
+                "status": "ok",
+                # effective_weight is the post-renormalization share so
+                # the breakdown table doesn't mislead when error slots
+                # are excluded. ok rows' effective_weight values sum to
+                # 1.0; nominal ``weight`` values don't (they sum to <1
+                # in error scenarios).
+                "effective_weight": round(effective_w, 4),
+            })
+        else:
+            breakdown.append({
+                "category": slot.capitalize(),
+                "score": None,
+                "weight": f"{w*100:.0f}%",
+                "contribution": 0.0,
+                "status": status,
+                "effective_weight": None,
+            })
+    return breakdown
+
+
 def calculate_composite_score(
-    technical_result,
-    fundamental_result,
-    pattern_result,
-    statistical_result,
-    trend_result,
-    strategy_config,
-    alpha158_result=None,
-    pead_result=None,
-    rel_strength_result=None,
-    insider_flow_result=None,
-    catalyst_result=None,
-    short_interest_result=None,
-    sector_flows_result=None,
-    analyst_revisions_result=None,
-    options_skew_result=None,
-):
+    technical_result: Any,
+    fundamental_result: Any,
+    pattern_result: Any,
+    statistical_result: Any,
+    trend_result: Any,
+    strategy_config: dict,
+    alpha158_result: Any = None,
+    pead_result: Any = None,
+    rel_strength_result: Any = None,
+    insider_flow_result: Any = None,
+    catalyst_result: Any = None,
+    short_interest_result: Any = None,
+    sector_flows_result: Any = None,
+    analyst_revisions_result: Any = None,
+    options_skew_result: Any = None,
+) -> dict:
+    """Combine all analysis sub-scores into a weighted composite.
+
+    Pipeline (each step is a small helper above):
+
+    1. Map every analyzer result → status (ok / disabled / error) and
+       collect numeric sub-scores from ok slots only.
+    2. Aggregate signals from contributing slots + PEAD, tagged by slot.
+    3. Compute the renormalized weighted composite over contributors;
+       set ``score_valid=False`` when no slot contributed.
+    4. When valid, apply post-composite adjustments in fixed order:
+       PEAD bonus → Carver scaling → signal-consensus nudge. The
+       envelope these can move is documented in config/strategies.yaml.
+    5. Clamp to [0, 100].
+    6. Build the breakdown table for UI display.
+
+    Returns
+    -------
+    dict with composite_score, sub_scores, all_signals, breakdown plus
+    analyzer_status (slot → "ok"/"disabled"/"error"), error_count, and
+    score_valid (True iff at least one "ok" slot contributed).
     """
-    Combine all analysis sub-scores into a weighted composite.
+    weights = strategy_config.get("weights", DEFAULT_WEIGHTS)
 
-    Args:
-        technical_result: dict from analysis.technical.analyze()
-        fundamental_result: dict from analysis.fundamental.analyze()
-        pattern_result: dict from analysis.patterns.analyze()
-        statistical_result: dict from analysis.statistical.analyze()
-        trend_result: dict from analysis.trend_detector.analyze_stock_trend()
-        strategy_config: dict with 'weights' key from strategies.yaml
-        alpha158_result: optional dict from analysis.alpha158.analyze()
-        pead_result: optional dict from analysis.pead.analyze() — additive
-            bonus rather than weighted average
-
-    Returns:
-        dict with composite_score, sub_scores, all_signals, breakdown, plus
-        analyzer_status (slot -> "ok"/"disabled"/"error"), error_count, and
-        score_valid (True iff at least one "ok" slot contributed).
-    """
-    weights = strategy_config.get("weights", {
-        "technical": 0.30,
-        "fundamental": 0.25,
-        "pattern": 0.15,
-        "statistical": 0.20,
-        "trend": 0.10,
-    })
-
-    raw_results = {
+    raw_results: dict[str, Any] = {
         "technical": technical_result,
         "fundamental": fundamental_result,
         "pattern": pattern_result,
@@ -123,172 +327,38 @@ def calculate_composite_score(
         "options_skew": options_skew_result,
     }
 
-    analyzer_status: dict[str, AnalyzerStatus] = {}
-    sub_scores: dict[str, float] = {}
-    for slot, required in _SLOT_SPECS:
-        result = raw_results[slot]
-        status = _infer_status(result, required=required)
-        analyzer_status[slot] = status
-        if status == "ok":
-            sub_scores[slot] = float(result["score"])
-            continue
-        if status == "error":
-            # Don't WARN per call — a backtest scoring R1000 across 100+
-            # Mondays will emit tens of thousands of identical lines and
-            # bury real issues. The structured `analyzer_status` field on
-            # every CompositeScore already surfaces this for dashboards
-            # and downstream gating; the per-call log is a debug-level
-            # diagnostic only. Composite-engine UNCAUGHT exceptions are
-            # still logged at WARNING in batch_score (the original audit
-            # ask was about uncaught exceptions disappearing silently,
-            # not this per-analyzer score-missing surface — see commit
-            # 9345a74 for the original intent).
-            logger.debug(
-                "Analyzer %s returned no usable score (status=%s); excluding "
-                "from weighted denominator. result=%r",
-                slot, status,
-                # Don't dump full result — analyzer dicts can be large.
-                {k: result.get(k) for k in ("error", "score")} if isinstance(result, dict) else result,
-            )
-
+    analyzer_status, sub_scores = _collect_sub_scores(raw_results)
     error_count = sum(1 for s in analyzer_status.values() if s == "error")
     error_slots = [slot for slot, s in analyzer_status.items() if s == "error"]
 
-    # Collect signals only from "ok" slots — a broken analyzer's stale
-    # signals would skew the bullish/bearish consensus adjustment.
-    # Tag each signal with the analyzer slot it came from so the
-    # per-source normalization in the consensus step (#21) knows which
-    # analyzer to dedupe against. Tag is a private ``_analyzer_slot``
-    # key so downstream display code that iterates ``signals`` keeps
-    # working unchanged.
-    all_signals: list[dict] = []
-    for slot in sub_scores:
-        result = raw_results[slot]
-        if isinstance(result, dict):
-            for sig in (result.get("signals", []) or []):
-                # Don't mutate the analyzer's signal dict in place — it
-                # may be the same list the analyzer returned and other
-                # code may iterate it after us. Shallow copy + tag.
-                tagged = dict(sig)
-                tagged.setdefault("_analyzer_slot", slot)
-                all_signals.append(tagged)
+    all_signals = _collect_signals(raw_results, sub_scores, pead_result)
 
-    # PEAD is handled separately as an additive bonus; collect its signals
-    # too (when not None and structurally valid). Tag as "pead" so the
-    # consensus normalization treats PEAD as one analyzer.
-    if pead_result is not None and isinstance(pead_result, dict):
-        for sig in (pead_result.get("signals", []) or []):
-            tagged = dict(sig)
-            tagged.setdefault("_analyzer_slot", "pead")
-            all_signals.append(tagged)
+    composite, total_weight, score_valid = _weighted_composite(sub_scores, weights)
 
-    # Calculate weighted composite over ok slots only. Renormalize so the
-    # denominator reflects what actually contributed; otherwise weights
-    # silently sum to <1 and the composite floats too low.
-    total_weight = sum(weights.get(slot, 0) for slot in sub_scores)
-    if total_weight > 0:
-        composite = sum(
-            sub_scores[slot] * weights.get(slot, 0) for slot in sub_scores
-        ) / total_weight
-        score_valid = True
-    else:
-        # All required slots errored or had zero weight. Composite is
-        # mathematically undefined; fall back to 50 but flag invalid.
-        composite = 50.0
-        score_valid = False
+    bullish_count, bearish_count, consensus_bullish, consensus_bearish = (
+        _count_signals(all_signals)
+    )
 
-    # Post-composite adjustments — PEAD bonus, Carver consensus scaling,
-    # signal-consensus ±5. These ONLY apply when score_valid is True. When
-    # all required analyzers errored, composite is the 50.0 placeholder
-    # and lifting it via PEAD (which can be +5/+10) plus a bullish signal
-    # consensus (+5) would manufacture a BUY threshold (~65) out of zero
-    # real signal. Reviewer-flagged B2: keep the placeholder at 50 so the
-    # downstream score_valid gate refuses cleanly. Always compute the
-    # signal counts (callers display them) and the consensus diag (so
-    # operators see "scaling skipped: score_valid=False").
-    # DISPLAY counts — raw, every sub-indicator gets a vote (so the UI
-    # surfaces "12 bullish / 3 bearish" honestly even if the technical
-    # analyzer is responsible for 7 of those 12).
-    bullish_count = sum(1 for s in all_signals if s.get("type") == "bullish")
-    bearish_count = sum(1 for s in all_signals if s.get("type") == "bearish")
-
-    # CONSENSUS counts — normalized per analyzer source (Tier-2 #21).
-    # Pre-fix: SMA20 / SMA50 / SMA200 all emit bullish signals from the
-    # technical analyzer = three votes for the ±5 nudge. Analyzers with
-    # more sub-indicators dominated the consensus adjustment regardless
-    # of strategy weighting. After: each analyzer contributes at most
-    # one bullish + one bearish vote to the consensus calculation, so
-    # the ±5 nudge reflects analyzer-level agreement, not indicator
-    # count.
-    per_analyzer_votes: dict[str, set[str]] = {}
-    for s in all_signals:
-        sig_type = s.get("type")
-        if sig_type not in ("bullish", "bearish"):
-            continue
-        slot = s.get("_analyzer_slot", "unknown")
-        per_analyzer_votes.setdefault(slot, set()).add(sig_type)
-    consensus_bullish = sum(1 for votes in per_analyzer_votes.values() if "bullish" in votes)
-    consensus_bearish = sum(1 for votes in per_analyzer_votes.values() if "bearish" in votes)
+    # Post-composite adjustments only fire when score_valid is True.
+    # When all required analyzers errored, composite is the invalid
+    # placeholder and lifting it via PEAD or consensus would manufacture
+    # a BUY threshold out of zero real signal. Always compute signal
+    # counts and the consensus diag (callers display them).
     consensus_diag: dict = {}
-
     if score_valid:
-        # PEAD bonus (additive, not weighted) — captures earnings drift premium.
-        if pead_result is not None and isinstance(pead_result, dict):
-            pead_bonus = pead_result.get("composite_bonus", 0.0) or 0.0
-            try:
-                composite += float(pead_bonus)
-            except (TypeError, ValueError):
-                pass
+        composite = _apply_pead_bonus(composite, pead_result)
+        composite, consensus_diag = _apply_consensus_scaling(
+            composite, sub_scores, strategy_config,
+        )
+        composite = _apply_signal_consensus_nudge(
+            composite, consensus_bullish, consensus_bearish,
+        )
 
-        # Carver-style consensus scaling: when sub-scores disagree, pull
-        # composite toward 50 (neutral). Opt-in via strategy config.
-        if strategy_config.get("use_consensus_scaling", False) and sub_scores:
-            from src.scoring.diversification import apply_consensus_scaling
-            composite, consensus_diag = apply_consensus_scaling(composite, sub_scores)
+    composite = max(0.0, min(100.0, composite))
 
-        total_consensus_votes = consensus_bullish + consensus_bearish
-        if total_consensus_votes > 0:
-            consensus_ratio = (consensus_bullish - consensus_bearish) / total_consensus_votes
-            # Slight adjustment based on signal consensus (max +/- 5 points).
-            composite += consensus_ratio * 5
-
-    composite = max(0, min(100, composite))
-
-    # Breakdown for display — only include slots that had a status entry
-    # (so disabled optional slots stay hidden, but error slots show with
-    # status="error" so operators can see WHY a number looks off).
-    breakdown = []
-    for slot, status in analyzer_status.items():
-        if status == "disabled":
-            continue
-        w = weights.get(slot, 0)
-        if status == "ok":
-            s = sub_scores[slot]
-            effective_w = w / total_weight if total_weight > 0 else 0
-            contribution = s * effective_w
-            breakdown.append({
-                "category": slot.capitalize(),
-                "score": round(s, 1),
-                "weight": f"{w*100:.0f}%",
-                "contribution": round(contribution, 1),
-                "status": "ok",
-                # Reviewer I6: post-renormalization share so the
-                # breakdown table doesn't mislead when error slots are
-                # excluded. ok rows' effective_weight values sum to 1.0;
-                # nominal ``weight`` values don't (they sum to <1 in
-                # error scenarios), which previously made the table
-                # look like only some of the composite was accounted for.
-                "effective_weight": round(effective_w, 4),
-            })
-        else:
-            breakdown.append({
-                "category": slot.capitalize(),
-                "score": None,
-                "weight": f"{w*100:.0f}%",
-                "contribution": 0.0,
-                "status": status,
-                "effective_weight": None,
-            })
+    breakdown = _build_breakdown(
+        analyzer_status, sub_scores, weights, total_weight,
+    )
 
     return {
         "composite_score": round(float(composite), 2),
