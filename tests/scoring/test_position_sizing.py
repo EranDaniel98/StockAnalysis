@@ -104,47 +104,30 @@ def test_risk_per_trade_pct_takes_precedence_over_alias():
     assert result["risk_budget_pct"] == pytest.approx(0.5)
 
 
-# --- #26: kelly refused + fallback -----------------------------------------
+# --- #26: kelly rejected at config-load time -------------------------------
 
 
-def test_kelly_method_refused_and_falls_back(caplog):
-    """Kelly is degenerate; recommender must refuse it, fall back to
-    fixed_fractional, and emit a WARNING that surfaces in the log."""
-    caplog.set_level(logging.WARNING)
-    result = _calculate_position_size(
-        current_price=100.0,
-        stop_loss={"price": 95.0, "pct_from_current": -5},
-        sizing_config={
-            "method": "kelly",
-            "default_portfolio_value": 100_000,
-            "max_portfolio_pct": 10,
-        },
-        action="BUY",
-    )
-    assert result["method"] == "fixed_fractional"
-    assert result["original_method"] == "kelly"
-    assert "kelly_refused_reason" in result
-    # The result must be a real fixed-fractional sizing, NOT zero shares.
-    assert result["recommended_shares"] >= 1
-    # Operator-visible warning.
-    assert any("kelly" in r.message.lower() for r in caplog.records)
+def test_kelly_method_rejected_with_clear_error():
+    """Kelly was degenerate (win_prob=0.55 hardcoded → constant 0.05
+    fraction). The 2026-05-17 A+ refactor deleted the dead branch and
+    replaced the silent fall-back with a hard ValueError at sizing
+    time, so a misconfigured strategy fails loudly instead of silently
+    downgrading.
 
-
-def test_kelly_no_longer_emits_kelly_fraction_field():
-    """The legacy ``kelly_fraction`` field is no longer emitted (the
-    branch that computed it is gone). Pin so a future caller doesn't
-    accidentally re-add it without re-validating the math."""
-    result = _calculate_position_size(
-        current_price=100.0,
-        stop_loss={"price": 95.0, "pct_from_current": -5},
-        sizing_config={
-            "method": "kelly",
-            "default_portfolio_value": 100_000,
-            "max_portfolio_pct": 10,
-        },
-        action="BUY",
-    )
-    assert "kelly_fraction" not in result
+    To re-enable Kelly, wire ``win_prob`` and ``avg_win``/``avg_loss``
+    to a per-strategy backtest calibration table, then add ``kelly`` to
+    ``_SUPPORTED_SIZING_METHODS``."""
+    with pytest.raises(ValueError, match="Unsupported position_sizing.method"):
+        _calculate_position_size(
+            current_price=100.0,
+            stop_loss={"price": 95.0, "pct_from_current": -5},
+            sizing_config={
+                "method": "kelly",
+                "default_portfolio_value": 100_000,
+                "max_portfolio_pct": 10,
+            },
+            action="BUY",
+        )
 
 
 # --- general sanity --------------------------------------------------------

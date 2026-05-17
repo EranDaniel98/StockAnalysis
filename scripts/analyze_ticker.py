@@ -110,8 +110,8 @@ def main() -> int:
     )
 
     # For each subject, build the analysis from its composite ranking
-    from src.analysis.comprehensive import analyze_ticker, estimate_per_pick_returns
-    from src.analysis.comprehensive_render import render_one_stock
+    from src.research.per_stock_analyzer import analyze_ticker, estimate_per_pick_returns
+    from src.research.per_stock_markdown import render_one_stock
 
     # Use backtest trade log if available for return estimates.
     bt_path = Path("data/factors/sweep/comp_d05_r63_2024.json")

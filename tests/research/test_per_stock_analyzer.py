@@ -1,4 +1,4 @@
-"""Unit tests for the comprehensive analyzer.
+"""Unit tests for the per-stock analyzer (moved from src/analysis/).
 
 Synthetic data only. Pins down:
   - Technical computations (SMA, ATR, returns at horizons)
@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.analysis.comprehensive import (
+from src.research.per_stock_analyzer import (
     MAX_STOP_PCT,
     MIN_STOP_PCT,
     PER_PICK_BEAR_RETURN_PCT,

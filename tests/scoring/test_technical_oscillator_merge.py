@@ -112,7 +112,13 @@ class TestMergeEnabled:
 
 class TestMergedHelperDirectly:
     """Targeted tests on ``_calc_rsi_stoch_merged`` itself so we don't
-    have to fight the full technical composite for signal coverage."""
+    have to fight the full technical composite for signal coverage.
+
+    Post-2026-05-17 refactor: the helper returns an ``IndicatorBlock``
+    instead of mutating caller buffers, so each test reads ``.scores``
+    + ``.signals`` directly from the return value. No more setting up
+    shared dicts and lists.
+    """
 
     def _close(self, values: list[float]) -> pd.Series:
         idx = pd.date_range("2024-01-01", periods=len(values), freq="B")
@@ -131,20 +137,14 @@ class TestMergedHelperDirectly:
         n = 200
         closes = [50.0]
         for i in range(n - 1):
-            # +1.5 up bars / -0.5 down bars pattern: every 2-bar cycle
-            # nets +1.0; loss is always > 0, gain dominates.
             closes.append(closes[-1] + (1.5 if i % 2 == 0 else -0.5))
         high, low, close = self._ohlcv(closes)
-        indicators: dict = {}
-        signals: list = []
-        cfg = _cfg(True)
-        score = technical._calc_rsi_stoch_merged(
-            close, high, low, cfg, indicators, signals,
-        )
-        assert score is not None
-        # RSI on this curve hits >= 70 and Stoch K hits >= 80 — both
-        # bearish. Merged signal must fire bearish exactly once.
-        bearish = [s for s in signals if s["source"] == "MomOsc" and s["type"] == "bearish"]
+        block = technical._calc_rsi_stoch_merged(close, high, low, _cfg(True))
+        assert block.scores  # at least one score emitted
+        bearish = [
+            s for s in block.signals
+            if s["source"] == "MomOsc" and s["type"] == "bearish"
+        ]
         assert len(bearish) == 1
 
     def test_no_signal_when_indicators_disagree(self) -> None:
@@ -152,18 +152,14 @@ class TestMergedHelperDirectly:
         no merged signal should be emitted."""
         closes = list(np.linspace(50.0, 60.0, 200))
         high, low, close = self._ohlcv(closes)
-        indicators: dict = {}
-        signals: list = []
-        score = technical._calc_rsi_stoch_merged(
-            close, high, low, _cfg(True), indicators, signals,
-        )
-        assert score is not None
-        assert not any(s["source"] == "MomOsc" for s in signals)
+        block = technical._calc_rsi_stoch_merged(close, high, low, _cfg(True))
+        assert block.scores
+        assert not any(s["source"] == "MomOsc" for s in block.signals)
 
     def test_returns_none_when_history_too_short(self) -> None:
         closes = [50.0] * 5  # well under RSI period
         high, low, close = self._ohlcv(closes)
-        score = technical._calc_rsi_stoch_merged(
-            close, high, low, _cfg(True), {}, [],
-        )
-        assert score is None
+        block = technical._calc_rsi_stoch_merged(close, high, low, _cfg(True))
+        # Insufficient bars → no scores, no signals.
+        assert block.scores == []
+        assert block.signals == []

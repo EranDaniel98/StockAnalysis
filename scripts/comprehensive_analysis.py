@@ -224,7 +224,7 @@ def main() -> int:
 
     # Expected returns from backtest trade log
     trades = _load_backtest_trades(args.backtest_json)
-    from src.analysis.comprehensive import (
+    from src.research.per_stock_analyzer import (
         analyze_ticker, estimate_per_pick_returns,
     )
     exp_returns = estimate_per_pick_returns(trades)
@@ -262,7 +262,7 @@ def main() -> int:
         analyses.append(a)
 
     # Correlation structure (60d daily returns)
-    from src.analysis.comprehensive import compute_correlation_matrix
+    from src.research.per_stock_analyzer import compute_correlation_matrix
     _, corr_summary = compute_correlation_matrix(
         prices, [a.ticker for a in analyses], as_of_ts, window_days=60,
     )
@@ -273,7 +273,7 @@ def main() -> int:
         )
 
     logger.info("Rendering report for %d analyses...", len(analyses))
-    from src.analysis.comprehensive_render import render_full_report
+    from src.research.per_stock_markdown import render_full_report
     md = render_full_report(analyses, equity, as_of_str, corr_summary)
 
     out_path = Path(args.output)

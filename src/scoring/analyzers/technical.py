@@ -2,17 +2,61 @@
 Technical analysis engine.
 Calculates RSI, MACD, Moving Averages, Bollinger Bands, Stochastic, Volume,
 and ATR from price data. All parameters come from config.
+
+Design — pure functional helpers
+--------------------------------
+Each ``_calc_*`` is a pure function: takes inputs, returns an
+``IndicatorBlock`` carrying scores + indicators + signals it produced.
+The orchestrator ``analyze`` merges blocks. Pre-2026-05-17 these
+helpers mutated caller-supplied ``indicators``/``signals`` buffers,
+which made unit-testing one indicator in isolation impractical
+(callers had to set up shared mutable state). With the block return
+type each helper is independently testable.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class IndicatorBlock:
+    """One indicator's contribution to the technical composite.
+
+    ``scores`` is a list so multi-evaluation indicators (e.g. the
+    moving-averages block which produces one score per SMA period +
+    a golden/death cross score) can return all their scores in one
+    block. The composite is the mean of all non-None scores across
+    all blocks — matching the pre-refactor aggregation exactly.
+    """
+
+    scores: list[float] = field(default_factory=list)
+    indicators: dict = field(default_factory=dict)
+    signals: list[dict] = field(default_factory=list)
+
+    def add_score(self, value: Optional[float]) -> None:
+        if value is not None:
+            self.scores.append(float(value))
+
+
+def _merge_blocks(blocks: list[IndicatorBlock]) -> tuple[dict, list, float]:
+    """Combine block deltas into the final (indicators, signals, score) shape."""
+    indicators: dict = {}
+    signals: list = []
+    all_scores: list[float] = []
+    for b in blocks:
+        indicators.update(b.indicators)
+        signals.extend(b.signals)
+        all_scores.extend(b.scores)
+    composite = float(np.mean(all_scores)) if all_scores else 50.0
+    return indicators, signals, composite
 
 
 def analyze(df: Optional[pd.DataFrame], config) -> dict:
@@ -31,18 +75,15 @@ def analyze(df: Optional[pd.DataFrame], config) -> dict:
     if df is None or len(df) < 50:
         return {"indicators": {}, "signals": [], "score": 50, "error": "Insufficient data"}
 
-    indicators = {}
-    signals = []
-    scores = []
-
     close = df["Close"]
     high = df["High"]
     low = df["Low"]
     volume = df["Volume"]
 
-    # --- Moving Averages ---
-    sma_scores = _calc_moving_averages(close, config, indicators, signals)
-    scores.extend(sma_scores)
+    blocks: list[IndicatorBlock] = []
+
+    # Moving averages (SMAs + Golden/Death cross + EMAs).
+    blocks.append(_calc_moving_averages(close, config))
 
     # RSI + Stochastic. By default they're treated as independent
     # indicators (legacy behavior); when ``risk_management.momentum_
@@ -54,70 +95,46 @@ def analyze(df: Optional[pd.DataFrame], config) -> dict:
         default=False,
     ))
     if merge_osc:
-        rsi_stoch_score = _calc_rsi_stoch_merged(
-            close, high, low, config, indicators, signals,
-        )
-        scores.append(rsi_stoch_score)
-
-        # --- MACD ---
-        macd_score = _calc_macd(close, config, indicators, signals)
-        scores.append(macd_score)
-
-        # --- Bollinger Bands ---
-        bb_score = _calc_bollinger(close, config, indicators, signals)
-        scores.append(bb_score)
-
-        # --- Volume Analysis ---
-        vol_score = _calc_volume(volume, config, indicators, signals)
-        scores.append(vol_score)
+        blocks.append(_calc_rsi_stoch_merged(close, high, low, config))
+        blocks.append(_calc_macd(close, config))
+        blocks.append(_calc_bollinger(close, config))
+        blocks.append(_calc_volume(volume, config))
     else:
-        # --- RSI ---
-        rsi_score = _calc_rsi(close, config, indicators, signals)
-        scores.append(rsi_score)
+        blocks.append(_calc_rsi(close, config))
+        blocks.append(_calc_macd(close, config))
+        blocks.append(_calc_bollinger(close, config))
+        blocks.append(_calc_volume(volume, config))
+        blocks.append(_calc_stochastic(high, low, close, config))
 
-        # --- MACD ---
-        macd_score = _calc_macd(close, config, indicators, signals)
-        scores.append(macd_score)
+    blocks.append(_calc_regression_slope_momentum(close, config))
 
-        # --- Bollinger Bands ---
-        bb_score = _calc_bollinger(close, config, indicators, signals)
-        scores.append(bb_score)
+    # ATR contributes no score (used for stop-loss/take-profit only).
+    blocks.append(_calc_atr(high, low, close, config))
 
-        # --- Volume Analysis ---
-        vol_score = _calc_volume(volume, config, indicators, signals)
-        scores.append(vol_score)
-
-        # --- Stochastic ---
-        stoch_score = _calc_stochastic(high, low, close, config, indicators, signals)
-        scores.append(stoch_score)
-
-    # --- Clenow regression-slope momentum (slope * R^2) ---
-    clenow_score = _calc_regression_slope_momentum(close, config, indicators, signals)
-    scores.append(clenow_score)
-
-    # --- ATR (for risk management, not scored) ---
-    _calc_atr(high, low, close, config, indicators)
-
-    # Composite score
-    valid_scores = [s for s in scores if s is not None]
-    composite = np.mean(valid_scores) if valid_scores else 50
+    indicators, signals, composite = _merge_blocks(blocks)
 
     return {
         "indicators": indicators,
         "signals": signals,
-        "score": round(float(composite), 2),
+        "score": round(composite, 2),
     }
 
 
-def _calc_moving_averages(close, config, indicators, signals):
-    """Calculate SMAs and EMAs, detect crossovers."""
-    scores = []
+# --- Indicator helpers (each returns an IndicatorBlock) ---------------
+
+
+def _calc_moving_averages(close: pd.Series, config) -> IndicatorBlock:
+    """SMAs, EMAs, and Golden/Death cross detection.
+
+    Multi-score block: one score per SMA period (60-80 bullish / 20-40
+    bearish band depending on distance from the SMA) plus one
+    Golden/Death cross score when applicable.
+    """
+    block = IndicatorBlock()
     sma_periods = config.get("technical_indicators", "sma_periods", default=[20, 50, 200])
     ema_periods = config.get("technical_indicators", "ema_periods", default=[9, 12, 26])
     current_price = close.iloc[-1]
 
-    # SMAs
-    #
     # Price-vs-SMA scoring is a "distance band": being above the SMA is
     # baseline 60 (mild bullish) and being further above adds up to +20
     # points (cap). The coefficient 200 means a 10% distance fills the
@@ -134,18 +151,23 @@ def _calc_moving_averages(close, config, indicators, signals):
         if len(close) < period:
             continue
         sma = close.rolling(window=period).mean()
-        indicators[f"sma_{period}"] = round(float(sma.iloc[-1]), 2)
+        block.indicators[f"sma_{period}"] = round(float(sma.iloc[-1]), 2)
 
-        # Price vs SMA
         if current_price > sma.iloc[-1]:
-            signals.append({"type": "bullish", "source": f"SMA{period}", "detail": f"Price above SMA{period}"})
-            scores.append(_SMA_BASELINE_BULL + min(
+            block.signals.append({
+                "type": "bullish", "source": f"SMA{period}",
+                "detail": f"Price above SMA{period}",
+            })
+            block.add_score(_SMA_BASELINE_BULL + min(
                 _SMA_DISTANCE_CAP,
                 (current_price / sma.iloc[-1] - 1) * _SMA_DISTANCE_COEF,
             ))
         else:
-            signals.append({"type": "bearish", "source": f"SMA{period}", "detail": f"Price below SMA{period}"})
-            scores.append(_SMA_BASELINE_BEAR - min(
+            block.signals.append({
+                "type": "bearish", "source": f"SMA{period}",
+                "detail": f"Price below SMA{period}",
+            })
+            block.add_score(_SMA_BASELINE_BEAR - min(
                 _SMA_DISTANCE_CAP,
                 (1 - current_price / sma.iloc[-1]) * _SMA_DISTANCE_COEF,
             ))
@@ -160,32 +182,39 @@ def _calc_moving_averages(close, config, indicators, signals):
         sma200_now = sma200.iloc[-1]
 
         if sma50_prev <= sma200_prev and sma50_now > sma200_now:
-            signals.append({"type": "bullish", "source": "GoldenCross", "detail": "SMA50 crossed above SMA200"})
-            indicators["golden_cross"] = True
-            scores.append(90)
+            block.signals.append({
+                "type": "bullish", "source": "GoldenCross",
+                "detail": "SMA50 crossed above SMA200",
+            })
+            block.indicators["golden_cross"] = True
+            block.add_score(90)
         elif sma50_prev >= sma200_prev and sma50_now < sma200_now:
-            signals.append({"type": "bearish", "source": "DeathCross", "detail": "SMA50 crossed below SMA200"})
-            indicators["death_cross"] = True
-            scores.append(10)
+            block.signals.append({
+                "type": "bearish", "source": "DeathCross",
+                "detail": "SMA50 crossed below SMA200",
+            })
+            block.indicators["death_cross"] = True
+            block.add_score(10)
 
-    # EMAs
+    # EMAs are computed for display only (no score contribution).
     for period in ema_periods:
         if len(close) < period:
             continue
         ema = close.ewm(span=period, adjust=False).mean()
-        indicators[f"ema_{period}"] = round(float(ema.iloc[-1]), 2)
+        block.indicators[f"ema_{period}"] = round(float(ema.iloc[-1]), 2)
 
-    return scores
+    return block
 
 
-def _calc_rsi(close, config, indicators, signals):
-    """Calculate RSI and generate signals."""
+def _calc_rsi(close: pd.Series, config) -> IndicatorBlock:
+    """RSI with overbought/oversold bands."""
+    block = IndicatorBlock()
     period = config.get("technical_indicators", "rsi", "period", default=14)
     overbought = config.get("technical_indicators", "rsi", "overbought", default=70)
     oversold = config.get("technical_indicators", "rsi", "oversold", default=30)
 
     if len(close) < period + 1:
-        return None
+        return block
 
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0).rolling(window=period).mean()
@@ -194,32 +223,37 @@ def _calc_rsi(close, config, indicators, signals):
     rs = gain / loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
     rsi_value = float(rsi.iloc[-1])
-    indicators["rsi"] = round(rsi_value, 2)
+    block.indicators["rsi"] = round(rsi_value, 2)
 
     if rsi_value <= oversold:
-        signals.append({"type": "bullish", "source": "RSI", "detail": f"Oversold at {rsi_value:.1f}"})
-        # Lower RSI = more bullish (potential reversal up)
-        return 70 + (oversold - rsi_value)
+        block.signals.append({
+            "type": "bullish", "source": "RSI",
+            "detail": f"Oversold at {rsi_value:.1f}",
+        })
+        # Lower RSI = more bullish (potential reversal up).
+        block.add_score(70 + (oversold - rsi_value))
     elif rsi_value >= overbought:
-        signals.append({"type": "bearish", "source": "RSI", "detail": f"Overbought at {rsi_value:.1f}"})
-        return 30 - (rsi_value - overbought)
+        block.signals.append({
+            "type": "bearish", "source": "RSI",
+            "detail": f"Overbought at {rsi_value:.1f}",
+        })
+        block.add_score(30 - (rsi_value - overbought))
     else:
-        # Neutral zone, slight bullish bias below 50
-        return 50 + (50 - rsi_value) * 0.3
+        # Neutral zone, slight bullish bias below 50.
+        block.add_score(50 + (50 - rsi_value) * 0.3)
 
-    # RSI divergence detection
-    # (price makes new high but RSI doesn't = bearish divergence)
-    # Implemented in patterns.py for more detailed analysis
+    return block
 
 
-def _calc_macd(close, config, indicators, signals):
-    """Calculate MACD line, signal line, histogram."""
+def _calc_macd(close: pd.Series, config) -> IndicatorBlock:
+    """MACD line, signal line, and histogram acceleration."""
+    block = IndicatorBlock()
     fast = config.get("technical_indicators", "macd", "fast_period", default=12)
     slow = config.get("technical_indicators", "macd", "slow_period", default=26)
     signal_period = config.get("technical_indicators", "macd", "signal_period", default=9)
 
     if len(close) < slow + signal_period:
-        return None
+        return block
 
     ema_fast = close.ewm(span=fast, adjust=False).mean()
     ema_slow = close.ewm(span=slow, adjust=False).mean()
@@ -227,9 +261,9 @@ def _calc_macd(close, config, indicators, signals):
     signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
     histogram = macd_line - signal_line
 
-    indicators["macd_line"] = round(float(macd_line.iloc[-1]), 4)
-    indicators["macd_signal"] = round(float(signal_line.iloc[-1]), 4)
-    indicators["macd_histogram"] = round(float(histogram.iloc[-1]), 4)
+    block.indicators["macd_line"] = round(float(macd_line.iloc[-1]), 4)
+    block.indicators["macd_signal"] = round(float(signal_line.iloc[-1]), 4)
+    block.indicators["macd_histogram"] = round(float(histogram.iloc[-1]), 4)
 
     macd_now = macd_line.iloc[-1]
     signal_now = signal_line.iloc[-1]
@@ -240,56 +274,56 @@ def _calc_macd(close, config, indicators, signals):
 
     score = 50
 
-    # Crossover signals
     if macd_prev <= signal_prev and macd_now > signal_now:
-        signals.append({"type": "bullish", "source": "MACD", "detail": "Bullish crossover"})
+        block.signals.append({"type": "bullish", "source": "MACD", "detail": "Bullish crossover"})
         score = 75
     elif macd_prev >= signal_prev and macd_now < signal_now:
-        signals.append({"type": "bearish", "source": "MACD", "detail": "Bearish crossover"})
+        block.signals.append({"type": "bearish", "source": "MACD", "detail": "Bearish crossover"})
         score = 25
 
-    # Histogram momentum
     if hist_now > 0 and hist_now > hist_prev:
-        signals.append({"type": "bullish", "source": "MACD", "detail": "Histogram accelerating up"})
+        block.signals.append({"type": "bullish", "source": "MACD", "detail": "Histogram accelerating up"})
         score = min(score + 10, 90)
     elif hist_now < 0 and hist_now < hist_prev:
-        signals.append({"type": "bearish", "source": "MACD", "detail": "Histogram accelerating down"})
+        block.signals.append({"type": "bearish", "source": "MACD", "detail": "Histogram accelerating down"})
         score = max(score - 10, 10)
 
-    return score
+    block.add_score(score)
+    return block
 
 
-def _calc_bollinger(close, config, indicators, signals):
-    """Calculate Bollinger Bands and generate signals."""
+def _calc_bollinger(close: pd.Series, config) -> IndicatorBlock:
+    """Bollinger Bands, position-within-band, squeeze detection."""
+    block = IndicatorBlock()
     period = config.get("technical_indicators", "bollinger", "period", default=20)
     std_dev = config.get("technical_indicators", "bollinger", "std_dev", default=2.0)
 
     if len(close) < period:
-        return None
+        return block
 
     sma = close.rolling(window=period).mean()
     std = close.rolling(window=period).std()
     upper = sma + std_dev * std
     lower = sma - std_dev * std
 
-    indicators["bb_upper"] = round(float(upper.iloc[-1]), 2)
-    indicators["bb_middle"] = round(float(sma.iloc[-1]), 2)
-    indicators["bb_lower"] = round(float(lower.iloc[-1]), 2)
+    block.indicators["bb_upper"] = round(float(upper.iloc[-1]), 2)
+    block.indicators["bb_middle"] = round(float(sma.iloc[-1]), 2)
+    block.indicators["bb_lower"] = round(float(lower.iloc[-1]), 2)
 
     current_price = close.iloc[-1]
     bb_width = (upper.iloc[-1] - lower.iloc[-1]) / sma.iloc[-1]
-    indicators["bb_width"] = round(float(bb_width), 4)
+    block.indicators["bb_width"] = round(float(bb_width), 4)
 
-    # Bandwidth squeeze detection (low volatility -> potential breakout)
     avg_width = ((upper - lower) / sma).rolling(window=period).mean()
     if not avg_width.empty and avg_width.iloc[-1] > 0:
         squeeze_ratio = bb_width / avg_width.iloc[-1]
-        indicators["bb_squeeze_ratio"] = round(float(squeeze_ratio), 2)
+        block.indicators["bb_squeeze_ratio"] = round(float(squeeze_ratio), 2)
         if squeeze_ratio < 0.5:
-            signals.append({"type": "neutral", "source": "Bollinger", "detail": "Squeeze detected - breakout imminent"})
+            block.signals.append({
+                "type": "neutral", "source": "Bollinger",
+                "detail": "Squeeze detected - breakout imminent",
+            })
 
-    # Position within bands
-    #
     # Endpoints: touching the lower band = mean-reversion long setup
     # (score 70), touching the upper band = mean-reversion short setup
     # (score 30). The 70/30 baseline matches the band the technical
@@ -302,61 +336,71 @@ def _calc_bollinger(close, config, indicators, signals):
     # 50 - 0.5*40 = 30). Lower position = more bullish per the Bollinger
     # mean-reversion convention.
     if current_price <= lower.iloc[-1]:
-        signals.append({"type": "bullish", "source": "Bollinger", "detail": "Price at/below lower band"})
-        return 70
+        block.signals.append({
+            "type": "bullish", "source": "Bollinger",
+            "detail": "Price at/below lower band",
+        })
+        block.add_score(70)
     elif current_price >= upper.iloc[-1]:
-        signals.append({"type": "bearish", "source": "Bollinger", "detail": "Price at/above upper band"})
-        return 30
+        block.signals.append({
+            "type": "bearish", "source": "Bollinger",
+            "detail": "Price at/above upper band",
+        })
+        block.add_score(30)
     else:
-        # Position within band (0 = lower, 1 = upper)
         band_pos = (current_price - lower.iloc[-1]) / (upper.iloc[-1] - lower.iloc[-1])
-        indicators["bb_position"] = round(float(band_pos), 2)
-        return 50 + (0.5 - band_pos) * 40
+        block.indicators["bb_position"] = round(float(band_pos), 2)
+        block.add_score(50 + (0.5 - band_pos) * 40)
+
+    return block
 
 
-def _calc_volume(volume, config, indicators, signals):
-    """Analyze volume for unusual activity."""
+def _calc_volume(volume: pd.Series, config) -> IndicatorBlock:
+    """Volume spike + trend detection."""
+    block = IndicatorBlock()
     avg_period = config.get("technical_indicators", "volume", "avg_period", default=20)
     spike_mult = config.get("technical_indicators", "volume", "spike_multiplier", default=2.0)
 
     if len(volume) < avg_period:
-        return None
+        return block
 
     avg_vol = volume.rolling(window=avg_period).mean()
     current_vol = volume.iloc[-1]
     vol_ratio = current_vol / avg_vol.iloc[-1] if avg_vol.iloc[-1] > 0 else 1.0
 
-    indicators["volume_current"] = int(current_vol)
-    indicators["volume_avg"] = int(avg_vol.iloc[-1])
-    indicators["volume_ratio"] = round(float(vol_ratio), 2)
+    block.indicators["volume_current"] = int(current_vol)
+    block.indicators["volume_avg"] = int(avg_vol.iloc[-1])
+    block.indicators["volume_ratio"] = round(float(vol_ratio), 2)
 
-    # Volume trend (5-day average vs 20-day average)
     if len(volume) >= avg_period:
         vol_5d = volume.tail(5).mean()
-        indicators["volume_trend"] = round(float(vol_5d / avg_vol.iloc[-1]), 2)
+        block.indicators["volume_trend"] = round(float(vol_5d / avg_vol.iloc[-1]), 2)
 
     if vol_ratio >= spike_mult:
-        signals.append({
-            "type": "neutral",
-            "source": "Volume",
+        block.signals.append({
+            "type": "neutral", "source": "Volume",
             "detail": f"Volume spike: {vol_ratio:.1f}x average",
         })
-        return 65  # Unusual volume is slightly bullish (attention)
+        block.add_score(65)  # Unusual volume is slightly bullish (attention).
     elif vol_ratio < 0.5:
-        return 45  # Low volume = less conviction
+        block.add_score(45)  # Low volume = less conviction.
     else:
-        return 50
+        block.add_score(50)
+    return block
 
 
-def _calc_stochastic(high, low, close, config, indicators, signals):
-    """Calculate Stochastic oscillator."""
+def _calc_stochastic(
+    high: pd.Series, low: pd.Series, close: pd.Series, config,
+) -> IndicatorBlock:
+    """Stochastic %K and %D with overbought/oversold bands."""
+    block = IndicatorBlock()
     k_period = config.get("technical_indicators", "stochastic", "k_period", default=14)
     d_period = config.get("technical_indicators", "stochastic", "d_period", default=3)
     overbought = config.get("technical_indicators", "stochastic", "overbought", default=80)
     oversold = config.get("technical_indicators", "stochastic", "oversold", default=20)
 
     if len(close) < k_period + d_period:
-        return None
+        return block
 
     lowest_low = low.rolling(window=k_period).min()
     highest_high = high.rolling(window=k_period).max()
@@ -368,77 +412,104 @@ def _calc_stochastic(high, low, close, config, indicators, signals):
 
     k_value = float(k.iloc[-1])
     d_value = float(d.iloc[-1])
-    indicators["stoch_k"] = round(k_value, 2)
-    indicators["stoch_d"] = round(d_value, 2)
+    block.indicators["stoch_k"] = round(k_value, 2)
+    block.indicators["stoch_d"] = round(d_value, 2)
 
     if k_value <= oversold and d_value <= oversold:
-        signals.append({"type": "bullish", "source": "Stochastic", "detail": f"Oversold: K={k_value:.0f}, D={d_value:.0f}"})
-        return 70
+        block.signals.append({
+            "type": "bullish", "source": "Stochastic",
+            "detail": f"Oversold: K={k_value:.0f}, D={d_value:.0f}",
+        })
+        block.add_score(70)
     elif k_value >= overbought and d_value >= overbought:
-        signals.append({"type": "bearish", "source": "Stochastic", "detail": f"Overbought: K={k_value:.0f}, D={d_value:.0f}"})
-        return 30
+        block.signals.append({
+            "type": "bearish", "source": "Stochastic",
+            "detail": f"Overbought: K={k_value:.0f}, D={d_value:.0f}",
+        })
+        block.add_score(30)
     else:
-        return 50 + (50 - k_value) * 0.2
+        block.add_score(50 + (50 - k_value) * 0.2)
+    return block
 
 
-def _calc_rsi_stoch_merged(close, high, low, config, indicators, signals):
+def _calc_rsi_stoch_merged(
+    close: pd.Series, high: pd.Series, low: pd.Series, config,
+) -> IndicatorBlock:
     """Merged momentum oscillator: average of RSI + Stochastic scores
     with a single ``MomOsc`` signal that fires only when both agree.
 
-    Calls the existing single-indicator functions with a private
-    signal buffer (so their per-indicator signals never reach the
-    global ``signals`` list), then synthesizes one merged signal.
+    Computes RSI and Stochastic blocks via the standalone helpers,
+    keeps their indicators (rsi, stoch_k, stoch_d), and synthesizes a
+    single agreement signal — discarding the per-indicator signals so
+    the consensus path doesn't double-count.
 
-    Returns None if both indicators return None (insufficient bars).
-    Returns the single non-None score when only one fires — keeps
+    Returns an empty block when neither sub-indicator has enough bars.
+    Returns the single non-None sub-score when only one fires — keeps
     information when one indicator has enough history and the other
-    doesn't, instead of returning None for the whole bucket.
+    doesn't.
     """
-    private_signals: list[dict] = []
-    rsi_score = _calc_rsi(close, config, indicators, private_signals)
-    stoch_score = _calc_stochastic(high, low, close, config, indicators, private_signals)
+    block = IndicatorBlock()
+    rsi_block = _calc_rsi(close, config)
+    stoch_block = _calc_stochastic(high, low, close, config)
+
+    # Merge the diagnostic indicators (rsi value, stoch_k/d).
+    block.indicators.update(rsi_block.indicators)
+    block.indicators.update(stoch_block.indicators)
+
+    rsi_score = rsi_block.scores[0] if rsi_block.scores else None
+    stoch_score = stoch_block.scores[0] if stoch_block.scores else None
 
     if rsi_score is None and stoch_score is None:
-        return None
+        return block
     if rsi_score is None:
-        return stoch_score
+        block.add_score(stoch_score)
+        return block
     if stoch_score is None:
-        return rsi_score
+        block.add_score(rsi_score)
+        return block
 
-    rsi_signal = next((s for s in private_signals if s["source"] == "RSI"), None)
-    stoch_signal = next((s for s in private_signals if s["source"] == "Stochastic"), None)
+    rsi_signal = next((s for s in rsi_block.signals if s["source"] == "RSI"), None)
+    stoch_signal = next((s for s in stoch_block.signals if s["source"] == "Stochastic"), None)
     rsi_type = rsi_signal["type"] if rsi_signal else None
     stoch_type = stoch_signal["type"] if stoch_signal else None
 
     if rsi_type == "bullish" and stoch_type == "bullish":
-        signals.append({
-            "type": "bullish",
-            "source": "MomOsc",
+        block.signals.append({
+            "type": "bullish", "source": "MomOsc",
             "detail": (
-                f"RSI {indicators.get('rsi')} + Stoch K {indicators.get('stoch_k')} both oversold"
+                f"RSI {block.indicators.get('rsi')} + Stoch K "
+                f"{block.indicators.get('stoch_k')} both oversold"
             ),
         })
     elif rsi_type == "bearish" and stoch_type == "bearish":
-        signals.append({
-            "type": "bearish",
-            "source": "MomOsc",
+        block.signals.append({
+            "type": "bearish", "source": "MomOsc",
             "detail": (
-                f"RSI {indicators.get('rsi')} + Stoch K {indicators.get('stoch_k')} both overbought"
+                f"RSI {block.indicators.get('rsi')} + Stoch K "
+                f"{block.indicators.get('stoch_k')} both overbought"
             ),
         })
-    # When the two disagree, no signal is emitted — the averaged score
-    # already represents the conflict; emitting a signal in that case
-    # would just reintroduce the double-counting we're trying to kill.
+    # When the two disagree, no signal — the averaged score already
+    # represents the conflict; emitting a signal in that case would
+    # reintroduce the double-counting we're trying to kill.
 
-    return (rsi_score + stoch_score) / 2.0
+    block.add_score((rsi_score + stoch_score) / 2.0)
+    return block
 
 
-def _calc_atr(high, low, close, config, indicators):
-    """Calculate Average True Range (used for stop-loss/take-profit, not scored)."""
+def _calc_atr(
+    high: pd.Series, low: pd.Series, close: pd.Series, config,
+) -> IndicatorBlock:
+    """Average True Range — recorded as an indicator, never scored.
+
+    Used by the recommender for stop-loss/take-profit sizing, so it
+    must populate ``atr`` and ``atr_pct`` in the indicator dict but
+    contribute nothing to the technical composite.
+    """
+    block = IndicatorBlock()
     period = config.get("technical_indicators", "atr", "period", default=14)
-
     if len(close) < period + 1:
-        return
+        return block
 
     tr1 = high - low
     tr2 = abs(high - close.shift(1))
@@ -446,66 +517,63 @@ def _calc_atr(high, low, close, config, indicators):
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     atr = tr.rolling(window=period).mean()
 
-    indicators["atr"] = round(float(atr.iloc[-1]), 2)
-    indicators["atr_pct"] = round(float(atr.iloc[-1] / close.iloc[-1] * 100), 2)
+    block.indicators["atr"] = round(float(atr.iloc[-1]), 2)
+    block.indicators["atr_pct"] = round(float(atr.iloc[-1] / close.iloc[-1] * 100), 2)
+    return block
 
 
-def _calc_regression_slope_momentum(close, config, indicators, signals):
-    """
-    Clenow's "Stocks on the Move" momentum: annualized exponential regression
+def _calc_regression_slope_momentum(close: pd.Series, config) -> IndicatorBlock:
+    """Clenow's "Stocks on the Move" momentum: annualized exponential regression
     slope multiplied by R^2 of the fit. Penalizes choppy moves, rewards smooth
     trends. Audited via Alpha Architect's QMOM ETF methodology family and
     independently replicated on QuantConnect.
 
-    Returns a score in [0, 100]; 50 is neutral.
+    Returns a block whose score is in [0, 100]; 50 is neutral.
     """
+    block = IndicatorBlock()
     period = config.get("technical_indicators", "regression_momentum", "period", default=90)
     if len(close) < period + 1:
-        return None
+        return block
 
     series = close.iloc[-period:].astype(float).to_numpy()
     if (series <= 0).any():
-        return None
+        return block
 
     log_prices = np.log(series)
     x = np.arange(period)
-    # Least-squares slope and intercept
     x_mean = x.mean()
     y_mean = log_prices.mean()
     slope = ((x - x_mean) * (log_prices - y_mean)).sum() / ((x - x_mean) ** 2).sum()
-    # R^2
     y_pred = y_mean + slope * (x - x_mean)
     ss_res = ((log_prices - y_pred) ** 2).sum()
     ss_tot = ((log_prices - y_mean) ** 2).sum()
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-    # Annualized continuously-compounded return
     annualized_slope_pct = (np.exp(slope * 252) - 1) * 100
     clenow_score_raw = annualized_slope_pct * r_squared
 
-    indicators["regression_slope_pct"] = round(float(annualized_slope_pct), 2)
-    indicators["regression_r_squared"] = round(float(r_squared), 3)
-    indicators["clenow_momentum"] = round(float(clenow_score_raw), 2)
+    block.indicators["regression_slope_pct"] = round(float(annualized_slope_pct), 2)
+    block.indicators["regression_r_squared"] = round(float(r_squared), 3)
+    block.indicators["clenow_momentum"] = round(float(clenow_score_raw), 2)
 
     # Map raw Clenow score to 0-100. A score of 0 = 50. A score of +50 = ~80.
     # Empirically S&P 500 leaders cluster in the +20 to +100 range.
     if clenow_score_raw <= 0:
-        score = max(20.0, 50.0 + clenow_score_raw)  # negative trends pull below 50
+        score = max(20.0, 50.0 + clenow_score_raw)
     else:
         # Diminishing-returns mapping: 50 + 30 * (1 - exp(-x/40))
         score = 50.0 + 30.0 * (1.0 - np.exp(-clenow_score_raw / 40.0))
 
     if clenow_score_raw > 40 and r_squared > 0.7:
-        signals.append({
-            "type": "bullish",
-            "source": "ClenowMomentum",
+        block.signals.append({
+            "type": "bullish", "source": "ClenowMomentum",
             "detail": f"Smooth uptrend: slope {annualized_slope_pct:.0f}%/yr, R^2 {r_squared:.2f}",
         })
     elif clenow_score_raw < -40 and r_squared > 0.7:
-        signals.append({
-            "type": "bearish",
-            "source": "ClenowMomentum",
+        block.signals.append({
+            "type": "bearish", "source": "ClenowMomentum",
             "detail": f"Smooth downtrend: slope {annualized_slope_pct:.0f}%/yr, R^2 {r_squared:.2f}",
         })
 
-    return float(score)
+    block.add_score(score)
+    return block

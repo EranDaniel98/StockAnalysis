@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from src.analysis.comprehensive import (
+from src.research.per_stock_analyzer import (
     REBALANCE_TRADING_DAYS, STRATEGY_LABEL, StockAnalysis,
 )
 

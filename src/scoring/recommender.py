@@ -353,32 +353,40 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
     return result
 
 
-def _calculate_position_size(current_price, stop_loss, sizing_config, action):
+_SUPPORTED_SIZING_METHODS = ("fixed_fractional",)
+
+
+def _calculate_position_size(
+    current_price: float,
+    stop_loss: dict,
+    sizing_config: dict,
+    action: str,
+) -> dict:
     """Calculate recommended position size.
 
-    Tier-2 audit #19: the per-trade risk budget used to be hardcoded at
-    1% of portfolio, while the backtest engine reads ``vol_target_risk_pct``
-    from strategy config (0 = pure fixed-fractional). Different code paths
-    sizing real-money vs sizing the backtest that validates it. After:
-    both layers read ``risk_per_trade_pct`` from sizing_config (default
-    1.0 preserves prior behavior). Strategy yaml's existing
-    ``vol_target_risk_pct`` is accepted as an alias so legacy configs
-    don't need migration.
+    Only ``fixed_fractional`` is implemented. The pre-2026-05-17
+    revision carried a dead ``kelly`` branch that was always refused
+    at runtime (the historical Kelly implementation was degenerate —
+    win_prob=0.55 hardcoded, avg_win=avg_loss=stop_pct, yielding a
+    constant 0.05 fraction regardless of strategy). The dead branch
+    is gone; an unknown ``method`` now raises a clear ValueError at
+    config-load time. To add Kelly, wire ``win_prob`` and
+    ``avg_win``/``avg_loss`` to a per-strategy calibration table.
 
-    Tier-2 audit #26: the "kelly" branch was degenerate
-    (``win_prob=0.55`` hardcoded, ``avg_win=avg_loss=stop_pct`` so b=1,
-    yielding f=0.10 → half-Kelly to 5%, identical regardless of strategy).
-    It advertised ``method=kelly`` to the user. Now: any caller asking
-    for "kelly" falls back to fixed_fractional with a warning. The
-    branch is preserved for posterity (commented out) so future-us
-    remembers what NOT to ship without per-strategy win-rate calibration.
+    Per-trade risk budget reads ``risk_per_trade_pct`` (default 1%);
+    legacy ``vol_target_risk_pct`` is accepted as an alias so old
+    strategy yamls don't need migration.
     """
     method = sizing_config.get("method", "fixed_fractional")
+    if method not in _SUPPORTED_SIZING_METHODS:
+        raise ValueError(
+            f"Unsupported position_sizing.method={method!r}. "
+            f"Supported: {_SUPPORTED_SIZING_METHODS}. "
+            "See src/scoring/recommender.py for the rationale."
+        )
     portfolio = sizing_config.get("default_portfolio_value", 100000)
     max_pct = sizing_config.get("max_portfolio_pct", 10) / 100
     # risk_per_trade_pct = ``vol_target_risk_pct`` alias, default 1%.
-    # The double-fallback exists so strategy yaml authored before #19
-    # (``vol_target_risk_pct`` only) continues to work unchanged.
     risk_pct = (
         sizing_config.get("risk_per_trade_pct")
         or sizing_config.get("vol_target_risk_pct")
@@ -391,25 +399,6 @@ def _calculate_position_size(current_price, stop_loss, sizing_config, action):
         result["dollar_amount"] = 0
         result["pct_of_portfolio"] = 0
         return result
-
-    if method == "kelly":
-        # Tier-2 audit #26: refused. The historical implementation read
-        # ``win_prob=0.55`` and used the stop pct as both avg_win and
-        # avg_loss, so kelly_fraction was a constant 0.05 regardless of
-        # strategy. Fall back to fixed_fractional and warn loudly — if
-        # the operator wants real Kelly sizing, wire it to a per-strategy
-        # historical win rate + payoff ratio from the latest backtest.
-        logger.warning(
-            "Position sizing method='kelly' refused: the historical "
-            "implementation was degenerate (always returned ~5%%). "
-            "Falling back to fixed_fractional. To re-enable, wire "
-            "win_prob and avg_win/avg_loss to the latest backtest "
-            "calibration table per strategy."
-        )
-        method = "fixed_fractional"
-        result["method"] = "fixed_fractional"
-        result["original_method"] = "kelly"
-        result["kelly_refused_reason"] = "degenerate hardcoded inputs"
 
     sl_price = stop_loss.get("price", current_price * 0.95)
     risk_per_share = abs(current_price - sl_price)
