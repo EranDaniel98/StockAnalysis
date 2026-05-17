@@ -3760,6 +3760,77 @@
         ],
         "title": "Position"
       },
+      "PositionSizing": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "fixed_fractional",
+            "title": "Method"
+          },
+          "portfolio_value": {
+            "type": "number",
+            "title": "Portfolio Value"
+          },
+          "recommended_shares": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Recommended Shares"
+          },
+          "dollar_amount": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Dollar Amount"
+          },
+          "pct_of_portfolio": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Pct Of Portfolio"
+          },
+          "risk_per_trade": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Per Trade"
+          },
+          "risk_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Pct"
+          },
+          "risk_budget_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Budget Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "portfolio_value",
+          "recommended_shares",
+          "dollar_amount",
+          "pct_of_portfolio"
+        ],
+        "title": "PositionSizing",
+        "description": "Per-trade position sizing output."
+      },
       "ResearchAskRequest": {
         "properties": {
           "question": {
@@ -3999,6 +4070,87 @@
         "title": "ResearchRunSummary",
         "description": "List view \u2014 light shape, no transcript."
       },
+      "RiskManagement": {
+        "properties": {
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StopLoss"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "take_profit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TakeProfit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_stop": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeStop"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PositionSizing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "risk_reward_ratio": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Reward Ratio"
+          }
+        },
+        "type": "object",
+        "title": "RiskManagement",
+        "description": "Full risk envelope. All children are Optional so a recommendation\ncan omit individual blocks (e.g. ``risk_management={}`` when the\nrefusal gates fired) without violating the schema."
+      },
       "ScanRequest": {
         "properties": {
           "strategy": {
@@ -4189,9 +4341,7 @@
             "title": "Breakdown"
           },
           "risk_management": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Risk Management"
+            "$ref": "#/components/schemas/RiskManagement"
           },
           "sector": {
             "type": "string",
@@ -4610,6 +4760,51 @@
         ],
         "title": "StockDetail"
       },
+      "StopLoss": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "atr",
+              "percentage",
+              "support"
+            ],
+            "title": "Method"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "pct_from_current": {
+            "type": "number",
+            "title": "Pct From Current"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "atr_multiplier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atr Multiplier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "price",
+          "pct_from_current",
+          "detail"
+        ],
+        "title": "StopLoss",
+        "description": "Stop-loss level + provenance. ``method`` is what the recommender\nactually used (fallbacks rewrite it) \u2014 read the recommender code\nif you're tempted to assume the requested method always survives."
+      },
       "StrategyCard": {
         "properties": {
           "strategy": {
@@ -4774,6 +4969,51 @@
         "title": "SummarizeNotificationResponse",
         "description": "What ``POST /api/research/notifications/{id}/summarize`` returns:\nthe notification (now linked to a run) plus the run detail itself."
       },
+      "TakeProfit": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "risk_reward",
+              "atr",
+              "resistance"
+            ],
+            "title": "Method"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "pct_from_current": {
+            "type": "number",
+            "title": "Pct From Current"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "atr_multiplier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atr Multiplier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "price",
+          "pct_from_current",
+          "detail"
+        ],
+        "title": "TakeProfit",
+        "description": "Take-profit level + provenance.\n\nNote the asymmetry with StopLoss: when method='resistance' fails\n(no resistance \u2265 min R/R), method is rewritten to 'risk_reward',\nmatching the StopLoss percentage fallback pattern. The FE should\nbranch on the FINAL method, not what was requested."
+      },
       "TickerStat": {
         "properties": {
           "ticker": {
@@ -4801,6 +5041,37 @@
           "avg_pnl_pct"
         ],
         "title": "TickerStat"
+      },
+      "TimeStop": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "calendar",
+            "title": "Method"
+          },
+          "days": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Days"
+          },
+          "exit_date": {
+            "type": "string",
+            "title": "Exit Date"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "days",
+          "exit_date",
+          "detail"
+        ],
+        "title": "TimeStop",
+        "description": "Triple-barrier time stop \u2014 forced exit N calendar days after entry."
       },
       "ToolCallEntry": {
         "properties": {

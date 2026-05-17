@@ -28,7 +28,13 @@ import { RiskStrip } from "@/components/stocks/risk-strip";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, ApiError, type OHLCBar, type ScanResultItem } from "@/lib/api/client";
+import {
+  api,
+  ApiError,
+  type OHLCBar,
+  type RiskManagement,
+  type ScanResultItem,
+} from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import {
   CHART_AXIS,
@@ -41,8 +47,6 @@ import { fmtDate, fmtNumber, fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const HISTORY_DAYS = 120;
-
-type RiskMgmt = Record<string, unknown>;
 
 type BadgeVariant = "bullish" | "bearish" | "neutral" | "default" | "outline";
 
@@ -68,25 +72,6 @@ function scoreBarClass(score: number): string {
 
 function num(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
-  return null;
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/**
- * Risk values from the engine come in two shapes:
- *   1. flat number  (legacy + simple keys like current_price)
- *   2. nested dict  ({price, method, detail, pct_from_current}) — what
- *      stop_loss / take_profit actually emit today.
- * Extract the number if either shape resolves to one.
- */
-function numFromRiskField(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (isPlainObject(v) && typeof v.price === "number" && Number.isFinite(v.price)) {
-    return v.price;
-  }
   return null;
 }
 
@@ -227,35 +212,27 @@ function StockDetail({
 }) {
   const rec = data.latest_recommendation ?? null;
   const history = data.history ?? [];
-  const risk: RiskMgmt = (rec?.risk_management ?? {}) as RiskMgmt;
+  const risk: RiskManagement = rec?.risk_management ?? {};
 
-  // Engine emits `current_price` (entry baseline) + nested stop_loss /
-  // take_profit dicts with `.price`. Older callers may pass flat numbers.
-  const entry = num(risk.entry_price) ?? num(risk.current_price);
-  const stop = numFromRiskField(risk.stop_loss);
-  const target = numFromRiskField(risk.take_profit);
+  // entry: prefer the dedicated entry_price (set when the engine has a
+  // distinct entry signal), fall back to current_price as the baseline.
+  const entry = risk.entry_price ?? risk.current_price ?? null;
+  const stop = risk.stop_loss?.price ?? null;
+  const target = risk.take_profit?.price ?? null;
   // Triple-barrier time stop. Calendar-day budget the engine applies to
-  // new positions of this strategy. Shape: { method, days, exit_date,
-  // detail }. Older recommendations won't have it — guard defensively.
-  const timeStop =
-    isPlainObject(risk.time_stop) && typeof risk.time_stop.exit_date === "string"
-      ? {
-          exitDate: risk.time_stop.exit_date as string,
-          days:
-            typeof risk.time_stop.days === "number"
-              ? (risk.time_stop.days as number)
-              : null,
-        }
-      : null;
+  // new positions of this strategy. Pydantic gives us a fully shaped
+  // object or null — no per-field guards needed.
+  const timeStop = risk.time_stop
+    ? {
+        exitDate: risk.time_stop.exit_date,
+        days: risk.time_stop.days,
+      }
+    : null;
   // Surface which method the engine actually used for the take-profit.
-  // The basis affects how you should read the number: "resistance" =
-  // chart-derived level (a real price the stock has struggled at);
-  // "risk_reward" = mechanical 3:1 multiple of the stop distance, not
-  // a price forecast.
-  const takeProfitMethod =
-    isPlainObject(risk.take_profit) && typeof risk.take_profit.method === "string"
-      ? (risk.take_profit.method as string)
-      : null;
+  // "resistance" = chart-derived level (a real price the stock has
+  // struggled at); "risk_reward" = mechanical multiple of the stop
+  // distance, not a price forecast.
+  const takeProfitMethod = risk.take_profit?.method ?? null;
   const lastClose = history.length > 0 ? history[history.length - 1].close : null;
 
   const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;

@@ -12,6 +12,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from src.api.schemas.risk import RiskManagement
+
 DEFAULT_STRATEGY = "swing_trading"
 
 
@@ -67,7 +69,11 @@ class ScanResultItem(BaseModel):
     bullish_signals: int = 0
     bearish_signals: int = 0
     breakdown: list[dict[str, Any]] = Field(default_factory=list)
-    risk_management: dict[str, Any] = Field(default_factory=dict)
+    # Replaces the previous dict[str, Any] shape. Defaulted to an empty
+    # RiskManagement (all fields None) so the refusal-gate code in the
+    # recommender can still emit ``risk_management={}`` and parse cleanly
+    # — pydantic coerces the empty dict.
+    risk_management: RiskManagement = Field(default_factory=RiskManagement)
     sector: str = "Unknown"
     industry: str = "Unknown"
     name: str = ""

@@ -1648,6 +1648,31 @@ export interface components {
              */
             unrealized_pnl_pct: number;
         };
+        /**
+         * PositionSizing
+         * @description Per-trade position sizing output.
+         */
+        PositionSizing: {
+            /**
+             * Method
+             * @constant
+             */
+            method: "fixed_fractional";
+            /** Portfolio Value */
+            portfolio_value: number;
+            /** Recommended Shares */
+            recommended_shares: number;
+            /** Dollar Amount */
+            dollar_amount: number;
+            /** Pct Of Portfolio */
+            pct_of_portfolio: number;
+            /** Risk Per Trade */
+            risk_per_trade?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Risk Budget Pct */
+            risk_budget_pct?: number | null;
+        };
         /** ResearchAskRequest */
         ResearchAskRequest: {
             /** Question */
@@ -1739,6 +1764,24 @@ export interface components {
             completed_at?: string | null;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * RiskManagement
+         * @description Full risk envelope. All children are Optional so a recommendation
+         *     can omit individual blocks (e.g. ``risk_management={}`` when the
+         *     refusal gates fired) without violating the schema.
+         */
+        RiskManagement: {
+            /** Current Price */
+            current_price?: number | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            stop_loss?: components["schemas"]["StopLoss"] | null;
+            take_profit?: components["schemas"]["TakeProfit"] | null;
+            time_stop?: components["schemas"]["TimeStop"] | null;
+            position?: components["schemas"]["PositionSizing"] | null;
+            /** Risk Reward Ratio */
+            risk_reward_ratio?: number | null;
         };
         /** ScanRequest */
         ScanRequest: {
@@ -1836,10 +1879,7 @@ export interface components {
             breakdown?: {
                 [key: string]: unknown;
             }[];
-            /** Risk Management */
-            risk_management?: {
-                [key: string]: unknown;
-            };
+            risk_management?: components["schemas"]["RiskManagement"];
             /**
              * Sector
              * @default Unknown
@@ -1980,6 +2020,27 @@ export interface components {
             history?: components["schemas"]["OHLCBar"][];
         };
         /**
+         * StopLoss
+         * @description Stop-loss level + provenance. ``method`` is what the recommender
+         *     actually used (fallbacks rewrite it) — read the recommender code
+         *     if you're tempted to assume the requested method always survives.
+         */
+        StopLoss: {
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "atr" | "percentage" | "support";
+            /** Price */
+            price: number;
+            /** Pct From Current */
+            pct_from_current: number;
+            /** Detail */
+            detail: string;
+            /** Atr Multiplier */
+            atr_multiplier?: number | null;
+        };
+        /**
          * StrategyCard
          * @description Per-strategy summary tile.
          */
@@ -2034,6 +2095,30 @@ export interface components {
             notification: components["schemas"]["FilingNotificationItem"];
             run: components["schemas"]["ResearchRunDetail"];
         };
+        /**
+         * TakeProfit
+         * @description Take-profit level + provenance.
+         *
+         *     Note the asymmetry with StopLoss: when method='resistance' fails
+         *     (no resistance ≥ min R/R), method is rewritten to 'risk_reward',
+         *     matching the StopLoss percentage fallback pattern. The FE should
+         *     branch on the FINAL method, not what was requested.
+         */
+        TakeProfit: {
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "risk_reward" | "atr" | "resistance";
+            /** Price */
+            price: number;
+            /** Pct From Current */
+            pct_from_current: number;
+            /** Detail */
+            detail: string;
+            /** Atr Multiplier */
+            atr_multiplier?: number | null;
+        };
         /** TickerStat */
         TickerStat: {
             /** Ticker */
@@ -2044,6 +2129,23 @@ export interface components {
             total_pnl: number;
             /** Avg Pnl Pct */
             avg_pnl_pct: number;
+        };
+        /**
+         * TimeStop
+         * @description Triple-barrier time stop — forced exit N calendar days after entry.
+         */
+        TimeStop: {
+            /**
+             * Method
+             * @constant
+             */
+            method: "calendar";
+            /** Days */
+            days: number;
+            /** Exit Date */
+            exit_date: string;
+            /** Detail */
+            detail: string;
         };
         /** ToolCallEntry */
         ToolCallEntry: {

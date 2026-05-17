@@ -80,6 +80,11 @@ export type ScanResponse = Schemas["ScanResponse"];
 export type ScanSummary = Schemas["ScanSummary"];
 export type ScanResultItem = Schemas["ScanResultItem"];
 export type BuySignal = Schemas["BuySignal"];
+export type RiskManagement = Schemas["RiskManagement"];
+export type StopLoss = Schemas["StopLoss"];
+export type TakeProfit = Schemas["TakeProfit"];
+export type TimeStop = Schemas["TimeStop"];
+export type PositionSizing = Schemas["PositionSizing"];
 
 export type BacktestRequest = Schemas["BacktestRequest"];
 export type BacktestResponse = Schemas["BacktestResponse"];

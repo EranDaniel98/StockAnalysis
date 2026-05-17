@@ -307,6 +307,10 @@ def _calculate_stop_loss(price_data, current_price, sl_config):
             result["price"] = round(sl_price, 2)
             result["pct_from_current"] = round((sl_price / current_price - 1) * 100, 2)
             result["detail"] = f"ATR({multiplier}x): ${sl_price:.2f}"
+            # Persist the multiplier numerically so the FE doesn't have
+            # to regex-parse it out of detail. Only set on the
+            # successful ATR branch — fallback paths rewrite method.
+            result["atr_multiplier"] = float(multiplier)
         else:
             # Fallback to percentage — record the override, otherwise the
             # UI claims an ATR-based level when ATR was actually 0.
@@ -376,6 +380,7 @@ def _calculate_take_profit(price_data, current_price, stop_loss, tp_config):
         result["price"] = round(tp_price, 2)
         result["pct_from_current"] = round((tp_price / current_price - 1) * 100, 2)
         result["detail"] = f"ATR({multiplier}x): ${tp_price:.2f}"
+        result["atr_multiplier"] = float(multiplier)
 
     elif method == "resistance":
         from src.scoring.analyzers.patterns import _find_support_resistance
