@@ -4,11 +4,17 @@ Audit question we are answering:
 
     Of the seven analyzers folded into the composite score, WHICH actually
     predict forward returns at retail-tradable horizons, and which are
-    noise that inflate our backtest by chance?
+    noise that inflate our backtest by chance? AND does the answer change
+    across market regimes (calm trend vs stress)?
 
 We do not trust the composite Sharpe in isolation. Even if the headline
 Sharpe is real, it may be carried by one analyzer while six others
 contribute zero or negative IC and just bulk up the weighted average.
+Regime split exists because most factor anomalies are regime-conditional:
+quality wins in stress, momentum in trend. If our IC is +0.04 averaged
+across all regimes but +0.10 in trend and -0.05 in stress, the static
+composite is leaving alpha on the table that a regime-conditional one
+would capture.
 
 Methodology
 -----------
@@ -107,6 +113,22 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--periods", default="5,21",
                    help="Comma-separated forward-return horizons in trading "
                         "days. Default 5,21.")
+    p.add_argument(
+        "--regime-split",
+        choices=("off", "vix", "trend"),
+        default="off",
+        help=(
+            "Split the IC computation by market regime. 'vix' splits on "
+            "VIX above/below threshold (default 20). 'trend' splits on "
+            "SPY above/below its 200-DMA. 'off' (default) computes a "
+            "single all-regimes IC matching legacy behaviour."
+        ),
+    )
+    p.add_argument(
+        "--vix-threshold", type=float, default=20.0,
+        help="VIX cutoff for --regime-split=vix. Default 20 (rough "
+             "boundary between calm and elevated regimes).",
+    )
     p.add_argument("--output",
                    default="reports/analyzer_ic.md")
     p.add_argument("--workers", type=int, default=8)
@@ -152,6 +174,83 @@ def _verdict(ic_mean: float, bonferroni_p: float) -> str:
     if ic_mean > 0.01:
         return "WEAK"
     return "NOISE"
+
+
+def _load_regime_series(
+    mode: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    vix_threshold: float,
+    fetcher,
+) -> pd.Series | None:
+    """Return a Series indexed by date with categorical regime labels,
+    one of:
+      - mode='vix'   → {'low_vix', 'high_vix'}
+      - mode='trend' → {'above_200dma', 'below_200dma'}
+      - mode='off'   → None (caller skips the regime split)
+
+    Uses the same DataFetcher as the rest of the script so the VIX
+    history goes through the cache. SPY is already pulled for the
+    benchmark so the 200-DMA computation is in-memory.
+    """
+    if mode == "off":
+        return None
+    runway = pd.Timedelta(days=320)  # 200-DMA needs ~200 bars of warmup
+
+    if mode == "vix":
+        vix_data = fetcher.fetch_batch(["^VIX"]).get("^VIX")
+        if vix_data is None or vix_data.empty:
+            logger.warning(
+                "VIX history unavailable from fetcher — regime split skipped."
+            )
+            return None
+        vix = vix_data["Close"]
+        vix = vix.loc[(vix.index >= (start - runway)) & (vix.index <= end)]
+        # Forward-fill weekends/holidays so every panel date has a regime.
+        labels = pd.Series(
+            np.where(vix.values >= vix_threshold, "high_vix", "low_vix"),
+            index=vix.index, dtype="object",
+        )
+        return labels
+
+    if mode == "trend":
+        spy_data = fetcher.fetch_batch(["SPY"]).get("SPY")
+        if spy_data is None or spy_data.empty:
+            logger.warning(
+                "SPY history unavailable from fetcher — regime split skipped."
+            )
+            return None
+        spy_close = spy_data["Close"]
+        # Pull extra runway so the 200-DMA exists at panel start.
+        spy_close = spy_close.loc[
+            (spy_close.index >= (start - runway)) & (spy_close.index <= end)
+        ]
+        sma200 = spy_close.rolling(window=200, min_periods=100).mean()
+        labels = pd.Series(
+            np.where(spy_close >= sma200, "above_200dma", "below_200dma"),
+            index=spy_close.index, dtype="object",
+        )
+        # Drop rows where SMA was still warming up.
+        labels = labels[sma200.notna()]
+        return labels
+
+    raise ValueError(f"unknown regime mode: {mode!r}")
+
+
+def _slice_panel_by_regime(
+    panel: pd.DataFrame, regime_labels: pd.Series, regime: str,
+) -> pd.DataFrame:
+    """Return the subset of panel rows whose ``date`` falls on a regime
+    label of ``regime``. Caller has already validated the regime exists
+    in the labels."""
+    # Align regime_labels to panel dates by forward-fill (a Tuesday panel
+    # date inherits the prior trading day's regime when needed).
+    panel_dates = pd.to_datetime(panel["date"]) if "date" in panel.columns else panel.index.get_level_values("date")
+    if regime_labels.index.tz is not None and panel_dates.dt.tz is None:
+        regime_labels = regime_labels.tz_localize(None)
+    aligned = regime_labels.reindex(panel_dates, method="ffill").values
+    mask = aligned == regime
+    return panel.loc[mask].copy()
 
 
 def _compute_factor_stats(
@@ -242,10 +341,11 @@ def _emit_markdown(
     strategy: str,
     periods: tuple[int, ...],
     quantiles: int,
-    per_factor: list[dict],
+    per_regime: dict[str, list[dict]],
     bonferroni_k: int,
     ran_at: str,
     panel_rows: int,
+    regime_split_mode: str,
 ) -> None:
     lines: list[str] = [
         f"# Analyzer IC Report — {strategy}",
@@ -258,7 +358,8 @@ def _emit_markdown(
         f"- Horizons: {', '.join(f'{p}D' for p in periods)} trading days",
         f"- Quantiles: {quantiles}",
         f"- Bonferroni k: {bonferroni_k}",
-        f"- Panel rows: {panel_rows:,}",
+        f"- Panel rows (all regimes): {panel_rows:,}",
+        f"- Regime split: `{regime_split_mode}` ({len(per_regime)} cell(s))",
         "",
         "## Interpretation",
         "",
@@ -273,47 +374,87 @@ def _emit_markdown(
         "- **Top–Bottom %** — top quintile mean forward return minus "
         "bottom quintile, in percent. Useful sanity check that the IC "
         "translates into actually-tradable spread.",
+        "- **Regime asymmetry** — when the same factor's IC sign or "
+        "magnitude differs across regimes, a regime-conditional composite "
+        "is justified. When it's symmetric, a static composite captures "
+        "everything available.",
         "",
     ]
 
-    # Use the union of horizon labels actually emitted by alphalens.
-    # The patched calendar inference shifts requested periods (e.g.
-    # asked-for 21D becomes "23D" on calendars with holidays), so we
-    # can't reuse the requested periods list for table headers.
+    # Collect horizons across regimes — alphalens emits them with calendar
+    # shifts (asked-for 21D becomes "23D" on calendars with holidays).
     horizons: list[str] = []
     seen: set[str] = set()
-    for entry in per_factor:
-        for h in entry.get("by_horizon", {}).keys():
-            if h not in seen:
-                seen.add(h)
-                horizons.append(h)
+    for per_factor in per_regime.values():
+        for entry in per_factor:
+            for h in entry.get("by_horizon", {}).keys():
+                if h not in seen:
+                    seen.add(h)
+                    horizons.append(h)
     horizons.sort(key=lambda s: int(s.rstrip("D")) if s.rstrip("D").isdigit() else 999)
 
-    for horizon in horizons:
-        lines.append(f"## Horizon: {horizon}")
+    for regime_name, per_factor in per_regime.items():
+        if len(per_regime) > 1:
+            lines.append(f"# Regime: {regime_name}")
+            lines.append("")
+
+        for horizon in horizons:
+            lines.append(f"## Horizon: {horizon}")
+            lines.append("")
+            lines.append("| Factor | IC mean | IC IR | t-stat | Bonferroni-p | "
+                         "Top–Bottom % | Verdict |")
+            lines.append("|---|---|---|---|---|---|---|")
+            for entry in per_factor:
+                stats = entry.get("by_horizon", {}).get(horizon)
+                factor = entry["factor"]
+                if stats is None:
+                    lines.append(f"| {factor} | n/a | n/a | n/a | n/a | n/a | NA |")
+                    continue
+                ic_mean = stats["ic_mean"]
+                ic_ir = stats["ic_ir"]
+                t_stat = stats["t_stat"]
+                p_val = stats["p_value"]
+                bonf_p = (1.0 if factor == CONTROL_COLUMN
+                          else _bonferroni(p_val, bonferroni_k))
+                spread = stats["top_minus_bottom_pct"]
+                verdict = _verdict(ic_mean, bonf_p) if factor != CONTROL_COLUMN \
+                    else _verdict(ic_mean, p_val)
+                lines.append(
+                    f"| {factor} | {ic_mean:+.4f} | {ic_ir:+.2f} | "
+                    f"{t_stat:+.2f} | {bonf_p:.4f} | {spread:+.3f} | {verdict} |"
+                )
+            lines.append("")
+
+    # Cross-regime summary table — only emitted when more than one regime.
+    if len(per_regime) > 1:
+        lines.append("# Cross-regime IC comparison")
         lines.append("")
-        lines.append("| Factor | IC mean | IC IR | t-stat | Bonferroni-p | "
-                     "Top–Bottom % | Verdict |")
-        lines.append("|---|---|---|---|---|---|---|")
-        for entry in per_factor:
-            stats = entry.get("by_horizon", {}).get(horizon)
-            factor = entry["factor"]
-            if stats is None:
-                lines.append(f"| {factor} | n/a | n/a | n/a | n/a | n/a | NA |")
-                continue
-            ic_mean = stats["ic_mean"]
-            ic_ir = stats["ic_ir"]
-            t_stat = stats["t_stat"]
-            p_val = stats["p_value"]
-            bonf_p = (1.0 if factor == CONTROL_COLUMN
-                      else _bonferroni(p_val, bonferroni_k))
-            spread = stats["top_minus_bottom_pct"]
-            verdict = _verdict(ic_mean, bonf_p) if factor != CONTROL_COLUMN \
-                else _verdict(ic_mean, p_val)
-            lines.append(
-                f"| {factor} | {ic_mean:+.4f} | {ic_ir:+.2f} | "
-                f"{t_stat:+.2f} | {bonf_p:.4f} | {spread:+.3f} | {verdict} |"
-            )
+        lines.append(
+            "For each (factor, horizon), the IC mean side-by-side across "
+            "regimes. Asymmetry > 2× or sign flips are the strongest "
+            "evidence for regime-conditional weighting."
+        )
+        lines.append("")
+        regime_order = list(per_regime.keys())
+        header = ["Factor", "Horizon"] + regime_order
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("|" + "|".join("---" for _ in header) + "|")
+        # Index by (factor, horizon) → {regime: ic_mean}
+        factor_names = [e["factor"] for e in per_regime[regime_order[0]]]
+        for factor in factor_names:
+            for horizon in horizons:
+                row = [factor, horizon]
+                for regime in regime_order:
+                    entry = next(
+                        (e for e in per_regime[regime] if e["factor"] == factor),
+                        None,
+                    )
+                    stats = (entry or {}).get("by_horizon", {}).get(horizon)
+                    if stats is None:
+                        row.append("n/a")
+                    else:
+                        row.append(f"{stats['ic_mean']:+.4f}")
+                lines.append("| " + " | ".join(row) + " |")
         lines.append("")
 
     lines.append("## Notes")
@@ -456,16 +597,49 @@ def main() -> int:
         surviving.append(col)
     bonferroni_k = sum(1 for c in surviving if c in ANALYZER_COLUMNS)
 
-    per_factor: list[dict] = []
-    for col in surviving:
-        logger.info("Computing IC for factor=%s ...", col)
-        stats = _compute_factor_stats(
-            panel, prices, col, periods=periods, quantiles=args.quantiles,
+    # Regime split. Each regime gets its own per_factor list so the
+    # markdown report can emit a side-by-side comparison. "off" or a
+    # missing series falls back to one slice tagged "all".
+    regime_labels = _load_regime_series(
+        args.regime_split, start, end, args.vix_threshold, fetcher,
+    )
+    if regime_labels is None:
+        regime_slices: dict[str, pd.DataFrame] = {"all": panel}
+    else:
+        regime_slices = {}
+        for regime_value in pd.unique(regime_labels.dropna().values):
+            sliced = _slice_panel_by_regime(panel, regime_labels, regime_value)
+            if len(sliced) < 100:
+                logger.warning(
+                    "Regime %s has only %d panel rows — skipping.",
+                    regime_value, len(sliced),
+                )
+                continue
+            regime_slices[str(regime_value)] = sliced
+        logger.info(
+            "Regime split=%s yielded %d cells: %s",
+            args.regime_split, len(regime_slices),
+            {k: len(v) for k, v in regime_slices.items()},
         )
-        if stats is None:
-            per_factor.append({"factor": col, "by_horizon": {}})
-            continue
-        per_factor.append(stats)
+
+    per_regime: dict[str, list[dict]] = {}
+    for regime_name, regime_panel in regime_slices.items():
+        logger.info(
+            "=== Computing IC for regime=%s (%d rows) ===",
+            regime_name, len(regime_panel),
+        )
+        per_factor: list[dict] = []
+        for col in surviving:
+            logger.info("  factor=%s ...", col)
+            stats = _compute_factor_stats(
+                regime_panel, prices, col,
+                periods=periods, quantiles=args.quantiles,
+            )
+            if stats is None:
+                per_factor.append({"factor": col, "by_horizon": {}})
+                continue
+            per_factor.append(stats)
+        per_regime[regime_name] = per_factor
 
     ran_at = datetime.now(timezone.utc).isoformat()
 
@@ -478,10 +652,11 @@ def main() -> int:
         strategy=args.strategy,
         periods=periods,
         quantiles=args.quantiles,
-        per_factor=per_factor,
+        per_regime=per_regime,
         bonferroni_k=bonferroni_k,
         ran_at=ran_at,
         panel_rows=len(panel),
+        regime_split_mode=args.regime_split,
     )
 
     # JSON twin for downstream tooling.
@@ -495,7 +670,8 @@ def main() -> int:
         "quantiles": args.quantiles,
         "bonferroni_k": bonferroni_k,
         "panel_rows": int(len(panel)),
-        "per_factor": per_factor,
+        "regime_split": args.regime_split,
+        "per_regime": per_regime,
     }
     out_json.write_text(json.dumps(payload, indent=2, default=str),
                         encoding="utf-8")
