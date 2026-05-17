@@ -178,6 +178,15 @@ class BuySignal(BaseModel):
     consensus_count: int = Field(ge=1)
     consensus_strategies: list[str] = Field(default_factory=list)
 
+    # Sub-score breakdown from the *best* strategy's run for this ticker
+    # (the one whose composite_score won attribution above). Surfaced so
+    # the FE can filter "find me BUY signals where alpha158 ≥ 70" or
+    # "fundamental ≥ 60 AND technical ≥ 50" without an extra API call.
+    # Different strategies weight analyzers differently, so the same
+    # ticker's sub-scores can vary across runs — this is the slice
+    # corresponding to ``strategy`` above.
+    sub_scores: dict[str, float] = Field(default_factory=dict)
+
     # Earnings calendar (passthrough — see ScanResultItem).
     earnings_announcement_ts: Optional[float] = None
     earnings_call_ts: Optional[float] = None

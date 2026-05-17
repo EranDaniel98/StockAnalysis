@@ -1065,6 +1065,10 @@ export interface components {
             consensus_count: number;
             /** Consensus Strategies */
             consensus_strategies?: string[];
+            /** Sub Scores */
+            sub_scores?: {
+                [key: string]: number;
+            };
             /** Earnings Announcement Ts */
             earnings_announcement_ts?: number | null;
             /** Earnings Call Ts */

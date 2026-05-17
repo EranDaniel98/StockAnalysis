@@ -211,6 +211,11 @@ async def latest_buys(
                 run_id=run.run_id,
                 consensus_count=len(entry["strategies"]),
                 consensus_strategies=sorted(set(entry["strategies"])),
+                sub_scores={
+                    k: float(v)
+                    for k, v in (rec.get("sub_scores") or {}).items()
+                    if isinstance(v, (int, float))
+                },
                 earnings_announcement_ts=rec.get("earnings_announcement_ts"),
                 earnings_call_ts=rec.get("earnings_call_ts"),
             )

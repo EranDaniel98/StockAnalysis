@@ -65,6 +65,10 @@ function formatScanAge(iso: string): string {
 
 export default function BuySignalsPage() {
   const [grade, setGrade] = useState<GradeFilter>("ALL");
+  // Per-sub-score minimum thresholds. Empty = no filter on that key.
+  // The UI lists every sub-score the latest scans emit; the user types
+  // a number (0-100) into the field to require that sub-score >= N.
+  const [subMinima, setSubMinima] = useState<Record<string, string>>({});
 
   const { data, isLoading, error } = useQuery({
     queryKey: qk.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
@@ -72,7 +76,38 @@ export default function BuySignalsPage() {
       api.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
   });
 
-  const rows = data ?? [];
+  const rawRows = data ?? [];
+
+  // Union of every sub-score key any returned row exposes. Used to
+  // populate the filter UI even when only one strategy's row carries
+  // that sub-score (e.g. alpha158 only fires for some strategies).
+  const subScoreKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const r of rawRows) {
+      if (r.sub_scores) {
+        for (const k of Object.keys(r.sub_scores)) keys.add(k);
+      }
+    }
+    return Array.from(keys).sort();
+  }, [rawRows]);
+
+  // Apply sub-score minima. A row passes if for every active filter
+  // its sub_scores[key] exists AND meets the minimum. Missing keys are
+  // treated as failures — "I want alpha158 ≥ 70" means "ticker must
+  // have a measured alpha158 of at least 70", not "no info is fine".
+  const rows = useMemo(() => {
+    const activeFilters = Object.entries(subMinima)
+      .map(([k, v]) => [k, parseFloat(v)] as const)
+      .filter(([, v]) => Number.isFinite(v) && v > 0);
+    if (activeFilters.length === 0) return rawRows;
+    return rawRows.filter((r) => {
+      const subs = r.sub_scores ?? {};
+      return activeFilters.every(([k, min]) => {
+        const v = subs[k];
+        return typeof v === "number" && Number.isFinite(v) && v >= min;
+      });
+    });
+  }, [rawRows, subMinima]);
 
   const stats = useMemo(() => {
     const strong = rows.filter((r) => r.action === "STRONG BUY").length;
@@ -85,6 +120,10 @@ export default function BuySignalsPage() {
     );
     return { strong, buy, topScore, maxConsensus };
   }, [rows]);
+
+  const activeSubFilterCount = Object.entries(subMinima).filter(
+    ([, v]) => Number.isFinite(parseFloat(v)) && parseFloat(v) > 0,
+  ).length;
 
   return (
     <>
@@ -186,10 +225,54 @@ export default function BuySignalsPage() {
         </button>
         {!isLoading ? (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
-            {rows.length} {rows.length === 1 ? "signal" : "signals"}
+            {rows.length}
+            {rawRows.length !== rows.length ? (
+              <span className="text-muted-foreground/60"> / {rawRows.length}</span>
+            ) : null}{" "}
+            {rows.length === 1 ? "signal" : "signals"}
           </span>
         ) : null}
       </div>
+
+      {subScoreKeys.length > 0 ? (
+        <div className="mt-3 rounded border border-border bg-muted/10 px-3 py-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+              Sub-score minimum filters
+              {activeSubFilterCount > 0 ? (
+                <span className="ml-2 text-bullish">
+                  · {activeSubFilterCount} active
+                </span>
+              ) : null}
+            </span>
+            {activeSubFilterCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setSubMinima({})}
+                className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground hover:text-foreground"
+              >
+                clear all
+              </button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-x-3 gap-y-2">
+            {subScoreKeys.map((key) => (
+              <SubScoreMinInput
+                key={key}
+                label={key}
+                value={subMinima[key] ?? ""}
+                onChange={(v) =>
+                  setSubMinima((prev) => ({ ...prev, [key]: v }))
+                }
+              />
+            ))}
+          </div>
+          <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
+            Each filter requires the ticker&apos;s sub-score to be ≥ the number.
+            Tickers missing the sub-score are filtered out.
+          </p>
+        </div>
+      ) : null}
 
       <Card className="mt-3">
         <CardContent className="p-0">
@@ -211,6 +294,19 @@ export default function BuySignalsPage() {
 }
 
 function BuySignalTable({ rows }: { rows: BuySignal[] }) {
+  // Sub-score keys present anywhere in the rows. Used to render a
+  // consistent set of columns even when some rows are missing certain
+  // sub-scores (those cells show "—").
+  const subScoreKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const r of rows) {
+      if (r.sub_scores) {
+        for (const k of Object.keys(r.sub_scores)) keys.add(k);
+      }
+    }
+    return Array.from(keys).sort();
+  }, [rows]);
+
   return (
     <Table>
       <TableHeader>
@@ -220,6 +316,15 @@ function BuySignalTable({ rows }: { rows: BuySignal[] }) {
           <TableHead className="text-right w-20">Score</TableHead>
           <TableHead className="w-28">Action</TableHead>
           <TableHead className="w-40">Best strategy</TableHead>
+          {subScoreKeys.map((k) => (
+            <TableHead
+              key={k}
+              className="text-right w-20 font-mono text-[10px] tracking-wider uppercase"
+              title={k}
+            >
+              {k.slice(0, 6)}
+            </TableHead>
+          ))}
           <TableHead className="text-right w-32">Consensus</TableHead>
           <TableHead className="w-28">Last scan</TableHead>
           <TableHead className="w-36">Earnings</TableHead>
@@ -281,6 +386,29 @@ function BuySignalTable({ rows }: { rows: BuySignal[] }) {
                   {r.strategy}
                 </span>
               </TableCell>
+              {subScoreKeys.map((k) => {
+                const v = r.sub_scores?.[k];
+                const shown =
+                  typeof v === "number" && Number.isFinite(v) ? v : null;
+                return (
+                  <TableCell key={k} className="text-right">
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-xs",
+                        shown === null
+                          ? "text-muted-foreground/40"
+                          : shown >= 70
+                            ? "text-bullish"
+                            : shown >= 50
+                              ? "text-foreground"
+                              : "text-bearish/70",
+                      )}
+                    >
+                      {shown === null ? "—" : shown.toFixed(0)}
+                    </span>
+                  </TableCell>
+                );
+              })}
               <TableCell className="text-right">
                 <ConsensusDots
                   count={r.consensus_count}
@@ -352,6 +480,49 @@ function ConsensusDots({
         <span className="text-muted-foreground">/strat</span>
       </span>
     </span>
+  );
+}
+
+function SubScoreMinInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const active =
+    value !== "" && Number.isFinite(parseFloat(value)) && parseFloat(value) > 0;
+  return (
+    <label className="flex items-center gap-2 font-mono text-xs">
+      <span
+        className={cn(
+          "tracking-wider uppercase truncate w-20",
+          active ? "text-bullish" : "text-muted-foreground",
+        )}
+        title={label}
+      >
+        {label}
+      </span>
+      <span className="text-muted-foreground/60">≥</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={100}
+        step={5}
+        placeholder="0"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "w-14 rounded border bg-background px-1.5 py-0.5 tabular-nums",
+          "focus:outline-none focus:ring-1 focus:ring-primary",
+          active ? "border-bullish text-bullish" : "border-border",
+        )}
+        aria-label={`Minimum ${label} score`}
+      />
+    </label>
   );
 }
 

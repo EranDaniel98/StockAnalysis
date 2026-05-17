@@ -2334,6 +2334,13 @@
             "type": "array",
             "title": "Consensus Strategies"
           },
+          "sub_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Sub Scores"
+          },
           "earnings_announcement_ts": {
             "anyOf": [
               {
