@@ -161,6 +161,17 @@ async def latest_buys(
         for rec in run.recommendations or []:
             if rec.get("action") not in allowed:
                 continue
+            # Refuse rows the safety gates marked unreliable, even if the
+            # stored action says BUY. Belt-and-suspenders: the recommender
+            # already forces HOLD when any of these is set, so this only
+            # ever fires on a refactor regression OR a legacy row whose
+            # action wasn't normalized at scan time.
+            if rec.get("score_valid") is False:
+                continue
+            if rec.get("instrument_warning"):
+                continue
+            if rec.get("insufficient_history"):
+                continue
             ticker = rec.get("ticker")
             if not ticker:
                 continue
