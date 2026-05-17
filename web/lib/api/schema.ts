@@ -183,6 +183,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scans/sanity-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Sanity Check
+         * @description Run the pre-trade AI sanity check over the current BuySignal set.
+         *
+         *     Reuses ``latest_buys`` to assemble the candidate set (same DISTINCT
+         *     ON / integrity-gate filtering), then runs the check on each row in
+         *     parallel, upserts results into the ``sanity_checks`` table, and
+         *     returns the refreshed BuySignal list with ``sanity_check``
+         *     populated.
+         *
+         *     Cost: ~$0.005/ticker on the live path (claude-sonnet-4-6); mock
+         *     path is free. The check is asymmetric — it can downgrade BUYs to
+         *     CAUTION or REJECT but never upgrade them.
+         *
+         *     Idempotency: ``force_refresh=false`` skips tickers that already
+         *     have a cached check for their run_id. Set ``force_refresh=true``
+         *     to overwrite (e.g. after re-running with the live model).
+         */
+        post: operations["trigger_sanity_check_api_scans_sanity_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scans/{run_id}": {
         parameters: {
             query?: never;
@@ -1073,6 +1107,7 @@ export interface components {
             earnings_announcement_ts?: number | null;
             /** Earnings Call Ts */
             earnings_call_ts?: number | null;
+            sanity_check?: components["schemas"]["SanityCheck"] | null;
         };
         /** CalibrationBucket */
         CalibrationBucket: {
@@ -1787,6 +1822,73 @@ export interface components {
             /** Risk Reward Ratio */
             risk_reward_ratio?: number | null;
         };
+        /**
+         * SanityCheck
+         * @description One pre-trade sanity-check result. Renders as a badge on the
+         *     /buy-signals row.
+         *
+         *     A REJECT means the LLM identified an obvious one-off catalyst that
+         *     explains the recent move and the BUY is likely to mean-revert. The
+         *     FE's "Hide rejected" filter operates on this field.
+         *
+         *     ``model_used`` and ``mocked`` exist so we can audit which checks
+         *     came from a real LLM call vs the placeholder mock. Real-money
+         *     constraint: every check that fed a decision must be auditable.
+         */
+        SanityCheck: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "OK" | "CAUTION" | "REJECT";
+            /** Reason */
+            reason: string;
+            /** Catalysts Found */
+            catalysts_found?: string[];
+            /** Confidence */
+            confidence: number;
+            /**
+             * Model Used
+             * @default mock
+             */
+            model_used: string;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /** Checked At */
+            checked_at?: string | null;
+        };
+        /**
+         * SanityCheckTriggerRequest
+         * @description Body for POST /api/scans/sanity-check.
+         *
+         *     Runs the sanity-check pass over the current BuySignal set and upserts
+         *     one row per (ticker, run_id). Returns the refreshed list with
+         *     ``sanity_check`` populated.
+         */
+        SanityCheckTriggerRequest: {
+            /**
+             * Strong Only
+             * @description When true, runs the check only on STRONG BUY rows. Default covers both STRONG BUY and BUY.
+             * @default false
+             */
+            strong_only: boolean;
+            /**
+             * Mode
+             * @description 'auto' uses the live LLM when ANTHROPIC_API_KEY is present and falls back to the mock otherwise. 'mock' forces the rule-based mock (no API key needed, no LLM cost). 'live' forces the real path and raises if the key is missing.
+             * @default auto
+             * @enum {string}
+             */
+            mode: "auto" | "mock" | "live";
+            /**
+             * Force Refresh
+             * @description When true, re-runs the check even if a cached result exists for this (ticker, run_id). Default uses cache.
+             * @default false
+             */
+            force_refresh: boolean;
+        };
         /** ScanRequest */
         ScanRequest: {
             /**
@@ -2477,6 +2579,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_sanity_check_api_scans_sanity_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SanityCheckTriggerRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

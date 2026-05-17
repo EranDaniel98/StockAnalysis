@@ -13,6 +13,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from src.api.schemas.risk import RiskManagement
+from src.api.schemas.sanity import SanityCheck
 from src.scoring.instrument_classifier import InstrumentWarning
 
 DEFAULT_STRATEGY = "swing_trading"
@@ -197,3 +198,43 @@ class BuySignal(BaseModel):
     # Earnings calendar (passthrough — see ScanResultItem).
     earnings_announcement_ts: Optional[float] = None
     earnings_call_ts: Optional[float] = None
+
+    # Pre-trade AI sanity check (asymmetric: can only downgrade BUYs to
+    # CAUTION / REJECT). None when the check hasn't been run for this
+    # (ticker, run_id) pair. Populated by GET /api/scans/latest-buys
+    # from the sanity_checks table; triggered by POST
+    # /api/scans/sanity-check.
+    sanity_check: Optional[SanityCheck] = None
+
+
+class SanityCheckTriggerRequest(BaseModel):
+    """Body for POST /api/scans/sanity-check.
+
+    Runs the sanity-check pass over the current BuySignal set and upserts
+    one row per (ticker, run_id). Returns the refreshed list with
+    ``sanity_check`` populated.
+    """
+
+    strong_only: bool = Field(
+        default=False,
+        description=(
+            "When true, runs the check only on STRONG BUY rows. Default "
+            "covers both STRONG BUY and BUY."
+        ),
+    )
+    mode: Literal["auto", "mock", "live"] = Field(
+        default="auto",
+        description=(
+            "'auto' uses the live LLM when ANTHROPIC_API_KEY is present "
+            "and falls back to the mock otherwise. 'mock' forces the "
+            "rule-based mock (no API key needed, no LLM cost). 'live' "
+            "forces the real path and raises if the key is missing."
+        ),
+    )
+    force_refresh: bool = Field(
+        default=False,
+        description=(
+            "When true, re-runs the check even if a cached result "
+            "exists for this (ticker, run_id). Default uses cache."
+        ),
+    )

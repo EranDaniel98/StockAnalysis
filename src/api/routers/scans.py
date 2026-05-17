@@ -12,8 +12,10 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_config, get_db_session
+from src.api.schemas.sanity import SanityCheck
 from src.api.schemas.scan import (
     BuySignal,
+    SanityCheckTriggerRequest,
     ScanRequest,
     ScanResponse,
     ScanResultItem,
@@ -21,7 +23,9 @@ from src.api.schemas.scan import (
 )
 from src.api.services.scan_runner import run_scan_sync
 from src.config_loader import Config
-from src.db.models import ScanRun
+from src.db.models import SanityCheckRow, ScanRun
+from src.research_agent.sanity_check import check_buy_signal_auto
+from src.research_agent.sanity_evidence import build_sanity_inputs
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -120,6 +124,33 @@ _BUY_ACTIONS = ("STRONG BUY", "BUY")
 _STRONG_BUY_ONLY = ("STRONG BUY",)
 
 
+async def _load_cached_sanity_checks(
+    db: AsyncSession, run_ids: list[str],
+) -> dict[tuple[str, str], SanityCheck]:
+    """Return ``{(ticker, run_id): SanityCheck}`` for the given run_ids.
+
+    Empty dict when none cached. Caller looks up by (ticker, run_id)
+    when building each BuySignal — a miss leaves ``sanity_check=None``,
+    which the FE renders as "no check run yet".
+    """
+    if not run_ids:
+        return {}
+    stmt = select(SanityCheckRow).where(SanityCheckRow.run_id.in_(run_ids))
+    rows = (await db.execute(stmt)).scalars().all()
+    return {
+        (row.ticker, row.run_id): SanityCheck(
+            verdict=row.verdict,
+            reason=row.reason,
+            catalysts_found=list(row.catalysts_found or []),
+            confidence=row.confidence,
+            model_used=row.model_used,
+            mocked=row.mocked,
+            checked_at=row.checked_at.isoformat() if row.checked_at else None,
+        )
+        for row in rows
+    }
+
+
 @router.get("/latest-buys", response_model=list[BuySignal])
 async def latest_buys(
     strong_only: bool = Query(
@@ -198,6 +229,12 @@ async def latest_buys(
                 entry["best_rec"] = rec
                 entry["best_run"] = run
 
+    # Single batched lookup for cached sanity checks across every
+    # attributed run_id — avoids N+1 SELECTs when the FE renders 10+
+    # rows. Miss → sanity_check stays None, FE renders "no check yet".
+    run_ids = [entry["best_run"].run_id for entry in bucket.values()]
+    sanity_cache = await _load_cached_sanity_checks(db, run_ids)
+
     out: list[BuySignal] = []
     for ticker, entry in bucket.items():
         rec = entry["best_rec"]
@@ -224,6 +261,7 @@ async def latest_buys(
                 },
                 earnings_announcement_ts=rec.get("earnings_announcement_ts"),
                 earnings_call_ts=rec.get("earnings_call_ts"),
+                sanity_check=sanity_cache.get((ticker, run.run_id)),
             )
         )
 
@@ -231,6 +269,133 @@ async def latest_buys(
         key=lambda b: (-b.composite_score, -b.consensus_count, b.ticker),
     )
     return out
+
+
+@router.post("/sanity-check", response_model=list[BuySignal])
+async def trigger_sanity_check(
+    body: SanityCheckTriggerRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> list[BuySignal]:
+    """Run the pre-trade AI sanity check over the current BuySignal set.
+
+    Reuses ``latest_buys`` to assemble the candidate set (same DISTINCT
+    ON / integrity-gate filtering), then runs the check on each row in
+    parallel, upserts results into the ``sanity_checks`` table, and
+    returns the refreshed BuySignal list with ``sanity_check``
+    populated.
+
+    Cost: ~$0.005/ticker on the live path (claude-sonnet-4-6); mock
+    path is free. The check is asymmetric — it can downgrade BUYs to
+    CAUTION or REJECT but never upgrade them.
+
+    Idempotency: ``force_refresh=false`` skips tickers that already
+    have a cached check for their run_id. Set ``force_refresh=true``
+    to overwrite (e.g. after re-running with the live model).
+    """
+    candidates = await latest_buys(strong_only=body.strong_only, db=db)
+    if not candidates:
+        return []
+
+    # Optional cache skip — keep the loop small when the operator just
+    # wants to top up missing rows.
+    if not body.force_refresh:
+        existing_keys = {
+            (c.ticker, c.run_id) for c in candidates if c.sanity_check is not None
+        }
+        targets = [c for c in candidates if (c.ticker, c.run_id) not in existing_keys]
+    else:
+        targets = list(candidates)
+
+    async def _run_one(buy: BuySignal) -> tuple[BuySignal, SanityCheck]:
+        inputs = await build_sanity_inputs(
+            db=db,
+            ticker=buy.ticker,
+            composite_score=buy.composite_score,
+            action=buy.action,
+        )
+        check = await check_buy_signal_auto(inputs, mode=body.mode)
+        return buy, check
+
+    # Run checks concurrently. asyncio.gather over ~10 tickers @ 30s
+    # timeout each = ~30s wall-clock vs ~5 min serial. The Anthropic
+    # client honors the per-call timeout, so a stuck call doesn't
+    # block the batch.
+    results = await asyncio.gather(
+        *[_run_one(buy) for buy in targets], return_exceptions=True,
+    )
+
+    upserts = 0
+    for outcome in results:
+        if isinstance(outcome, BaseException):
+            logger.exception("sanity-check task failed", exc_info=outcome)
+            continue
+        buy, check = outcome
+        await _upsert_sanity_check(db, ticker=buy.ticker, run_id=buy.run_id, check=check)
+        upserts += 1
+    if upserts:
+        await db.commit()
+
+    # Re-read so the caller sees the refreshed sanity_check field.
+    return await latest_buys(strong_only=body.strong_only, db=db)
+
+
+async def _upsert_sanity_check(
+    db: AsyncSession,
+    *,
+    ticker: str,
+    run_id: str,
+    check: SanityCheck,
+) -> None:
+    """Upsert one sanity-check row by (ticker, run_id).
+
+    Plain SELECT-then-INSERT/UPDATE rather than PG-specific
+    ``ON CONFLICT`` — the unique constraint is enforced at the DB level
+    and the table is small enough that the extra round-trip doesn't
+    matter. Caller commits.
+    """
+    stmt = (
+        select(SanityCheckRow)
+        .where(SanityCheckRow.ticker == ticker)
+        .where(SanityCheckRow.run_id == run_id)
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+
+    checked_at_dt = _parse_iso_or_now(check.checked_at)
+    if existing is None:
+        db.add(
+            SanityCheckRow(
+                ticker=ticker,
+                run_id=run_id,
+                verdict=check.verdict,
+                reason=check.reason,
+                catalysts_found=list(check.catalysts_found),
+                confidence=check.confidence,
+                model_used=check.model_used,
+                mocked=check.mocked,
+                checked_at=checked_at_dt,
+            )
+        )
+    else:
+        existing.verdict = check.verdict
+        existing.reason = check.reason
+        existing.catalysts_found = list(check.catalysts_found)
+        existing.confidence = check.confidence
+        existing.model_used = check.model_used
+        existing.mocked = check.mocked
+        existing.checked_at = checked_at_dt
+
+
+def _parse_iso_or_now(value: str | None) -> datetime:
+    """Parse the SanityCheck.checked_at ISO string. ``None`` or a
+    malformed value falls through to the current UTC time — the field
+    is provenance, not load-bearing.
+    """
+    if value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
 
 
 @router.get("/{run_id}", response_model=ScanResponse)

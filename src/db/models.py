@@ -242,6 +242,42 @@ class ScanRun(Base):
     """List of Recommendation.model_dump() entries with sub_scores + signals."""
 
 
+class SanityCheckRow(Base):
+    """Cached pre-trade AI sanity-check result.
+
+    Keyed by (ticker, run_id) so each check is bound to the specific
+    scan_run that produced the BUY. Re-running upserts in place. ON
+    DELETE CASCADE keeps the table tidy when the parent scan_run goes
+    away. Schema mirrors src/api/schemas/sanity.py:SanityCheck — the
+    router builds the pydantic envelope from one row.
+    """
+
+    __tablename__ = "sanity_checks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("scan_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    """One of: OK, CAUTION, REJECT. Mirrors SanityVerdict literal."""
+
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    catalysts_found: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    model_used: Mapped[str] = mapped_column(String(64), nullable=False)
+    mocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ticker", "run_id", name="uq_sanity_checks_ticker_run"),
+    )
+
+
 class ICDiagnostic(Base):
     """One alphalens diagnostic run. Backs Phase 1's IC viewer."""
 

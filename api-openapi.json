@@ -345,6 +345,52 @@
         }
       }
     },
+    "/api/scans/sanity-check": {
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Trigger Sanity Check",
+        "description": "Run the pre-trade AI sanity check over the current BuySignal set.\n\nReuses ``latest_buys`` to assemble the candidate set (same DISTINCT\nON / integrity-gate filtering), then runs the check on each row in\nparallel, upserts results into the ``sanity_checks`` table, and\nreturns the refreshed BuySignal list with ``sanity_check``\npopulated.\n\nCost: ~$0.005/ticker on the live path (claude-sonnet-4-6); mock\npath is free. The check is asymmetric \u2014 it can downgrade BUYs to\nCAUTION or REJECT but never upgrade them.\n\nIdempotency: ``force_refresh=false`` skips tickers that already\nhave a cached check for their run_id. Set ``force_refresh=true``\nto overwrite (e.g. after re-running with the live model).",
+        "operationId": "trigger_sanity_check_api_scans_sanity_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SanityCheckTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BuySignal"
+                  },
+                  "type": "array",
+                  "title": "Response Trigger Sanity Check Api Scans Sanity Check Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scans/{run_id}": {
       "get": {
         "tags": [
@@ -2362,6 +2408,16 @@
               }
             ],
             "title": "Earnings Call Ts"
+          },
+          "sanity_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SanityCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4157,6 +4213,95 @@
         "type": "object",
         "title": "RiskManagement",
         "description": "Full risk envelope. All children are Optional so a recommendation\ncan omit individual blocks (e.g. ``risk_management={}`` when the\nrefusal gates fired) without violating the schema."
+      },
+      "SanityCheck": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "CAUTION",
+              "REJECT"
+            ],
+            "title": "Verdict"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "catalysts_found": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Catalysts Found"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "model_used": {
+            "type": "string",
+            "title": "Model Used",
+            "default": "mock"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "verdict",
+          "reason",
+          "confidence"
+        ],
+        "title": "SanityCheck",
+        "description": "One pre-trade sanity-check result. Renders as a badge on the\n/buy-signals row.\n\nA REJECT means the LLM identified an obvious one-off catalyst that\nexplains the recent move and the BUY is likely to mean-revert. The\nFE's \"Hide rejected\" filter operates on this field.\n\n``model_used`` and ``mocked`` exist so we can audit which checks\ncame from a real LLM call vs the placeholder mock. Real-money\nconstraint: every check that fed a decision must be auditable."
+      },
+      "SanityCheckTriggerRequest": {
+        "properties": {
+          "strong_only": {
+            "type": "boolean",
+            "title": "Strong Only",
+            "description": "When true, runs the check only on STRONG BUY rows. Default covers both STRONG BUY and BUY.",
+            "default": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "mock",
+              "live"
+            ],
+            "title": "Mode",
+            "description": "'auto' uses the live LLM when ANTHROPIC_API_KEY is present and falls back to the mock otherwise. 'mock' forces the rule-based mock (no API key needed, no LLM cost). 'live' forces the real path and raises if the key is missing.",
+            "default": "auto"
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "description": "When true, re-runs the check even if a cached result exists for this (ticker, run_id). Default uses cache.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SanityCheckTriggerRequest",
+        "description": "Body for POST /api/scans/sanity-check.\n\nRuns the sanity-check pass over the current BuySignal set and upserts\none row per (ticker, run_id). Returns the refreshed list with\n``sanity_check`` populated."
       },
       "ScanRequest": {
         "properties": {

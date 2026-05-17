@@ -659,3 +659,165 @@ def test_latest_buys_sort_invariants(client: TestClient) -> None:
         )
         # Strategy list is deduped.
         assert len(b["consensus_strategies"]) == len(set(b["consensus_strategies"]))
+
+
+# ─── /api/scans/sanity-check ─────────────────────────────────────────────────
+
+
+def _cleanup_sanity_checks(run_ids: list[str]) -> None:
+    """Remove sanity_checks rows for the given run_ids.
+
+    Needed because scan_runs cleanup uses scan_runs.id (the seq-pk),
+    not run_id; the FK from sanity_checks is on run_id with ON DELETE
+    CASCADE, so deleting scan_runs by id WILL cascade — but only when
+    the test cleans up scan_runs in the same engine session. Belt-
+    and-suspenders for tests that fail before scan_runs cleanup runs.
+    """
+    import asyncio
+
+    from src.db.models import SanityCheckRow
+
+    async def _go() -> None:
+        engine = create_async_engine(get_dsn())
+        try:
+            Session = async_sessionmaker(engine, expire_on_commit=False)
+            async with Session() as s:
+                await s.execute(
+                    delete(SanityCheckRow).where(SanityCheckRow.run_id.in_(run_ids))
+                )
+                await s.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_go())
+
+
+def test_latest_buys_returns_null_sanity_check_when_unchecked(
+    client: TestClient,
+) -> None:
+    """BuySignal rows for a freshly-seeded scan have no cached sanity
+    check yet → field is null/None, not absent or coerced.
+
+    Uses a far-future ``scan_timestamp`` (mirrors
+    ``test_latest_buys_strong_only_filter``) so DISTINCT ON picks this
+    row even if a prior test left a zombie scan_run behind. Microsecond
+    offset derived from the uuid suffix keeps concurrent test seeds
+    from colliding at the unique-constraint level.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    ticker = f"SCK{suffix[:4]}".upper()
+    ts = datetime(2099, 1, 1, 0, 0, 0, int(suffix[:6], 16) % 999_999, tzinfo=timezone.utc)
+    rows = [
+        ("swing_trading", f"sc-{suffix}", ts, [_buy_rec(ticker, 70.0)]),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        r = client.get("/api/scans/latest-buys")
+        assert r.status_code == 200, r.text
+        match = [b for b in r.json() if b["ticker"] == ticker]
+        assert match, f"seeded ticker {ticker} missing from latest-buys"
+        assert match[0]["sanity_check"] is None, (
+            "uncached check must serialize as null, not missing or {} "
+            "— the FE switches on null to render 'no check yet'"
+        )
+    finally:
+        _cleanup_scan_runs(ids)
+
+
+def test_sanity_check_post_creates_and_enriches_rows(client: TestClient) -> None:
+    """POST /api/scans/sanity-check?mode=mock runs the deterministic
+    mock over the candidate set, upserts one row per (ticker, run_id),
+    and the follow-up GET surfaces the result via ``sanity_check``."""
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    run_id = f"sc-post-{suffix}"
+    ticker = f"SCK{suffix[:4]}".upper()
+    ts = datetime(2099, 1, 1, 0, 0, 0, int(suffix[:6], 16) % 999_999, tzinfo=timezone.utc)
+    rows = [
+        ("swing_trading", run_id, ts, [_buy_rec(ticker, 70.0)]),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        post = client.post(
+            "/api/scans/sanity-check",
+            json={"strong_only": False, "mode": "mock", "force_refresh": False},
+        )
+        assert post.status_code == 200, post.text
+        body = post.json()
+        match = [b for b in body if b["ticker"] == ticker]
+        assert match, f"seeded ticker {ticker} missing from POST response"
+        sc = match[0]["sanity_check"]
+        assert sc is not None, "POST must populate sanity_check for the seeded row"
+        assert sc["verdict"] in ("OK", "CAUTION", "REJECT")
+        assert sc["mocked"] is True, "mode='mock' must mark the row mocked=True"
+        assert sc["model_used"] == "mock"
+        # Follow-up GET surfaces the same row from the cache.
+        get = client.get("/api/scans/latest-buys")
+        assert get.status_code == 200
+        get_match = [b for b in get.json() if b["ticker"] == ticker]
+        assert get_match and get_match[0]["sanity_check"] is not None, (
+            "cached check must be visible to subsequent GETs"
+        )
+    finally:
+        _cleanup_sanity_checks([run_id])
+        _cleanup_scan_runs(ids)
+
+
+def test_sanity_check_post_does_not_duplicate_on_rerun(
+    client: TestClient,
+) -> None:
+    """A second POST without ``force_refresh`` must NOT create a new
+    sanity_checks row for the same (ticker, run_id). UNIQUE constraint
+    is enforced at the schema level; this exercises the upsert path."""
+    import uuid
+    from datetime import datetime, timezone
+
+    from src.db.models import SanityCheckRow
+
+    suffix = uuid.uuid4().hex[:8]
+    run_id = f"sc-rerun-{suffix}"
+    ticker = f"SCK{suffix[:4]}".upper()
+    ts = datetime(2099, 1, 1, 0, 0, 0, int(suffix[:6], 16) % 999_999, tzinfo=timezone.utc)
+    rows = [
+        ("swing_trading", run_id, ts, [_buy_rec(ticker, 70.0)]),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        for _ in range(2):
+            r = client.post(
+                "/api/scans/sanity-check",
+                json={"strong_only": False, "mode": "mock", "force_refresh": True},
+            )
+            assert r.status_code == 200, r.text
+
+        # Direct DB count to verify the unique constraint held.
+        import asyncio
+
+        async def _count() -> int:
+            engine = create_async_engine(get_dsn())
+            try:
+                Session = async_sessionmaker(engine, expire_on_commit=False)
+                async with Session() as s:
+                    from sqlalchemy import func, select as sql_select
+
+                    res = await s.execute(
+                        sql_select(func.count())
+                        .select_from(SanityCheckRow)
+                        .where(SanityCheckRow.run_id == run_id)
+                    )
+                    return int(res.scalar_one())
+            finally:
+                await engine.dispose()
+
+        count = asyncio.run(_count())
+        assert count == 1, (
+            f"expected 1 row per (ticker, run_id) after upsert; got {count}"
+        )
+    finally:
+        _cleanup_sanity_checks([run_id])
+        _cleanup_scan_runs(ids)
