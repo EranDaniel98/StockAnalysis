@@ -390,3 +390,272 @@ def test_dashboard_round_trip(client: TestClient) -> None:
         assert in_cross, "seeded BUY missing from cross-strategy top_picks"
     finally:
         asyncio.run(_cleanup(seeded_id))
+
+
+# ─── /api/scans/latest-buys ──────────────────────────────────────────────────
+
+
+def _seed_scan_runs(rows: list[tuple[str, str, "datetime", list[dict]]]) -> list[int]:
+    """Seed a batch of ScanRuns. ``rows`` is a list of
+    ``(strategy, run_id, scan_timestamp, recommendations)`` tuples.
+
+    Returns the inserted ``scan_runs.id`` values for cleanup. Lives at module
+    scope so the latest-buys tests below can share a single helper.
+    """
+    import asyncio
+
+    async def _go() -> list[int]:
+        engine = create_async_engine(get_dsn())
+        try:
+            Session = async_sessionmaker(engine, expire_on_commit=False)
+            ids: list[int] = []
+            async with Session() as s:
+                for strategy, run_id, ts, recs in rows:
+                    row = ScanRun(
+                        strategy=strategy,
+                        scan_timestamp=ts,
+                        universe_label=run_id,
+                        budget=None,
+                        n_candidates=len(recs),
+                        recommendations=recs,
+                    )
+                    s.add(row)
+                await s.commit()
+                # Refresh after commit — async_sessionmaker doesn't preload
+                # autoincrement ids without an explicit refresh.
+                for obj in s.new:
+                    pass
+            # Re-query for the ids we just wrote: easier than tracking each
+            # refresh, and keyed by universe_label which we control.
+            async with Session() as s:
+                from sqlalchemy import select as sql_select
+                rids = {r[1] for r in rows}
+                res = await s.execute(
+                    sql_select(ScanRun.id).where(ScanRun.universe_label.in_(rids))
+                )
+                ids = [r[0] for r in res.all()]
+            return ids
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_go())
+
+
+def _cleanup_scan_runs(ids: list[int]) -> None:
+    import asyncio
+
+    async def _go() -> None:
+        engine = create_async_engine(get_dsn())
+        try:
+            Session = async_sessionmaker(engine, expire_on_commit=False)
+            async with Session() as s:
+                await s.execute(delete(ScanRun).where(ScanRun.id.in_(ids)))
+                await s.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_go())
+
+
+def _buy_rec(
+    ticker: str,
+    score: float,
+    *,
+    action: str = "BUY",
+    score_valid: bool = True,
+    instrument_warning: str | None = None,
+    insufficient_history: bool = False,
+) -> dict:
+    """One recommendation row shaped like the recommender's output."""
+    return {
+        "ticker": ticker,
+        "action": action,
+        "composite_score": score,
+        "confidence": "Medium-High",
+        "sub_scores": {"technical": score, "fundamental": score},
+        "reasoning": [],
+        "bullish_signals": 1,
+        "bearish_signals": 0,
+        "breakdown": [],
+        "risk_management": {},
+        "sector": "Technology",
+        "industry": "Software",
+        "name": f"{ticker} Test Co.",
+        "market_cap": 1_000_000_000,
+        "score_valid": score_valid,
+        "instrument_warning": instrument_warning,
+        "insufficient_history": insufficient_history,
+    }
+
+
+def test_latest_buys_dedup_across_strategies(client: TestClient) -> None:
+    """Same ticker BUY in 3 strategies → dedup to one row, attributed to
+    the strategy with the highest score, consensus_count==3, strategies
+    list deduped+sorted.
+
+    Pins the bucket-dedup invariant in scans.py:latest_buys.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    ts = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    ticker = f"LBT{suffix[:4].upper()}"
+
+    rows = [
+        ("swing_trading", f"lb-st-{suffix}", ts, [_buy_rec(ticker, 60.0)]),
+        ("value_investing", f"lb-vi-{suffix}", ts, [_buy_rec(ticker, 75.0)]),
+        ("dividend_income", f"lb-di-{suffix}", ts, [_buy_rec(ticker, 65.0)]),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        r = client.get("/api/scans/latest-buys")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        seeded = [b for b in body if b["ticker"] == ticker]
+        assert len(seeded) == 1, "ticker must appear exactly once"
+        b = seeded[0]
+        assert b["composite_score"] == 75.0
+        assert b["strategy"] == "value_investing", "best-score attribution"
+        assert b["consensus_count"] == 3
+        assert sorted(b["consensus_strategies"]) == [
+            "dividend_income",
+            "swing_trading",
+            "value_investing",
+        ]
+    finally:
+        _cleanup_scan_runs(ids)
+
+
+def test_latest_buys_only_latest_per_strategy(client: TestClient) -> None:
+    """Two scans for the same strategy at different timestamps → only the
+    newer scan's BUY row appears. Pins seen_strategies short-circuit.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    old = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    new = datetime(2099, 6, 1, tzinfo=timezone.utc)
+    old_ticker = f"OLD{suffix[:4].upper()}"
+    new_ticker = f"NEW{suffix[:4].upper()}"
+
+    rows = [
+        ("swing_trading", f"lb-old-{suffix}", old, [_buy_rec(old_ticker, 80.0)]),
+        ("swing_trading", f"lb-new-{suffix}", new, [_buy_rec(new_ticker, 60.0)]),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        r = client.get("/api/scans/latest-buys")
+        assert r.status_code == 200, r.text
+        tickers = {b["ticker"] for b in r.json()}
+        assert new_ticker in tickers, "newer scan's BUY must surface"
+        assert old_ticker not in tickers, (
+            "older scan for same strategy must be suppressed even though "
+            "its score is higher"
+        )
+    finally:
+        _cleanup_scan_runs(ids)
+
+
+def test_latest_buys_filters_refused_recs(client: TestClient) -> None:
+    """Recs flagged score_valid=False / instrument_warning / insufficient_history
+    must NOT surface as BUY signals, even when their action says BUY.
+
+    Today the recommender forces HOLD when these fire, so this is a
+    belt-and-suspenders gate against a future refactor that decouples
+    HOLD-forcing from the integrity flags. Real-money concern: a refused
+    leveraged-ETF or short-history ticker quietly resurfaces with a
+    confident BUY rating.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    ts = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    good = f"GOOD{suffix[:3].upper()}"
+    bad_score = f"BSC{suffix[:3].upper()}"
+    bad_inst = f"BIN{suffix[:3].upper()}"
+    bad_hist = f"BHS{suffix[:3].upper()}"
+
+    rows = [
+        (
+            "swing_trading",
+            f"lb-refused-{suffix}",
+            ts,
+            [
+                _buy_rec(good, 80.0),
+                _buy_rec(bad_score, 75.0, score_valid=False),
+                _buy_rec(bad_inst, 72.0, instrument_warning="leveraged_or_inverse_etf"),
+                _buy_rec(bad_hist, 70.0, insufficient_history=True),
+            ],
+        ),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        r = client.get("/api/scans/latest-buys")
+        assert r.status_code == 200, r.text
+        tickers = {b["ticker"] for b in r.json()}
+        assert good in tickers, "valid BUY must surface"
+        assert bad_score not in tickers, "score_valid=False must be filtered"
+        assert bad_inst not in tickers, "instrument_warning must be filtered"
+        assert bad_hist not in tickers, "insufficient_history must be filtered"
+    finally:
+        _cleanup_scan_runs(ids)
+
+
+def test_latest_buys_strong_only_filter(client: TestClient) -> None:
+    """?strong_only=true keeps STRONG BUY rows, drops plain BUY rows."""
+    import uuid
+    from datetime import datetime, timezone
+
+    suffix = uuid.uuid4().hex[:8]
+    ts = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    strong = f"STR{suffix[:4].upper()}"
+    plain = f"PLN{suffix[:4].upper()}"
+
+    rows = [
+        (
+            "swing_trading",
+            f"lb-strong-{suffix}",
+            ts,
+            [
+                _buy_rec(strong, 85.0, action="STRONG BUY"),
+                _buy_rec(plain, 65.0, action="BUY"),
+            ],
+        ),
+    ]
+    ids = _seed_scan_runs(rows)
+    try:
+        r_all = client.get("/api/scans/latest-buys")
+        tickers_all = {b["ticker"] for b in r_all.json()}
+        assert strong in tickers_all and plain in tickers_all
+
+        r_strong = client.get("/api/scans/latest-buys?strong_only=true")
+        tickers_strong = {b["ticker"] for b in r_strong.json()}
+        assert strong in tickers_strong
+        assert plain not in tickers_strong, (
+            "strong_only=true must drop plain BUY rows"
+        )
+    finally:
+        _cleanup_scan_runs(ids)
+
+
+def test_latest_buys_sort_invariants(client: TestClient) -> None:
+    """Output sorted by composite_score desc, and consensus_count equals
+    len(consensus_strategies) for every row.
+    """
+    r = client.get("/api/scans/latest-buys")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    scores = [b["composite_score"] for b in body]
+    assert scores == sorted(scores, reverse=True), (
+        "rows must be sorted by composite_score desc"
+    )
+    for b in body:
+        assert b["consensus_count"] == len(b["consensus_strategies"]), (
+            f"{b['ticker']}: consensus_count ({b['consensus_count']}) != "
+            f"len(consensus_strategies) ({len(b['consensus_strategies'])})"
+        )
+        # Strategy list is deduped.
+        assert len(b["consensus_strategies"]) == len(set(b["consensus_strategies"]))

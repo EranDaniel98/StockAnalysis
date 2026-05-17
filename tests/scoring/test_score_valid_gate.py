@@ -254,3 +254,142 @@ def test_recommendation_legacy_dict_empty_risk_management_safe():
     # And the qualified-list comprehension's price extraction returns
     # None (falsey) rather than crashing.
     assert legacy["risk_management"]["stop_loss"].get("price") is None
+
+
+# --- ba0f9c0 gates: instrument_warning + insufficient_history ----------------
+#
+# These exercise the recommender wiring around classify_instrument /
+# evaluate_history. classify_instrument helper tests live in
+# test_instrument_classifier.py; here we pin that the recommender
+# correctly REACTS to a fired gate (forces HOLD, confidence="None",
+# empties risk_management).
+
+
+def _config_stub_with_risk():
+    """Like _config_stub, but config.get(key, default=...) actually
+    returns the default for unknown keys instead of a MagicMock. Needed
+    when the recommender takes the risk_management branch and walks
+    config.get(...).get(...).get(...).
+    """
+    cfg = MagicMock()
+    cfg.get_scoring_thresholds = MagicMock(return_value={
+        "strong_buy": 80, "buy": 65, "hold_upper": 50,
+        "hold_lower": 35, "sell": 20,
+    })
+    cfg.get = MagicMock(side_effect=lambda *args, **kwargs: kwargs.get("default", {}))
+    return cfg
+
+
+def _healthy_score_result(composite: float = 70.0) -> dict:
+    return {
+        "composite_score": composite,
+        "score_valid": True,
+        "error_count": 0,
+        "error_slots": [],
+        "sub_scores": {"technical": composite},
+        "breakdown": [],
+        "all_signals": [],
+        "bullish_signals": 0,
+        "bearish_signals": 0,
+    }
+
+
+def test_recommender_refuses_leveraged_etf_name():
+    """ba0f9c0: a fundamentals dict whose name matches the leveraged-ETF
+    pattern must force confidence='None' AND action='HOLD' even when the
+    score is at a BUY threshold. risk_management must be empty so the
+    FE doesn't render an entry/stop plan for a refused instrument.
+    """
+    rec = generate_recommendation(
+        ticker="SOXL",
+        score_result=_healthy_score_result(composite=70.0),
+        price_data=None,
+        fundamentals={
+            "name": "Direxion Daily Semiconductor Bull 3X Shares",
+            "sector": None,
+            "industry": None,
+            "market_cap": None,
+        },
+        config=_config_stub(),
+        strategy=None,
+    )
+    assert rec["action"] == "HOLD"
+    # Distinguishes from the legacy score_valid gate which emits "Low".
+    # The FE switches on this value to render the "REFUSED" badge vs.
+    # a normal HOLD.
+    assert rec["confidence"] == "None"
+    assert rec["instrument_warning"] == "leveraged_or_inverse_etf"
+    assert rec["risk_management"] == {}
+
+
+def test_recommender_refuses_short_history():
+    """ba0f9c0: a price frame shorter than MIN_HISTORY_DAYS=252 must
+    force confidence='None' AND action='HOLD' even at BUY composite.
+    """
+    import numpy as np
+    import pandas as pd
+
+    n = 100  # well under 252
+    price_data = pd.DataFrame(
+        {
+            "Open": np.linspace(100, 120, n),
+            "High": np.linspace(101, 121, n),
+            "Low": np.linspace(99, 119, n),
+            "Close": np.linspace(100, 120, n),
+            "Volume": np.full(n, 1_000_000),
+        },
+        index=pd.date_range("2024-01-01", periods=n, freq="B"),
+    )
+    rec = generate_recommendation(
+        ticker="NEWIPO",
+        score_result=_healthy_score_result(composite=72.0),
+        price_data=price_data,
+        fundamentals={"name": "New IPO Co.", "sector": "Tech"},
+        config=_config_stub(),
+        strategy=None,
+    )
+    assert rec["action"] == "HOLD"
+    assert rec["confidence"] == "None"
+    assert rec["insufficient_history"] is True
+    assert rec["history_bars_available"] == n
+    # Risk plan is suppressed: an entry/stop derived from 100 bars
+    # of a ticker we just refused would be misleading.
+    assert rec["risk_management"] == {}
+
+
+def test_recommender_healthy_path_keeps_buy():
+    """Negative control: fundamentals with a normal name + 300 bars of
+    price data must NOT trip either new gate. Healthy BUY survives.
+    """
+    import numpy as np
+    import pandas as pd
+
+    n = 300  # comfortably above MIN_HISTORY_DAYS=252
+    price_data = pd.DataFrame(
+        {
+            "Open": np.linspace(100, 150, n),
+            "High": np.linspace(101, 151, n),
+            "Low": np.linspace(99, 149, n),
+            "Close": np.linspace(100, 150, n),
+            "Volume": np.full(n, 1_000_000),
+        },
+        index=pd.date_range("2024-01-01", periods=n, freq="B"),
+    )
+    rec = generate_recommendation(
+        ticker="AAPL",
+        score_result=_healthy_score_result(composite=72.0),
+        price_data=price_data,
+        fundamentals={
+            "name": "Apple Inc.",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "market_cap": 3_000_000_000_000,
+        },
+        config=_config_stub_with_risk(),
+        strategy=None,
+    )
+    assert rec["action"] == "BUY"
+    assert rec["confidence"] == "Medium-High"
+    assert rec["instrument_warning"] is None
+    assert rec["insufficient_history"] is False
+    assert rec["history_bars_available"] == n
