@@ -4453,6 +4453,29 @@
             ],
             "title": "History Bars Required"
           },
+          "strategy_filter_failed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "missing_dividend"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Filter Failed"
+          },
+          "strategy_filter_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Filter Reason"
+          },
           "earnings_announcement_ts": {
             "anyOf": [
               {

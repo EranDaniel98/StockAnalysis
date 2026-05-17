@@ -202,6 +202,14 @@ strategies:
     min_score: 70
     min_market_cap: 10_000_000_000
     prefer_profitable: true
+    # Hard gate: refuse tickers with no dividend. Before this flag,
+    # the dividend sub-score in src/scoring/analyzers/fundamental.py
+    # returned None for non-payers and the 0.05 dividend weight was
+    # silently redistributed to valuation / growth / profitability /
+    # analyst — so a non-dividend stock with strong other fundamentals
+    # could rank #1 BUY in *dividend_income*. SNDK ($0 div, fwd P/E 8.2,
+    # $208B cap) was the trigger case 2026-05-17.
+    requires_dividend: true
     # Time stop reverted to no-op (see swing_trading comment for the why).
     # Original 180d guarded against forced exits before ex-div dates;
     # restore only with clean-pipeline evidence.

@@ -1930,6 +1930,10 @@ export interface components {
             history_bars_available?: number | null;
             /** History Bars Required */
             history_bars_required?: number | null;
+            /** Strategy Filter Failed */
+            strategy_filter_failed?: "missing_dividend" | null;
+            /** Strategy Filter Reason */
+            strategy_filter_reason?: string | null;
             /** Earnings Announcement Ts */
             earnings_announcement_ts?: number | null;
             /** Earnings Call Ts */

@@ -393,3 +393,98 @@ def test_recommender_healthy_path_keeps_buy():
     assert rec["instrument_warning"] is None
     assert rec["insufficient_history"] is False
     assert rec["history_bars_available"] == n
+
+
+# --- Strategy filter gate (requires_dividend) ------------------------------
+#
+# Closes the integrity gap where the dividend_income strategy could rank
+# a non-dividend stock #1 BUY because _score_dividend returned None and
+# its weight redistributed across the other fundamental categories.
+# Trigger case (2026-05-17): SNDK ($0 dividend, fwd P/E 8.2, $208B cap)
+# ranked #1 BUY in dividend_income at composite 70.1.
+
+
+def _dividend_strategy() -> dict:
+    """Strategy stub mirroring dividend_income's gate flag."""
+    return {"requires_dividend": True, "thresholds": {}}
+
+
+def test_recommender_refuses_zero_dividend_under_dividend_strategy():
+    """SNDK case: requires_dividend=True + dividend_yield None → refused."""
+    rec = generate_recommendation(
+        ticker="SNDK",
+        score_result=_healthy_score_result(composite=70.1),
+        price_data=None,
+        fundamentals={
+            "name": "SanDisk Corp",
+            "sector": "Technology",
+            "industry": "Semiconductors",
+            "market_cap": 208_000_000_000,
+            "dividend_yield": None,
+        },
+        config=_config_stub(),
+        strategy=_dividend_strategy(),
+    )
+    assert rec["action"] == "HOLD"
+    assert rec["confidence"] == "None"
+    assert rec["strategy_filter_failed"] == "missing_dividend"
+    assert "dividend" in (rec["strategy_filter_reason"] or "").lower()
+    # Risk plan is suppressed for the same reason as the other refusal
+    # gates — an entry/stop on a refused instrument would mislead.
+    assert rec["risk_management"] == {}
+
+
+def test_recommender_accepts_dividend_payer_under_dividend_strategy():
+    """Negative control: a real dividend payer (yield > 0) passes the
+    gate and gets its normal BUY mapping."""
+    import numpy as np
+    import pandas as pd
+
+    n = 300
+    price_data = pd.DataFrame(
+        {
+            "Open": np.linspace(100, 150, n),
+            "High": np.linspace(101, 151, n),
+            "Low": np.linspace(99, 149, n),
+            "Close": np.linspace(100, 150, n),
+            "Volume": np.full(n, 1_000_000),
+        },
+        index=pd.date_range("2024-01-01", periods=n, freq="B"),
+    )
+    rec = generate_recommendation(
+        ticker="KO",
+        score_result=_healthy_score_result(composite=72.0),
+        price_data=price_data,
+        fundamentals={
+            "name": "Coca-Cola Co",
+            "sector": "Consumer Defensive",
+            "industry": "Beverages",
+            "market_cap": 280_000_000_000,
+            "dividend_yield": 0.031,
+        },
+        config=_config_stub_with_risk(),
+        strategy=_dividend_strategy(),
+    )
+    assert rec["action"] == "BUY"
+    assert rec["strategy_filter_failed"] is None
+    assert rec["strategy_filter_reason"] is None
+
+
+def test_recommender_other_strategies_unaffected_by_zero_dividend():
+    """A non-dividend strategy (no requires_dividend flag) must NOT
+    refuse a $0-dividend ticker — the gate is opt-in per strategy."""
+    rec = generate_recommendation(
+        ticker="SNDK",
+        score_result=_healthy_score_result(composite=70.1),
+        price_data=None,
+        fundamentals={
+            "name": "SanDisk Corp",
+            "sector": "Technology",
+            "market_cap": 208_000_000_000,
+            "dividend_yield": None,
+        },
+        config=_config_stub(),
+        strategy={"thresholds": {}},  # no requires_dividend
+    )
+    assert rec["action"] == "BUY"
+    assert rec["strategy_filter_failed"] is None

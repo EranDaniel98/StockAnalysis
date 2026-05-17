@@ -172,6 +172,12 @@ async def latest_buys(
                 continue
             if rec.get("insufficient_history"):
                 continue
+            # Strategy-level data filter (e.g. dividend_income +
+            # non-payer). Belt-and-suspenders alongside the
+            # recommender's HOLD/None forcing — also blocks any legacy
+            # row whose action wasn't normalized at scan time.
+            if rec.get("strategy_filter_failed"):
+                continue
             ticker = rec.get("ticker")
             if not ticker:
                 continue

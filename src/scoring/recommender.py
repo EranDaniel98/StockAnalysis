@@ -8,12 +8,49 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# Literal union of every strategy-filter failure mode. Keep in sync with
+# `ScanResultItem.strategy_filter_failed` in src/api/schemas/scan.py.
+# Today only one kind exists; new filters extend this union.
+StrategyFilterReason = Literal["missing_dividend"]
+
+
+def _evaluate_strategy_filter(
+    strategy: Optional[dict],
+    fundamentals: Optional[dict],
+) -> tuple[Optional[StrategyFilterReason], Optional[str]]:
+    """Check whether a strategy refuses this ticker on data-availability
+    grounds (independent of price/score).
+
+    Returns ``(failure_key, human_reason)`` when the ticker fails a
+    strategy gate; ``(None, None)`` when the ticker is acceptable to
+    this strategy. The failure_key is a stable Literal the FE can pivot
+    on; human_reason is a one-sentence explanation for the badge.
+    """
+    if not strategy or not isinstance(strategy, dict):
+        return None, None
+
+    if strategy.get("requires_dividend"):
+        div_yield = (fundamentals or {}).get("dividend_yield")
+        try:
+            yield_val = float(div_yield) if div_yield is not None else 0.0
+        except (TypeError, ValueError):
+            yield_val = 0.0
+        if yield_val <= 0:
+            return (
+                "missing_dividend",
+                "Strategy requires a dividend-paying stock; "
+                "fundamentals report no dividend.",
+            )
+
+    return None, None
 
 
 # Time-stop fallback when a strategy config doesn't declare one.
@@ -77,9 +114,12 @@ def generate_recommendation(
     except (AttributeError, TypeError):
         pass
     insufficient, bars_available = evaluate_history(price_data, min_days=min_history)
+    strategy_filter_failed, strategy_filter_reason = _evaluate_strategy_filter(
+        strategy, fundamentals,
+    )
 
     # --- Validity gates ---
-    # Three independent reasons to refuse a confident Action:
+    # Four independent reasons to refuse a confident Action:
     #   1. Engine reports score_valid=False (no required analyzer fired).
     #      Composite is the 50.0 placeholder, lifting it via PEAD or
     #      consensus would manufacture a BUY from zero signal.
@@ -88,17 +128,24 @@ def generate_recommendation(
     #   3. Insufficient price history (<252 daily bars, i.e. recent IPO
     #      or low-coverage ticker) so technical / statistical /
     #      alpha158 couldn't produce reliable sub-scores.
+    #   4. Strategy-level data filter (e.g. dividend_income +
+    #      no-dividend stock). Closes the gap where strategy `emphasis`
+    #      blocks were documentation-only.
     #
-    # Gate priority: the new instrument/history gates take precedence
-    # over the engine-validity gate so the FE can distinguish "we refuse
-    # to score this kind of input" from "we ran the engine but it's
-    # unsure".
+    # Gate priority: the new instrument/history/strategy gates take
+    # precedence over the engine-validity gate so the FE can distinguish
+    # "we refuse to score this kind of input" from "we ran the engine
+    # but it's unsure".
     #   new_gates_failed  → action=HOLD, confidence="None"
     #   not score_valid   → action=HOLD, confidence="Low"  (legacy shape)
     # Each gate also emits its own boolean / string flag so the FE
     # Data-Quality warning panel can name the specific reason.
     score_valid = bool(score_result.get("score_valid", True))
-    new_gates_failed = (instrument.warning is not None) or insufficient
+    new_gates_failed = (
+        instrument.warning is not None
+        or insufficient
+        or strategy_filter_failed is not None
+    )
     gates_failed = (not score_valid) or new_gates_failed
     if new_gates_failed:
         # New instrument / history gates: the system can't reliably
@@ -178,6 +225,11 @@ def generate_recommendation(
         # Report the actual threshold used (config-tunable) so the FE
         # warning panel can show "needs N bars, have M" honestly.
         "history_bars_required": min_history,
+        # Strategy-level data gate. None when the ticker passes (or no
+        # filter applies). FE renders the same data-quality badge as
+        # other refusals.
+        "strategy_filter_failed": strategy_filter_failed,
+        "strategy_filter_reason": strategy_filter_reason,
     }
 
 

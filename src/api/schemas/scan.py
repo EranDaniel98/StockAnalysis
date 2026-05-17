@@ -97,6 +97,13 @@ class ScanResultItem(BaseModel):
     insufficient_history: bool = False
     history_bars_available: Optional[int] = None
     history_bars_required: Optional[int] = None
+    # Strategy-level data gate (e.g. dividend_income + non-payer).
+    # Kept as a stable Literal-ish string so the FE can map to a badge
+    # without parsing prose. None when the ticker is acceptable to the
+    # strategy. Keep in sync with the StrategyFilterReason union in
+    # src/scoring/recommender.py.
+    strategy_filter_failed: Optional[Literal["missing_dividend"]] = None
+    strategy_filter_reason: Optional[str] = None
     # Earnings calendar (unix epoch seconds, UTC). FE formats per the
     # user's locale; earnings_call_ts is the management conference
     # call (~1 h after the post-close release). Range-validated so a
