@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { EdgeUncertaintyBanner } from "@/components/edge-uncertainty-banner";
 import { PageHeader } from "@/components/page-header";
+import { PaperVsSpyCard } from "@/components/paper-vs-spy-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -20,6 +22,7 @@ import {
 import {
   findLatestPicksDate,
   loadAnalysis,
+  loadPaperVsSpy,
   loadPicks,
   sectorCounts,
 } from "@/lib/factors/data";
@@ -51,9 +54,10 @@ export default async function FactorsPage() {
     );
   }
 
-  const [picks, analysis] = await Promise.all([
+  const [picks, analysis, paperVsSpy] = await Promise.all([
     loadPicks(latestDate),
     loadAnalysis(latestDate),
+    loadPaperVsSpy(),
   ]);
 
   if (!picks) {
@@ -86,6 +90,10 @@ export default async function FactorsPage() {
         title="Factor strategy"
         description={`Composite (momentum + quality + value) — top ${picks.top_n} of ${picks.universe_size}. As of ${latestDate}.`}
       />
+
+      <EdgeUncertaintyBanner />
+
+      <PaperVsSpyCard data={paperVsSpy} />
 
       {/* Hero stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

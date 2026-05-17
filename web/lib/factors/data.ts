@@ -16,6 +16,7 @@ import path from "node:path";
 const REPO_ROOT = path.resolve(process.cwd(), "..");
 const PICKS_DIR = path.join(REPO_ROOT, "data", "daily_picks");
 const REPORTS_DIR = path.join(REPO_ROOT, "reports");
+const PAPER_VS_SPY_FILE = path.join(REPORTS_DIR, "paper_vs_spy.json");
 
 /** Per-pick row from `data/daily_picks/YYYY-MM-DD.json`. */
 export type DailyPick = {
@@ -131,6 +132,52 @@ export async function loadReportMarkdown(
   );
   try {
     return await fs.readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Live paper-vs-SPY P&L snapshot. Written by
+ * `scripts/paper_vs_spy_snapshot.py` on every daily-pipeline run.
+ * One file (not date-stamped) — we want "where do we stand right now"
+ * not historical snapshots.
+ *
+ * ``status`` values:
+ *   - "ok": data is real and comparable
+ *   - "not_configured": Alpaca creds missing or invalid
+ *   - "no_history": account exists but Alpaca returned no portfolio_history
+ *   - "error": something else failed; FE shows the message
+ */
+export type PaperVsSpyStatus =
+  | "ok"
+  | "not_configured"
+  | "no_history"
+  | "error";
+
+export type PaperVsSpyFile = {
+  status: PaperVsSpyStatus;
+  message?: string;
+  generated_at_utc: string;
+  window_days: number;
+  paper?: {
+    starting_equity_usd: number;
+    current_equity_usd: number;
+    pnl_usd: number;
+    return_pct: number;
+  };
+  spy?: {
+    starting_price: number;
+    current_price: number;
+    return_pct: number;
+  };
+  alpha_pct?: number;
+};
+
+export async function loadPaperVsSpy(): Promise<PaperVsSpyFile | null> {
+  try {
+    const raw = await fs.readFile(PAPER_VS_SPY_FILE, "utf-8");
+    return JSON.parse(raw) as PaperVsSpyFile;
   } catch {
     return null;
   }

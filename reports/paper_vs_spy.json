@@ -1,0 +1,17 @@
+{
+  "status": "ok",
+  "window_days": 90,
+  "paper": {
+    "starting_equity_usd": 41904.0,
+    "current_equity_usd": 41042.6,
+    "pnl_usd": -861.4,
+    "return_pct": -2.06
+  },
+  "spy": {
+    "starting_price": 680.99,
+    "current_price": 739.17,
+    "return_pct": 8.54
+  },
+  "alpha_pct": -10.6,
+  "generated_at_utc": "2026-05-17T07:01:26.976579+00:00"
+}

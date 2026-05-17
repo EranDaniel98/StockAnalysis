@@ -39,6 +39,7 @@ STEPS = [
     "stress_test",
     "generate_watchlist",
     "morning_briefing",
+    "paper_vs_spy_snapshot",
 ]
 
 
@@ -134,6 +135,13 @@ def main() -> int:
          "--picks-date", date_str,
          "--output", f"reports/morning_briefing_{date_us}.md"],
         "morning_briefing",
+    )
+
+    # 8. Paper-vs-SPY snapshot (single live file, refreshed every run).
+    # Read-only with respect to Alpaca; failure modes are graceful.
+    results["paper_vs_spy_snapshot"] = _run(
+        ["scripts.paper_vs_spy_snapshot"],
+        "paper_vs_spy_snapshot",
     )
 
     # Force UTF-8 stdout so unicode summary markers don't crash on
