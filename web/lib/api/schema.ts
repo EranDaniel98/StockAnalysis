@@ -1914,7 +1914,7 @@ export interface components {
                 [key: string]: string;
             };
             /** Instrument Warning */
-            instrument_warning?: string | null;
+            instrument_warning?: ("leveraged_or_inverse_etf" | "non_stock_instrument") | null;
             /** Instrument Warning Reason */
             instrument_warning_reason?: string | null;
             /**

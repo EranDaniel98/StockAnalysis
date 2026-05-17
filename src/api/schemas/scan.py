@@ -10,11 +10,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.schemas.risk import RiskManagement
+from src.scoring.instrument_classifier import InstrumentWarning
 
 DEFAULT_STRATEGY = "swing_trading"
+
+
+# Unix epoch seconds for years 2000-2100. Used by the earnings-calendar
+# field validators below to catch the "yfinance returned milliseconds
+# instead of seconds" footgun before a "Reports in 19000d" reaches the
+# user's screen.
+_EPOCH_SECONDS_MIN = 946_684_800        # 2000-01-01 UTC
+_EPOCH_SECONDS_MAX = 4_102_444_800      # 2100-01-01 UTC
 
 
 Universe = Literal["themes", "russell_1000", "value_cohort", "watchlist"]
@@ -83,18 +92,42 @@ class ScanResultItem(BaseModel):
     error_count: int = 0
     error_slots: list[str] = Field(default_factory=list)
     analyzer_status: dict[str, str] = Field(default_factory=dict)
-    instrument_warning: Optional[str] = None
+    instrument_warning: Optional[InstrumentWarning] = None
     instrument_warning_reason: Optional[str] = None
     insufficient_history: bool = False
     history_bars_available: Optional[int] = None
     history_bars_required: Optional[int] = None
     # Earnings calendar (unix epoch seconds, UTC). FE formats per the
     # user's locale; earnings_call_ts is the management conference
-    # call (~1 h after the post-close release).
+    # call (~1 h after the post-close release). Range-validated so a
+    # yfinance ms-instead-of-seconds bug surfaces as None (skip the
+    # field) rather than "Reports in 19000d".
     earnings_announcement_ts: Optional[float] = None
     earnings_call_ts: Optional[float] = None
     earnings_window_start: Optional[float] = None
     earnings_window_end: Optional[float] = None
+
+    @field_validator(
+        "earnings_announcement_ts",
+        "earnings_call_ts",
+        "earnings_window_start",
+        "earnings_window_end",
+        mode="before",
+    )
+    @classmethod
+    def _validate_unix_seconds_range(cls, v: object) -> Optional[float]:
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        if not _EPOCH_SECONDS_MIN <= f <= _EPOCH_SECONDS_MAX:
+            # Most common cause: yfinance handed back milliseconds
+            # (10^12-ish) instead of seconds (10^9-ish). Nullify
+            # rather than crashing the whole scan response.
+            return None
+        return f
 
 
 class ScanResponse(BaseModel):

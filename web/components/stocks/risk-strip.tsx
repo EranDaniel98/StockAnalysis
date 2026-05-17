@@ -7,9 +7,8 @@ import { fmtNumber, fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * Compact trade-mechanics strip. Replaces the verbose Risk-management
- * table that used to sit in the right rail. Surfaces only the fields a
- * trader actually reads off this page before placing the order:
+ * Compact trade-mechanics strip showing the fields a trader actually
+ * reads off this page before placing the order:
  *
  *   stop  · target  · R/R  · time-stop  · position
  *
@@ -18,7 +17,9 @@ import { cn } from "@/lib/utils";
  * "support" request that failed becomes "percentage"), so the FE just
  * reads what's there and trusts it.
  *
- * Renders nothing when every cell would be empty (returns null).
+ * When all fields are empty (refusal gates fired upstream), renders
+ * an explicit "Risk plan unavailable" line so a missing strip can't be
+ * mistaken for "no recommended stop, free to set my own".
  */
 
 const STOP_METHOD_LABEL: Record<StopLoss["method"], string> = {

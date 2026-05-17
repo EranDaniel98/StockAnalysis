@@ -106,6 +106,13 @@ scoring:
     sell: 20
     # below sell threshold = STRONG SELL
 
+  # Minimum daily-bar history below which the recommender refuses to
+  # emit a confident Action (insufficient_history gate). 252 ≈ one
+  # trading year — the longest indicator window (200-SMA) plus warmup
+  # buffer. Recent-IPO tickers and freshly-listed instruments trip
+  # this gate until they accumulate enough history.
+  min_history_days: 252
+
 # --- Risk Management ---
 risk_management:
   position_sizing:

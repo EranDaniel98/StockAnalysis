@@ -62,7 +62,21 @@ def generate_recommendation(
 
     name = (fundamentals.get("name") if fundamentals else None) or ticker
     instrument = classify_instrument(ticker, name, fundamentals)
-    insufficient, bars_available = evaluate_history(price_data)
+    # Pull min_history_days from config so it's tunable without a code
+    # change. The classifier module's MIN_HISTORY_DAYS is the fallback
+    # when the config key is absent (e.g. test stubs that don't load
+    # the YAML). isinstance check on (int, float) — NOT a truthiness
+    # check — because MagicMock satisfies __int__ in test stubs and
+    # would otherwise quietly coerce to 1.
+    from src.scoring.instrument_classifier import MIN_HISTORY_DAYS as _DEFAULT_MIN_HISTORY
+    min_history = _DEFAULT_MIN_HISTORY
+    try:
+        cfg_value = config.get("scoring", "min_history_days", default=None)
+        if isinstance(cfg_value, (int, float)) and cfg_value > 0:
+            min_history = int(cfg_value)
+    except (AttributeError, TypeError):
+        pass
+    insufficient, bars_available = evaluate_history(price_data, min_days=min_history)
 
     # --- Validity gates ---
     # Three independent reasons to refuse a confident Action:
@@ -161,7 +175,9 @@ def generate_recommendation(
         "instrument_warning_reason": instrument.reason,
         "insufficient_history": insufficient,
         "history_bars_available": bars_available,
-        "history_bars_required": MIN_HISTORY_DAYS,
+        # Report the actual threshold used (config-tunable) so the FE
+        # warning panel can show "needs N bars, have M" honestly.
+        "history_bars_required": min_history,
     }
 
 

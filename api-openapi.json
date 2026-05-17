@@ -4396,7 +4396,11 @@
           "instrument_warning": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "leveraged_or_inverse_etf",
+                  "non_stock_instrument"
+                ]
               },
               {
                 "type": "null"

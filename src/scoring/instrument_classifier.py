@@ -29,9 +29,18 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
+
+# Closed set of warning kinds the classifier can emit. Updating this
+# Literal forces a refactor of every reader (recommender, FE) — that's
+# the point: a new warning category should be a visible PR-wide change,
+# not a stringly-typed surprise.
+InstrumentWarning = Literal[
+    "leveraged_or_inverse_etf",
+    "non_stock_instrument",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +71,34 @@ _LEVERAGE_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class InstrumentClassification:
     """Result of classifying one (ticker, name) pair.
 
-    ``warning`` is None for ordinary stocks. When set, the recommender
-    refuses to emit a confident Action and the FE renders a warning
-    panel naming the reason.
+    Invariants:
+      * ``warning is None`` iff ``reason is None`` — the two are
+        always paired or both absent.
+      * ``warning`` is one of the closed-set ``InstrumentWarning``
+        Literal values (or None).
+    Frozen so callers can't mutate the result after the fact, which
+    has bitten elsewhere when warnings were "cleared" by downstream
+    code that shouldn't have.
     """
 
     ticker: str
-    warning: Optional[str]
+    warning: Optional[InstrumentWarning]
     reason: Optional[str]
+
+    def __post_init__(self) -> None:
+        # Coupled-Optional check: warning and reason must agree on
+        # presence. Anything else means a caller built an inconsistent
+        # classification (e.g. set warning but forgot the reason).
+        if (self.warning is None) != (self.reason is None):
+            raise ValueError(
+                f"InstrumentClassification: warning and reason must both "
+                f"be set or both None — got warning={self.warning!r}, "
+                f"reason={self.reason!r}"
+            )
 
 
 def classify_instrument(
@@ -139,9 +164,10 @@ def classify_instrument(
 
 
 # Threshold below which the analyzer chain can't reliably produce
-# technical/statistical/alpha158 sub-scores. 252 ≈ one trading year;
-# the longest indicator window in technical.py is the 200-SMA + a
-# few bars of forward room.
+# technical/statistical/alpha158 sub-scores. 252 ≈ one trading year —
+# comfortably above the longest indicator window (200-SMA) with a
+# buffer for warmup bars. Recent-IPO tickers trip this gate until they
+# accumulate enough history.
 MIN_HISTORY_DAYS = 252
 
 
