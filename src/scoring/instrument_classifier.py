@@ -42,10 +42,10 @@ logger = logging.getLogger(__name__)
 # that happen to contain "Bull" or "Long" (e.g. "Bull Run Brewing").
 _LEVERAGE_PATTERNS: tuple[tuple[str, str], ...] = (
     # Multiplier markers — the strongest signal. "2X Long" / "-3X" /
-    # "3x Daily Bear" are all leveraged-ETF tells.
-    (r"\b[2-9]X\b", "leverage_multiplier"),
-    (r"\b-[1-9]X\b", "inverse_multiplier"),
-    (r"\b[2-9]x\b", "leverage_multiplier"),
+    # "1.5X Long" / "3x Daily Bear" are all leveraged-ETF tells.
+    # \d+(\.\d+)? catches integer AND fractional multipliers
+    # (Tradr's 1.5X-Long family). The leading -? catches inverse.
+    (r"-?\b\d+(\.\d+)?x\b", "leverage_multiplier"),
     # "Daily" combined with a directional word — the canonical
     # ProShares / Direxion / Tradr naming convention.
     (r"\bDaily\b.*\b(Bull|Bear|Long|Short|Inverse)\b", "daily_directional_etf"),
@@ -55,6 +55,10 @@ _LEVERAGE_PATTERNS: tuple[tuple[str, str], ...] = (
     # uses "Daily ... Bull/Bear". Catch both family conventions.
     (r"\bProShares\b.*\b(Short|Ultra)\b", "proshares_leveraged_or_inverse"),
     (r"\bDirexion Daily\b", "directional_etf"),
+    # Bare "Leveraged" / "Levered" tokens — last-resort catch-all for
+    # smaller issuers (GraniteShares, MicroSectors, etc.) that don't
+    # match the multiplier or daily-directional patterns above.
+    (r"\b(Leveraged|Levered)\b", "leveraged_token"),
 )
 
 

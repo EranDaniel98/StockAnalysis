@@ -25,13 +25,20 @@ import type { ScanResultItem } from "@/lib/api/client";
  *
  * Renders nothing when no timestamp is known (returns null).
  */
-export function EarningsCallCard({ rec }: { rec: ScanResultItem }) {
-  const announcementTs = rec.earnings_announcement_ts;
-  const callTs = rec.earnings_call_ts;
-  const winStart = rec.earnings_window_start;
-  const winEnd = rec.earnings_window_end;
+/** Guard against the yfinance "NaN" string surviving _coerce_numeric.
+ *  A NaN timestamp would render as the literal "Invalid Date" — that's
+ *  worse than rendering nothing. */
+function finiteOrNull(ts: number | null | undefined): number | null {
+  return typeof ts === "number" && Number.isFinite(ts) ? ts : null;
+}
 
-  if (!announcementTs && !callTs && !winStart) {
+export function EarningsCallCard({ rec }: { rec: ScanResultItem }) {
+  const announcementTs = finiteOrNull(rec.earnings_announcement_ts);
+  const callTs = finiteOrNull(rec.earnings_call_ts);
+  const winStart = finiteOrNull(rec.earnings_window_start);
+  const winEnd = finiteOrNull(rec.earnings_window_end);
+
+  if (announcementTs == null && callTs == null && winStart == null) {
     return null;
   }
 

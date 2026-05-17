@@ -23,6 +23,16 @@ from src.scoring.instrument_classifier import (
     "Direxion Daily Semiconductor Bear 3X Shares",
     "ProShares Short S&P 500",
     "Tradr -2X Inverse XYZ",
+    # Fractional multipliers — Tradr ships 1.5X / 1.75X products that
+    # the original integer-only regex missed.
+    "Tradr 1.5X Long NVDA Daily ETF",
+    "Tradr 1.75X Long AMZN Daily ETF",
+    # MicroSectors family — uses "3X Leveraged" naming without the
+    # "Daily" qualifier.
+    "MicroSectors FANG+ 3X Leveraged ETN",
+    # Bare "Leveraged" / "Levered" tokens — last-resort catch-all for
+    # smaller issuers.
+    "GraniteShares 2x Long Leveraged TSLA Daily ETF",
 ])
 def test_leveraged_etf_names_are_flagged(name: str) -> None:
     out = classify_instrument("XXX", name)

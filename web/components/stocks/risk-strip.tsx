@@ -149,7 +149,22 @@ export function RiskStrip({ risk }: { risk: RiskManagement | null | undefined })
     });
   }
 
-  if (cells.length === 0) return null;
+  if (cells.length === 0) {
+    // Risk plan is empty when the refusal gates fired (recommender
+    // emits risk_management={}). RecommendationWarnings above explains
+    // why — we just render the gap explicitly so a missing strip
+    // can't be mistaken for "no recommended stop, free to set my own".
+    return (
+      <div
+        className={cn(
+          "px-3 py-2 rounded border border-border bg-muted/10",
+          "font-mono text-xs text-muted-foreground",
+        )}
+      >
+        Risk plan unavailable — see warnings above.
+      </div>
+    );
+  }
 
   return (
     <div
