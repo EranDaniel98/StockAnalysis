@@ -212,7 +212,7 @@ def test_scan_db_round_trip(client: TestClient) -> None:
                 row = ScanRun(
                     strategy="swing_trading",
                     scan_timestamp=datetime.now(timezone.utc),
-                    universe_label=run_id,
+                    run_id=run_id,
                     budget=10_000.0,
                     n_candidates=1,
                     recommendations=[seed_row],
@@ -336,7 +336,7 @@ def test_dashboard_round_trip(client: TestClient) -> None:
                     # real swing_trading scan that's already in the DB.
                     # The dashboard query orders by scan_timestamp desc.
                     scan_timestamp=datetime(2099, 1, 1, tzinfo=timezone.utc),
-                    universe_label=run_id,
+                    run_id=run_id,
                     budget=None,
                     n_candidates=1,
                     recommendations=[seed_rec],
@@ -414,7 +414,7 @@ def _seed_scan_runs(rows: list[tuple[str, str, "datetime", list[dict]]]) -> list
                     row = ScanRun(
                         strategy=strategy,
                         scan_timestamp=ts,
-                        universe_label=run_id,
+                        run_id=run_id,
                         budget=None,
                         n_candidates=len(recs),
                         recommendations=recs,
@@ -426,12 +426,12 @@ def _seed_scan_runs(rows: list[tuple[str, str, "datetime", list[dict]]]) -> list
                 for obj in s.new:
                     pass
             # Re-query for the ids we just wrote: easier than tracking each
-            # refresh, and keyed by universe_label which we control.
+            # refresh, and keyed by run_id which we control.
             async with Session() as s:
                 from sqlalchemy import select as sql_select
                 rids = {r[1] for r in rows}
                 res = await s.execute(
-                    sql_select(ScanRun.id).where(ScanRun.universe_label.in_(rids))
+                    sql_select(ScanRun.id).where(ScanRun.run_id.in_(rids))
                 )
                 ids = [r[0] for r in res.all()]
             return ids

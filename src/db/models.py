@@ -230,7 +230,11 @@ class ScanRun(Base):
     scan_timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
-    universe_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    # UUID minted at scan time. Renamed from ``universe_label`` in
+    # migration 0012 — the original name conflated this UUID with the
+    # semantic universe descriptor that backtest_runs / ic_diagnostics
+    # use. Unique-constrained so a duplicate write fails loud at the DB.
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     budget: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     n_candidates: Mapped[int] = mapped_column(Integer, nullable=False)
 

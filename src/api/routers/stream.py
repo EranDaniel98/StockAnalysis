@@ -247,7 +247,7 @@ async def _scan_event_stream(
             row = ScanRun(
                 strategy=strategy_name,
                 scan_timestamp=scan_ts,
-                universe_label=run_id,
+                run_id=run_id,
                 budget=budget,
                 n_candidates=len(results),
                 recommendations=[r.model_dump() for r in results],

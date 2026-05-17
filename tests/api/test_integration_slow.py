@@ -117,7 +117,7 @@ async def _delete_scan_run(run_id: str) -> None:
     try:
         Session = async_sessionmaker(engine, expire_on_commit=False)
         async with Session() as s:
-            await s.execute(delete(ScanRun).where(ScanRun.universe_label == run_id))
+            await s.execute(delete(ScanRun).where(ScanRun.run_id == run_id))
             await s.commit()
     finally:
         await engine.dispose()

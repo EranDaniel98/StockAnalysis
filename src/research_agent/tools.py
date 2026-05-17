@@ -410,7 +410,7 @@ async def _tool_list_scan_runs(
         "n_returned": len(rows),
         "runs": [
             {
-                "run_id": r.universe_label,
+                "run_id": r.run_id,
                 "strategy": r.strategy,
                 "scan_timestamp": r.scan_timestamp.isoformat(),
                 "n_candidates": r.n_candidates,

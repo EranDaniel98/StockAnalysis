@@ -70,7 +70,7 @@ async def trigger_scan(
     row = ScanRun(
         strategy=body.strategy,
         scan_timestamp=scan_ts,
-        universe_label=run_id,
+        run_id=run_id,
         budget=body.budget,
         n_candidates=len(results),
         recommendations=[r.model_dump() for r in results],
@@ -105,7 +105,7 @@ async def list_scans(
         top = r.recommendations[0] if r.recommendations else None
         summaries.append(
             ScanSummary(
-                run_id=r.universe_label,
+                run_id=r.run_id,
                 strategy=r.strategy,
                 scan_timestamp=r.scan_timestamp,
                 n_candidates=r.n_candidates,
@@ -208,7 +208,7 @@ async def latest_buys(
                 confidence=str(rec.get("confidence") or ""),
                 strategy=run.strategy,
                 scan_timestamp=run.scan_timestamp,
-                run_id=run.universe_label,
+                run_id=run.run_id,
                 consensus_count=len(entry["strategies"]),
                 consensus_strategies=sorted(set(entry["strategies"])),
                 earnings_announcement_ts=rec.get("earnings_announcement_ts"),
@@ -229,7 +229,7 @@ async def get_scan(
 ) -> ScanResponse:
     stmt = (
         select(ScanRun)
-        .where(ScanRun.universe_label == run_id)
+        .where(ScanRun.run_id == run_id)
         .order_by(desc(ScanRun.scan_timestamp))
         .limit(1)
     )
@@ -239,7 +239,7 @@ async def get_scan(
 
     results = [ScanResultItem.model_validate(r) for r in row.recommendations]
     return ScanResponse(
-        run_id=row.universe_label,
+        run_id=row.run_id,
         strategy=row.strategy,
         scan_timestamp=row.scan_timestamp,
         n_candidates=row.n_candidates,

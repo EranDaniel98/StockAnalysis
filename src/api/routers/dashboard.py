@@ -140,7 +140,7 @@ async def get_dashboard(
         last_universe = None
         if row is not None:
             last_scan_at = row.scan_timestamp
-            last_run_id = row.universe_label
+            last_run_id = row.run_id
             recs = row.recommendations or []
             buys = [
                 r for r in recs if r.get("action") in ("BUY", "STRONG BUY")

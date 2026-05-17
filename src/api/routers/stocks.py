@@ -121,7 +121,7 @@ async def get_stock_detail(
     return StockDetail(
         ticker=tu,
         latest_recommendation=ScanResultItem.model_validate(rec) if rec else None,
-        scan_run_id=matched_row.universe_label if matched_row else None,
+        scan_run_id=matched_row.run_id if matched_row else None,
         scan_strategy=matched_row.strategy if matched_row else None,
         scan_timestamp=matched_row.scan_timestamp if matched_row else None,
         history=history,
