@@ -24,6 +24,7 @@ import {
   RecommendationWarnings,
   actionLabelForGate,
 } from "@/components/stocks/recommendation-warnings";
+import { RiskStrip } from "@/components/stocks/risk-strip";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,34 +88,6 @@ function numFromRiskField(v: unknown): number | null {
     return v.price;
   }
   return null;
-}
-
-function prettifyKey(k: string): string {
-  return k
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatRiskValue(key: string, v: unknown): string {
-  const n = num(v);
-  const k = key.toLowerCase();
-  if (n !== null) {
-    if (k.includes("price") || k.includes("value") || k.includes("dollars")) {
-      return fmtUSD(n);
-    }
-    if (
-      k.includes("shares") ||
-      k.includes("mult") ||
-      k.includes("ratio") ||
-      k.includes("pct")
-    ) {
-      return fmtNumber(n, 2);
-    }
-    return fmtNumber(n, 2);
-  }
-  if (typeof v === "string") return v;
-  if (typeof v === "boolean") return v ? "true" : "false";
-  return String(v);
 }
 
 export default function StockDetailPage({
@@ -360,7 +333,7 @@ function StockDetail({
 
       {rec ? <RecommendationWarnings rec={rec} /> : null}
 
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 mb-3">
         <ScoreboardTile
           label="Composite Score"
           tooltip="Strategy-weighted blend of all sub-scores, 0-100. ≥70 = STRONG BUY, 50-70 = HOLD, ≤30 = STRONG SELL. Each strategy weighs the sub-scores differently — see /help → Strategies."
@@ -447,7 +420,9 @@ function StockDetail({
         />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4 mt-4">
+      {rec ? <RiskStrip risk={risk} /> : null}
+
+      <div className="grid lg:grid-cols-3 gap-4 mt-3">
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader>
@@ -473,15 +448,33 @@ function StockDetail({
             </CardContent>
           </Card>
 
-          {rec && rec.sub_scores && Object.keys(rec.sub_scores).length > 0 ? (
+          {rec ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-                  Sub-score breakdown
+                  Why this trade
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <SubScoreBars sub={rec.sub_scores} />
+                {rec.reasoning && rec.reasoning.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {rec.reasoning.map((r, i) => (
+                      <li
+                        key={i}
+                        className="text-sm text-foreground font-mono leading-relaxed flex gap-2"
+                      >
+                        <span className="text-muted-foreground select-none">
+                          {"→"}
+                        </span>
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground text-sm font-mono">
+                    No engine commentary.
+                  </p>
+                )}
               </CardContent>
             </Card>
           ) : null}
@@ -501,45 +494,18 @@ function StockDetail({
                 score={rec.composite_score}
                 timeStop={timeStop}
               />
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-                    Reasoning
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {rec.reasoning && rec.reasoning.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {rec.reasoning.map((r, i) => (
-                        <li
-                          key={i}
-                          className="text-sm text-foreground font-mono leading-relaxed flex gap-2"
-                        >
-                          <span className="text-muted-foreground select-none">
-                            {"→"}
-                          </span>
-                          <span>{r}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted-foreground text-sm font-mono">
-                      No engine commentary.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-                    Risk management
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <RiskTable risk={risk} />
-                </CardContent>
-              </Card>
+              {rec.sub_scores && Object.keys(rec.sub_scores).length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                      Sub-score breakdown
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <SubScoreBars sub={rec.sub_scores} />
+                  </CardContent>
+                </Card>
+              ) : null}
             </>
           ) : (
             <Card>
@@ -752,53 +718,3 @@ function SubScoreBars({ sub }: { sub: Record<string, number | undefined> }) {
   );
 }
 
-function flattenRiskRows(risk: RiskMgmt): Array<{ label: string; value: string }> {
-  const out: Array<{ label: string; value: string }> = [];
-  for (const [k, v] of Object.entries(risk)) {
-    if (v === null || v === undefined) continue;
-    if (isPlainObject(v)) {
-      // One level of nesting only — explode each primitive child as its
-      // own row with the parent key prefixed (e.g. "Stop Loss · Price").
-      for (const [childKey, childVal] of Object.entries(v)) {
-        if (childVal === null || childVal === undefined) continue;
-        if (isPlainObject(childVal) || Array.isArray(childVal)) continue;
-        out.push({
-          label: `${prettifyKey(k)} · ${prettifyKey(childKey)}`,
-          value: formatRiskValue(childKey, childVal),
-        });
-      }
-      continue;
-    }
-    if (Array.isArray(v)) continue;
-    out.push({ label: prettifyKey(k), value: formatRiskValue(k, v) });
-  }
-  return out;
-}
-
-function RiskTable({ risk }: { risk: RiskMgmt }) {
-  const rows = flattenRiskRows(risk);
-  if (rows.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm font-mono">
-        No risk fields.
-      </p>
-    );
-  }
-  return (
-    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-      {rows.map(({ label, value }) => (
-        <div
-          key={label}
-          className="col-span-2 grid grid-cols-2 items-center border-b border-border last:border-b-0 pb-1.5"
-        >
-          <dt className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-            {label}
-          </dt>
-          <dd className="font-mono tabular-nums text-xs text-foreground text-right">
-            {value}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
