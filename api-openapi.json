@@ -4129,6 +4129,50 @@
               }
             ],
             "title": "History Bars Required"
+          },
+          "earnings_announcement_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Announcement Ts"
+          },
+          "earnings_call_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Call Ts"
+          },
+          "earnings_window_start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Window Start"
+          },
+          "earnings_window_end": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Window End"
           }
         },
         "type": "object",

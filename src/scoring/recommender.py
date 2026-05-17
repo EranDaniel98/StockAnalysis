@@ -128,6 +128,23 @@ def generate_recommendation(
         "sector": (fundamentals.get("sector") if fundamentals else None) or "Unknown",
         "industry": (fundamentals.get("industry") if fundamentals else None) or "Unknown",
         "market_cap": fundamentals.get("market_cap") if fundamentals else None,
+        # Earnings calendar — unix epoch seconds (UTC). The FE decides
+        # the display timezone. earnings_call_ts is typically 1 h
+        # after earnings_announcement_ts; the window fields are only
+        # set when yfinance has an approximate date range rather than
+        # an exact timestamp.
+        "earnings_announcement_ts": (
+            fundamentals.get("earnings_announcement_ts") if fundamentals else None
+        ),
+        "earnings_call_ts": (
+            fundamentals.get("earnings_call_ts") if fundamentals else None
+        ),
+        "earnings_window_start": (
+            fundamentals.get("earnings_window_start") if fundamentals else None
+        ),
+        "earnings_window_end": (
+            fundamentals.get("earnings_window_end") if fundamentals else None
+        ),
         # Engine-level validity flags surfaced for downstream gates
         # (paper-trade, backtest, web UI). The FE renders a warning
         # whenever any of these flag a problem.

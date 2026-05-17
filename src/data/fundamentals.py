@@ -147,6 +147,30 @@ class FundamentalsFetcher:
                 "target_low_price": _coerce_numeric(info.get("targetLowPrice")),
                 "recommendation": info.get("recommendationKey"),  # string label
                 "num_analyst_opinions": _coerce_numeric(info.get("numberOfAnalystOpinions")),
+
+                # Earnings calendar — UNIX EPOCH SECONDS, UTC.
+                # earnings_announcement_ts: when the EPS/revenue release
+                #   drops, typically 16:00 ET ("after market close").
+                # earnings_call_ts: when the management Q&A conference
+                #   call starts, typically 17:00 ET (one hour after the
+                #   release). This is the call where forward guidance
+                #   and analyst questions move the stock.
+                # earnings_window_start/end: yfinance sometimes only
+                #   knows the day range (e.g. "between Jul 28-Aug 1");
+                #   when set, the FE should render "between X and Y"
+                #   instead of a single timestamp.
+                "earnings_announcement_ts": _coerce_numeric(
+                    info.get("earningsTimestamp"),
+                ),
+                "earnings_call_ts": _coerce_numeric(
+                    info.get("earningsCallTimestampStart"),
+                ),
+                "earnings_window_start": _coerce_numeric(
+                    info.get("earningsTimestampStart"),
+                ),
+                "earnings_window_end": _coerce_numeric(
+                    info.get("earningsTimestampEnd"),
+                ),
             }
 
             self.cache.set(cache_key, fundamentals)

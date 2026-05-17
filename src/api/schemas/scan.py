@@ -82,6 +82,13 @@ class ScanResultItem(BaseModel):
     insufficient_history: bool = False
     history_bars_available: Optional[int] = None
     history_bars_required: Optional[int] = None
+    # Earnings calendar (unix epoch seconds, UTC). FE formats per the
+    # user's locale; earnings_call_ts is the management conference
+    # call (~1 h after the post-close release).
+    earnings_announcement_ts: Optional[float] = None
+    earnings_call_ts: Optional[float] = None
+    earnings_window_start: Optional[float] = None
+    earnings_window_end: Optional[float] = None
 
 
 class ScanResponse(BaseModel):

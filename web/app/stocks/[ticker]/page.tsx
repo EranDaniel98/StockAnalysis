@@ -18,6 +18,7 @@ import {
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { EarningsCallCard } from "@/components/stocks/earnings-call-card";
 import { MyPositionCard } from "@/components/stocks/my-position-card";
 import {
   RecommendationWarnings,
@@ -489,6 +490,7 @@ function StockDetail({
         <div className="lg:col-span-1 space-y-4">
           {rec ? (
             <>
+              <EarningsCallCard rec={rec} />
               <MyPositionCard
                 ticker={ticker}
                 mark={lastClose ?? entry}
