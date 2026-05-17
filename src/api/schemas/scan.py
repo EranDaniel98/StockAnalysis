@@ -109,3 +109,36 @@ class ScanSummary(BaseModel):
     n_candidates: int
     top_ticker: str | None = None
     top_score: float | None = None
+
+
+class BuySignal(BaseModel):
+    """One ticker with a current BUY+ signal from the latest scan per strategy.
+
+    Deduped across strategies: each ticker appears once, attributed to the
+    strategy that produced its highest composite_score. ``consensus_count``
+    counts how many strategies' latest runs all flagged this ticker as
+    BUY+ — high consensus = stronger conviction.
+    """
+
+    ticker: str
+    name: str = ""
+    sector: str = "Unknown"
+    industry: str = "Unknown"
+    market_cap: Optional[float] = None
+
+    action: Literal["STRONG BUY", "BUY"]
+    composite_score: float = Field(ge=0, le=100)
+    confidence: str
+
+    # Provenance: which scan this row came from.
+    strategy: str
+    scan_timestamp: datetime
+    run_id: str
+
+    # Cross-strategy agreement on this ticker.
+    consensus_count: int = Field(ge=1)
+    consensus_strategies: list[str] = Field(default_factory=list)
+
+    # Earnings calendar (passthrough — see ScanResultItem).
+    earnings_announcement_ts: Optional[float] = None
+    earnings_call_ts: Optional[float] = None

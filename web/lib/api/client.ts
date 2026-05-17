@@ -79,6 +79,7 @@ export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
 export type ScanSummary = Schemas["ScanSummary"];
 export type ScanResultItem = Schemas["ScanResultItem"];
+export type BuySignal = Schemas["BuySignal"];
 
 export type BacktestRequest = Schemas["BacktestRequest"];
 export type BacktestResponse = Schemas["BacktestResponse"];
@@ -164,6 +165,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    latestBuys: (params?: { strongOnly?: boolean }) => {
+      const q = new URLSearchParams();
+      if (params?.strongOnly) q.set("strong_only", "true");
+      const qs = q.toString();
+      return request<BuySignal[]>(
+        `/api/scans/latest-buys${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 
   backtests: {

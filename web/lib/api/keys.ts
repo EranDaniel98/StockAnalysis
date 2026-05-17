@@ -21,6 +21,8 @@ export const qk = {
     list: (params?: { strategy?: string; limit?: number }) =>
       ["scans", "list", params ?? {}] as const,
     detail: (runId: string) => ["scans", "detail", runId] as const,
+    latestBuys: (params?: { strongOnly?: boolean }) =>
+      ["scans", "latest-buys", params ?? {}] as const,
   },
 
   backtests: {

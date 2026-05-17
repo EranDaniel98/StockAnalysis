@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_config, get_db_session
 from src.api.schemas.scan import (
+    BuySignal,
     ScanRequest,
     ScanResponse,
     ScanResultItem,
@@ -113,6 +114,101 @@ async def list_scans(
             )
         )
     return summaries
+
+
+_BUY_ACTIONS = ("STRONG BUY", "BUY")
+_STRONG_BUY_ONLY = ("STRONG BUY",)
+
+
+@router.get("/latest-buys", response_model=list[BuySignal])
+async def latest_buys(
+    strong_only: bool = Query(
+        default=False,
+        description="When true, returns only STRONG BUY signals (filters out plain BUY).",
+    ),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[BuySignal]:
+    """Union of BUY+ rows from the latest scan per strategy.
+
+    Pulls the most-recent scan_run per strategy, filters each to BUY+ rows,
+    and deduplicates by ticker — attributing each ticker to the strategy
+    that produced its highest composite_score. ``consensus_count`` reports
+    how many strategies' latest runs agreed on the BUY+ rating for that
+    ticker, so the FE can highlight cross-strategy conviction.
+
+    Returns rows sorted by composite_score desc, consensus_count desc as
+    tiebreak. Empty list when no recent scan has any BUY+ rows (not an
+    error — the system simply isn't ringing the bell right now).
+    """
+    allowed = _STRONG_BUY_ONLY if strong_only else _BUY_ACTIONS
+
+    # Pull recent scans; 50 is comfortably above the number of strategies
+    # configured today (~6) — enough to capture one fresh run per strategy
+    # even if one strategy hasn't been re-scanned in a while.
+    stmt = select(ScanRun).order_by(desc(ScanRun.scan_timestamp)).limit(50)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    latest_per_strategy: list[ScanRun] = []
+    seen_strategies: set[str] = set()
+    for r in rows:
+        if r.strategy in seen_strategies:
+            continue
+        seen_strategies.add(r.strategy)
+        latest_per_strategy.append(r)
+
+    bucket: dict[str, dict] = {}
+    for run in latest_per_strategy:
+        for rec in run.recommendations or []:
+            if rec.get("action") not in allowed:
+                continue
+            ticker = rec.get("ticker")
+            if not ticker:
+                continue
+            score = float(rec.get("composite_score") or 0.0)
+            entry = bucket.setdefault(
+                ticker,
+                {
+                    "ticker": ticker,
+                    "strategies": [],
+                    "best_score": -1.0,
+                    "best_rec": None,
+                    "best_run": None,
+                },
+            )
+            entry["strategies"].append(run.strategy)
+            if score > entry["best_score"]:
+                entry["best_score"] = score
+                entry["best_rec"] = rec
+                entry["best_run"] = run
+
+    out: list[BuySignal] = []
+    for ticker, entry in bucket.items():
+        rec = entry["best_rec"]
+        run = entry["best_run"]
+        out.append(
+            BuySignal(
+                ticker=ticker,
+                name=rec.get("name") or "",
+                sector=rec.get("sector") or "Unknown",
+                industry=rec.get("industry") or "Unknown",
+                market_cap=rec.get("market_cap"),
+                action=rec["action"],
+                composite_score=float(rec["composite_score"]),
+                confidence=str(rec.get("confidence") or ""),
+                strategy=run.strategy,
+                scan_timestamp=run.scan_timestamp,
+                run_id=run.universe_label,
+                consensus_count=len(entry["strategies"]),
+                consensus_strategies=sorted(set(entry["strategies"])),
+                earnings_announcement_ts=rec.get("earnings_announcement_ts"),
+                earnings_call_ts=rec.get("earnings_call_ts"),
+            )
+        )
+
+    out.sort(
+        key=lambda b: (-b.composite_score, -b.consensus_count, b.ticker),
+    )
+    return out
 
 
 @router.get("/{run_id}", response_model=ScanResponse)

@@ -19,6 +19,7 @@ import {
   Search,
   Sparkles,
   Target,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 
@@ -65,6 +66,12 @@ const NAV: NavLink[] = [
     label: "Scan",
     icon: Search,
     description: "Trigger a market scan",
+  },
+  {
+    href: "/buy-signals",
+    label: "BUY now",
+    icon: TrendingUp,
+    description: "Live BUY+ signals across every strategy",
   },
   {
     href: "/backtests",

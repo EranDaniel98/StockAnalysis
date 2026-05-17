@@ -153,6 +153,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scans/latest-buys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest Buys
+         * @description Union of BUY+ rows from the latest scan per strategy.
+         *
+         *     Pulls the most-recent scan_run per strategy, filters each to BUY+ rows,
+         *     and deduplicates by ticker — attributing each ticker to the strategy
+         *     that produced its highest composite_score. ``consensus_count`` reports
+         *     how many strategies' latest runs agreed on the BUY+ rating for that
+         *     ticker, so the FE can highlight cross-strategy conviction.
+         *
+         *     Returns rows sorted by composite_score desc, consensus_count desc as
+         *     tiebreak. Empty list when no recent scan has any BUY+ rows (not an
+         *     error — the system simply isn't ringing the bell right now).
+         */
+        get: operations["latest_buys_api_scans_latest_buys_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scans/{run_id}": {
         parameters: {
             query?: never;
@@ -983,6 +1013,62 @@ export interface components {
             oos_total_return_pct?: number | null;
             /** Oos Max Drawdown Pct */
             oos_max_drawdown_pct?: number | null;
+        };
+        /**
+         * BuySignal
+         * @description One ticker with a current BUY+ signal from the latest scan per strategy.
+         *
+         *     Deduped across strategies: each ticker appears once, attributed to the
+         *     strategy that produced its highest composite_score. ``consensus_count``
+         *     counts how many strategies' latest runs all flagged this ticker as
+         *     BUY+ — high consensus = stronger conviction.
+         */
+        BuySignal: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Sector
+             * @default Unknown
+             */
+            sector: string;
+            /**
+             * Industry
+             * @default Unknown
+             */
+            industry: string;
+            /** Market Cap */
+            market_cap?: number | null;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "STRONG BUY" | "BUY";
+            /** Composite Score */
+            composite_score: number;
+            /** Confidence */
+            confidence: string;
+            /** Strategy */
+            strategy: string;
+            /**
+             * Scan Timestamp
+             * Format: date-time
+             */
+            scan_timestamp: string;
+            /** Run Id */
+            run_id: string;
+            /** Consensus Count */
+            consensus_count: number;
+            /** Consensus Strategies */
+            consensus_strategies?: string[];
+            /** Earnings Announcement Ts */
+            earnings_announcement_ts?: number | null;
+            /** Earnings Call Ts */
+            earnings_call_ts?: number | null;
         };
         /** CalibrationBucket */
         CalibrationBucket: {
@@ -2257,6 +2343,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_buys_api_scans_latest_buys_get: {
+        parameters: {
+            query?: {
+                /** @description When true, returns only STRONG BUY signals (filters out plain BUY). */
+                strong_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
                 };
             };
             /** @description Validation Error */

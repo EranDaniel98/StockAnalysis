@@ -295,6 +295,56 @@
         }
       }
     },
+    "/api/scans/latest-buys": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Latest Buys",
+        "description": "Union of BUY+ rows from the latest scan per strategy.\n\nPulls the most-recent scan_run per strategy, filters each to BUY+ rows,\nand deduplicates by ticker \u2014 attributing each ticker to the strategy\nthat produced its highest composite_score. ``consensus_count`` reports\nhow many strategies' latest runs agreed on the BUY+ rating for that\nticker, so the FE can highlight cross-strategy conviction.\n\nReturns rows sorted by composite_score desc, consensus_count desc as\ntiebreak. Empty list when no recent scan has any BUY+ rows (not an\nerror \u2014 the system simply isn't ringing the bell right now).",
+        "operationId": "latest_buys_api_scans_latest_buys_get",
+        "parameters": [
+          {
+            "name": "strong_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "When true, returns only STRONG BUY signals (filters out plain BUY).",
+              "default": false,
+              "title": "Strong Only"
+            },
+            "description": "When true, returns only STRONG BUY signals (filters out plain BUY)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BuySignal"
+                  },
+                  "title": "Response Latest Buys Api Scans Latest Buys Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scans/{run_id}": {
       "get": {
         "tags": [
@@ -2208,6 +2258,118 @@
           "created_at"
         ],
         "title": "BacktestSummary"
+      },
+      "BuySignal": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "sector": {
+            "type": "string",
+            "title": "Sector",
+            "default": "Unknown"
+          },
+          "industry": {
+            "type": "string",
+            "title": "Industry",
+            "default": "Unknown"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "STRONG BUY",
+              "BUY"
+            ],
+            "title": "Action"
+          },
+          "composite_score": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Composite Score"
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "scan_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scan Timestamp"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "consensus_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Consensus Count"
+          },
+          "consensus_strategies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Consensus Strategies"
+          },
+          "earnings_announcement_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Announcement Ts"
+          },
+          "earnings_call_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Call Ts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "action",
+          "composite_score",
+          "confidence",
+          "strategy",
+          "scan_timestamp",
+          "run_id",
+          "consensus_count"
+        ],
+        "title": "BuySignal",
+        "description": "One ticker with a current BUY+ signal from the latest scan per strategy.\n\nDeduped across strategies: each ticker appears once, attributed to the\nstrategy that produced its highest composite_score. ``consensus_count``\ncounts how many strategies' latest runs all flagged this ticker as\nBUY+ \u2014 high consensus = stronger conviction."
       },
       "CalibrationBucket": {
         "properties": {
