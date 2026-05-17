@@ -142,19 +142,19 @@ async def latest_buys(
     """
     allowed = _STRONG_BUY_ONLY if strong_only else _BUY_ACTIONS
 
-    # Pull recent scans; 50 is comfortably above the number of strategies
-    # configured today (~6) — enough to capture one fresh run per strategy
-    # even if one strategy hasn't been re-scanned in a while.
-    stmt = select(ScanRun).order_by(desc(ScanRun.scan_timestamp)).limit(50)
-    rows = (await db.execute(stmt)).scalars().all()
-
-    latest_per_strategy: list[ScanRun] = []
-    seen_strategies: set[str] = set()
-    for r in rows:
-        if r.strategy in seen_strategies:
-            continue
-        seen_strategies.add(r.strategy)
-        latest_per_strategy.append(r)
+    # SELECT DISTINCT ON (strategy) ... ORDER BY strategy, scan_timestamp DESC
+    # — one row per strategy, the most recent. Backed by the composite
+    # index ix_scan_runs_strategy_ts_desc from alembic 0011, so this is
+    # an index-only skip scan, O(strategies) work. Replaces the previous
+    # "fetch last 50, dedupe in Python" pattern which could silently drop
+    # a strategy if another strategy's burst of rescans monopolized the
+    # top 50.
+    stmt = (
+        select(ScanRun)
+        .distinct(ScanRun.strategy)
+        .order_by(ScanRun.strategy, desc(ScanRun.scan_timestamp))
+    )
+    latest_per_strategy = (await db.execute(stmt)).scalars().all()
 
     bucket: dict[str, dict] = {}
     for run in latest_per_strategy:

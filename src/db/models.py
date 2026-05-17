@@ -221,7 +221,12 @@ class ScanRun(Base):
     __tablename__ = "scan_runs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    strategy: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # The composite index on (strategy, scan_timestamp DESC) is defined
+    # in alembic migration 0011 — not as a per-column index here, because
+    # SQLAlchemy can't express the per-column DESC sort directly on
+    # mapped_column index= flags. Single-column scan_timestamp index is
+    # still useful for non-strategy-filtered time-range queries.
+    strategy: Mapped[str] = mapped_column(String(64), nullable=False)
     scan_timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
