@@ -75,9 +75,14 @@ def generate_recommendation(
     #      or low-coverage ticker) so technical / statistical /
     #      alpha158 couldn't produce reliable sub-scores.
     #
-    # When ANY gate fires we set ``action="HOLD"``/``confidence="None"``
-    # and emit the per-gate flag so the FE can render a Data-Quality
-    # warning panel above the action badge.
+    # Gate priority: the new instrument/history gates take precedence
+    # over the engine-validity gate so the FE can distinguish "we refuse
+    # to score this kind of input" from "we ran the engine but it's
+    # unsure".
+    #   new_gates_failed  → action=HOLD, confidence="None"
+    #   not score_valid   → action=HOLD, confidence="Low"  (legacy shape)
+    # Each gate also emits its own boolean / string flag so the FE
+    # Data-Quality warning panel can name the specific reason.
     score_valid = bool(score_result.get("score_valid", True))
     new_gates_failed = (instrument.warning is not None) or insufficient
     gates_failed = (not score_valid) or new_gates_failed
