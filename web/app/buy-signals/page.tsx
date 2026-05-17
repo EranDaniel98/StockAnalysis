@@ -1,14 +1,16 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Calendar } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpRight, Calendar, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -19,12 +21,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type BuySignal } from "@/lib/api/client";
+import {
+  api,
+  type BuySignal,
+  type SanityCheck,
+} from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type GradeFilter = "ALL" | "STRONG_ONLY";
+
+// Maps a sanity-check verdict to its badge palette. REJECT borrows the
+// bearish tone so it scans the same way as a SELL elsewhere on the
+// platform; CAUTION uses neutral so the user spots "look closer"
+// without jumping to "abort". OK is muted on purpose — a successful
+// sanity check shouldn't outshout the composite_score number, the
+// asymmetry of the check means OK is the absence of a problem, not a
+// new positive signal.
+const SANITY_VERDICT_CLASS: Record<SanityCheck["verdict"], string> = {
+  OK: "bg-bullish/10 text-bullish/80 border-bullish/30",
+  CAUTION: "bg-neutral/10 text-neutral border-neutral/40",
+  REJECT: "bg-bearish/15 text-bearish border-bearish/40",
+};
 
 function scoreToneClass(score: number): string {
   if (score >= 70) return "text-bullish";
@@ -69,11 +88,49 @@ export default function BuySignalsPage() {
   // The UI lists every sub-score the latest scans emit; the user types
   // a number (0-100) into the field to require that sub-score >= N.
   const [subMinima, setSubMinima] = useState<Record<string, string>>({});
+  // Hide rows whose sanity check landed on REJECT. Default off: even a
+  // REJECT row is useful to see ("why did this fail?"), the user opts
+  // in when they want the trade-ready slice only.
+  const [hideRejected, setHideRejected] = useState(false);
+
+  const qc = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: qk.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
     queryFn: () =>
       api.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
+  });
+
+  // Pre-trade sanity check. Mocked path is default until the user has
+  // an ANTHROPIC_API_KEY wired — the mock is rule-based and free, lets
+  // the UI light up without paying per call.
+  const sanityCheckMutation = useMutation({
+    mutationFn: () =>
+      api.scans.triggerSanityCheck({
+        strong_only: grade === "STRONG_ONLY",
+        mode: "auto",
+        force_refresh: false,
+      }),
+    onSuccess: (rows) => {
+      const checked = rows.filter((r) => r.sanity_check !== null).length;
+      const rejected = rows.filter(
+        (r) => r.sanity_check?.verdict === "REJECT",
+      ).length;
+      const caution = rows.filter(
+        (r) => r.sanity_check?.verdict === "CAUTION",
+      ).length;
+      const tail =
+        rejected > 0 || caution > 0
+          ? ` · ${rejected} REJECT / ${caution} CAUTION`
+          : "";
+      toast.success(`Sanity check complete: ${checked} ticker(s)${tail}`);
+      qc.invalidateQueries({ queryKey: qk.scans.all });
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : "Sanity check failed",
+      );
+    },
   });
 
   const rawRows = data ?? [];
@@ -95,19 +152,24 @@ export default function BuySignalsPage() {
   // its sub_scores[key] exists AND meets the minimum. Missing keys are
   // treated as failures — "I want alpha158 ≥ 70" means "ticker must
   // have a measured alpha158 of at least 70", not "no info is fine".
+  // ``hideRejected`` additionally drops rows whose sanity check landed
+  // on REJECT (unchecked rows pass — REJECT is an explicit verdict).
   const rows = useMemo(() => {
     const activeFilters = Object.entries(subMinima)
       .map(([k, v]) => [k, parseFloat(v)] as const)
       .filter(([, v]) => Number.isFinite(v) && v > 0);
-    if (activeFilters.length === 0) return rawRows;
     return rawRows.filter((r) => {
+      if (hideRejected && r.sanity_check?.verdict === "REJECT") {
+        return false;
+      }
+      if (activeFilters.length === 0) return true;
       const subs = r.sub_scores ?? {};
       return activeFilters.every(([k, min]) => {
         const v = subs[k];
         return typeof v === "number" && Number.isFinite(v) && v >= min;
       });
     });
-  }, [rawRows, subMinima]);
+  }, [rawRows, subMinima, hideRejected]);
 
   const stats = useMemo(() => {
     const strong = rows.filter((r) => r.action === "STRONG BUY").length;
@@ -195,7 +257,7 @@ export default function BuySignalsPage() {
         />
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2 flex-wrap">
         <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
           Filter
         </span>
@@ -223,6 +285,35 @@ export default function BuySignalsPage() {
         >
           STRONG BUY only
         </button>
+        <button
+          type="button"
+          onClick={() => setHideRejected((prev) => !prev)}
+          className={cn(
+            "px-2 py-1 text-xs font-mono uppercase tracking-wider rounded border transition-colors",
+            hideRejected
+              ? "border-bearish text-bearish bg-bearish/10"
+              : "border-border text-muted-foreground hover:text-foreground",
+          )}
+          title="Hide rows where the AI sanity check returned REJECT"
+        >
+          Hide REJECTed
+        </button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => sanityCheckMutation.mutate()}
+          disabled={sanityCheckMutation.isPending || rawRows.length === 0}
+          className="h-7 px-2 font-mono text-[10px] tracking-wider uppercase gap-1"
+          title="Run a pre-trade AI sanity check over the current BUY signal set. Looks for obvious one-off catalysts that explain the move."
+        >
+          {sanityCheckMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+          ) : (
+            <Sparkles className="h-3 w-3" aria-hidden />
+          )}
+          {sanityCheckMutation.isPending ? "Checking…" : "Run sanity check"}
+        </Button>
         {!isLoading ? (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
             {rows.length}
@@ -328,6 +419,7 @@ function BuySignalTable({ rows }: { rows: BuySignal[] }) {
           <TableHead className="text-right w-32">Consensus</TableHead>
           <TableHead className="w-28">Last scan</TableHead>
           <TableHead className="w-36">Earnings</TableHead>
+          <TableHead className="w-28">Sanity</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -440,11 +532,61 @@ function BuySignalTable({ rows }: { rows: BuySignal[] }) {
                   </span>
                 )}
               </TableCell>
+              <TableCell>
+                <SanityBadge check={r.sanity_check ?? null} />
+              </TableCell>
             </TableRow>
           );
         })}
       </TableBody>
     </Table>
+  );
+}
+
+function SanityBadge({ check }: { check: SanityCheck | null }) {
+  if (check === null) {
+    return (
+      <span
+        className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground/50"
+        title="No AI sanity check has run for this ticker on this scan_run yet. Use the toolbar button to trigger one."
+      >
+        —
+      </span>
+    );
+  }
+  // Compose the hover summary: reason headline, then the discovered
+  // catalysts (if any), then provenance so the user can tell at a
+  // glance whether this is a real model verdict or the rule-based
+  // mock. The title attr is the lowest-friction surface — no extra
+  // shadcn component install, works on every platform.
+  const provenance = check.mocked
+    ? `mock (${check.model_used})`
+    : check.model_used;
+  const catalystList = check.catalysts_found ?? [];
+  const catalysts = catalystList.length
+    ? `\nCatalysts: ${catalystList.join(", ")}`
+    : "";
+  const confidencePct = Math.round(check.confidence * 100);
+  const summary =
+    `${check.verdict}: ${check.reason}` +
+    catalysts +
+    `\n${confidencePct}% confidence · ${provenance}`;
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-mono text-[10px] tracking-wider cursor-help",
+        SANITY_VERDICT_CLASS[check.verdict],
+      )}
+      title={summary}
+    >
+      {check.verdict}
+      {check.mocked ? (
+        <span className="ml-1 opacity-60" aria-label="mock verdict">
+          (mock)
+        </span>
+      ) : null}
+    </Badge>
   );
 }
 

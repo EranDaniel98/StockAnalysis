@@ -80,6 +80,8 @@ export type ScanResponse = Schemas["ScanResponse"];
 export type ScanSummary = Schemas["ScanSummary"];
 export type ScanResultItem = Schemas["ScanResultItem"];
 export type BuySignal = Schemas["BuySignal"];
+export type SanityCheck = Schemas["SanityCheck"];
+export type SanityCheckTriggerRequest = Schemas["SanityCheckTriggerRequest"];
 export type RiskManagement = Schemas["RiskManagement"];
 export type StopLoss = Schemas["StopLoss"];
 export type TakeProfit = Schemas["TakeProfit"];
@@ -178,6 +180,11 @@ export const api = {
         `/api/scans/latest-buys${qs ? `?${qs}` : ""}`,
       );
     },
+    triggerSanityCheck: (body: SanityCheckTriggerRequest) =>
+      request<BuySignal[]>("/api/scans/sanity-check", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   backtests: {
