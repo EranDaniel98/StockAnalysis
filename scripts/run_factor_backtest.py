@@ -47,7 +47,12 @@ from src.factors.insider_cluster import insider_cluster_factor
 from src.factors.momentum import momentum_12_1
 from src.factors.pead import pead_factor
 from src.factors.quality import quality_factor
-from src.factors.regime import is_risk_on, trend_state_series
+from src.factors.regime import (
+    ENTRY_SMA_WINDOW as REGIME_DEFAULT_ENTRY_SMA,
+    is_risk_on,
+    trend_state_asymmetric_series,
+    trend_state_series,
+)
 from src.factors.regime_weights import list_profiles, weights_for
 from src.factors.residual_momentum import residual_momentum_12_1
 from src.factors.value import value_factor
@@ -80,6 +85,18 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-regime-filter", action="store_true",
                    help="Disable the SPY 200d-SMA trend filter (run "
                         "always-on momentum). Use only for ablation.")
+    p.add_argument("--asymmetric-trend", action="store_true",
+                   help="Use the asymmetric trend filter (slow exit on "
+                        "200-SMA, fast re-entry on --entry-sma). Defaults "
+                        "off = today's symmetric 200-SMA in both "
+                        "directions. The 2026-05-18 diagnosis showed the "
+                        "200-SMA is too lagging for re-entry: post-Oct-2022 "
+                        "the strategy missed +16% of recovery waiting for "
+                        "the slow signal.")
+    p.add_argument("--entry-sma", type=int, default=REGIME_DEFAULT_ENTRY_SMA,
+                   help=f"Re-entry SMA for --asymmetric-trend (default "
+                        f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
+                        f"recoveries earlier but more sensitive to chop.")
     p.add_argument("--vix-gate", action="store_true",
                    help="Block new entries when VIX is in the top "
                         "(1 - vix_cutoff) of its trailing 252d distribution. "
@@ -816,7 +833,12 @@ def run(args: argparse.Namespace) -> dict:
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
-    trend_state = trend_state_series(spy)
+    if args.asymmetric_trend:
+        trend_state = trend_state_asymmetric_series(
+            spy, entry_sma=args.entry_sma,
+        )
+    else:
+        trend_state = trend_state_series(spy)
     vix_state = _build_vix_state(args, snap, spy)
     vix_abs_state = _build_vix_abs_state(args, snap, spy)
 
