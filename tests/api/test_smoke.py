@@ -55,9 +55,6 @@ def test_openapi_paths_present(client: TestClient) -> None:
         "/api/stream/trade-updates",
         "/api/market/regime",
         "/api/market/sectors",
-        "/api/analytics/calibration",
-        "/api/trades",
-        "/api/trades/{trade_id}",
         "/api/dashboard",
     }
     missing = expected - paths

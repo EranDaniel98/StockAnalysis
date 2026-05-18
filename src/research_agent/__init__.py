@@ -1,11 +1,14 @@
-"""Phase 5 — autonomous research agent.
+"""LLM-backed sanity check + RAG corpus.
 
 Layout:
-  llm_client.py     thin Anthropic SDK wrapper with timeouts / retries / cost accounting
-  budget.py         per-run token + dollar caps
-  tools.py          in-process tool registry the agent can call
-  orchestrator.py   the agent loop — Anthropic tool-use until done / capped
+  llm_client.py        Anthropic SDK wrapper (timeouts, retries, cost accounting)
+  sanity_check.py      Pre-trade LLM verdict (REJECT / CAUTION / OK)
+  sanity_gate.py       Batch wrapper for the sanity check — used by paper trade
+  sanity_evidence.py   Builds the evidence packet the sanity check reasons over
+  rag/                 EDGAR filing embeddings + similarity search (used by
+                       src/scoring/catalyst_anchors.py)
 
-External users talk to ``orchestrator.run_research(question, session=...)``
-which returns a ``ResearchRun`` row populated with the full transcript.
+The Phase-5 research agent (orchestrator / tools / budget / event_monitor)
+was removed in the 2026-05-18 refactor — the agent UI proved low-value vs
+CLI for the way the system is actually driven.
 """

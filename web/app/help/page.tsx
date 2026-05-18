@@ -36,10 +36,6 @@ const QUICK_STEPS: ReadonlyArray<QuickStep> = [
     label: "Check /portfolio for live positions.",
     body: "Equity/cash come directly from Alpaca. Position marks stream from Alpaca's IEX feed.",
   },
-  {
-    label: "After exits, run paper evaluate then visit /analytics + /journal.",
-    body: "Win rate, P&L attribution, and score calibration all derive from the closed-trade table.",
-  },
 ];
 
 type PageRow = { route: string; description: string };
@@ -48,17 +44,11 @@ const PAGES: ReadonlyArray<PageRow> = [
   { route: "/scan", description: "Run a new market scan. Pipeline view + live progress + ranked results." },
   { route: "/stocks/[ticker]", description: "Per-ticker trade plan: composite score, sub-scores, entry/stop/target overlay on price chart, reasoning, risk plan." },
   { route: "/recommendations", description: "Append-only log of every paper-trade recommendation (submitted + skipped)." },
-  { route: "/journal", description: "Closed paper trades with editable notes. Filter by ticker, score, notes presence." },
-  { route: "/analytics", description: "Aggregate trade stats: win rate, total P&L, profit factor, cumulative-P&L curve, by-strategy/exit-reason, hold-time histogram, top winners/losers." },
-  { route: "/calibration", description: "Score-vs-realized-return calibration. Confirms the composite score actually predicts P&L." },
   { route: "/sectors", description: "SPDR sector ETF rotation heatmap. Tile color = 5-day return." },
   { route: "/backtests", description: "List of completed backtest runs across strategies." },
   { route: "/backtests/[id]", description: "Per-run tearsheet: equity curve, drawdown, trade log, MAR/Sortino, return distribution." },
   { route: "/backtests/compare", description: "Overlay N backtest equity curves on one chart." },
   { route: "/diagnose", description: "Alphalens IC sweep — quantile-spread, IC decay, factor-grouped Sharpe." },
-  { route: "/ml", description: "LightGBM model registry + rolling-IC drift dashboard." },
-  { route: "/research", description: "Anthropic-backed research agent. Decomposes natural-language questions, calls tools (scanner / backtester / paper book / EDGAR RAG)." },
-  { route: "/research/feed", description: "Background monitor for new 8-K / 10-K / 10-Q filings on your portfolio holdings." },
   { route: "/help", description: "This page." },
 ];
 
@@ -126,10 +116,6 @@ const FAQ: ReadonlyArray<FaqEntry> = [
   {
     q: "A page is unstyled / “broken CSS”.",
     a: "Most common cause: a production build was running (npm run start) and got hash-rotated underneath the browser. Either hard-refresh or restart the dev launcher (uv run python -m scripts.dev).",
-  },
-  {
-    q: "/analytics says “No closed paper trades yet”.",
-    a: "You haven't run paper evaluate after exits, or your paper account has no exited positions. Submit recommendations via paper trade, wait for stops/targets to hit, then paper evaluate to record the exits.",
   },
   {
     q: "Sub-scores analyst_revisions and options_skew are always missing.",

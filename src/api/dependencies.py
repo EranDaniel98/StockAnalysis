@@ -17,7 +17,6 @@ from src.api.services.trade_updates import TradeUpdatesBus
 from src.cache.redis_adapter import RedisCacheRepository
 from src.config_loader import Config
 from src.db.session import get_sessionmaker
-from src.research_agent.event_monitor import EventMonitor
 from src.storage.parquet_ohlcv import ParquetPriceRepository
 
 
@@ -50,10 +49,6 @@ def get_trade_updates(request: Request) -> TradeUpdatesBus:
     return request.app.state.trade_updates
 
 
-def get_event_monitor(request: Request) -> EventMonitor:
-    return request.app.state.event_monitor
-
-
 __all__ = [
     "get_config",
     "get_db_session",
@@ -61,6 +56,5 @@ __all__ = [
     "get_price_repo",
     "get_live_prices",
     "get_trade_updates",
-    "get_event_monitor",
     "Depends",
 ]

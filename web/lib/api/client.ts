@@ -104,33 +104,9 @@ export type OHLCBar = Schemas["OHLCBar"];
 export type MarketRegime = Schemas["MarketRegime"];
 export type SectorsResponse = Schemas["SectorsResponse"];
 export type SectorMetric = Schemas["SectorMetric"];
-export type ScoreCalibration = Schemas["ScoreCalibration"];
-export type CalibrationBucket = Schemas["CalibrationBucket"];
-export type TradeAnalytics = Schemas["TradeAnalytics"];
-export type TradeHeadline = Schemas["TradeHeadline"];
-export type CumulativePnlPoint = Schemas["CumulativePnlPoint"];
-export type ExitReasonStat = Schemas["ExitReasonStat"];
-export type StrategyStat = Schemas["StrategyStat"];
-export type HoldTimeBucket = Schemas["HoldTimeBucket"];
-export type TickerStat = Schemas["TickerStat"];
-export type PaperTradeItem = Schemas["PaperTradeItem"];
-export type TradeNotesUpdate = Schemas["TradeNotesUpdate"];
-
-export type MLModelsResponse = Schemas["MLModelsResponse"];
-export type ModelVersionRow = Schemas["ModelVersionRow"];
-export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
-export type FoldMetric = Schemas["FoldMetric"];
-
 export type DashboardResponse = Schemas["DashboardResponse"];
 export type DashboardPick = Schemas["DashboardPick"];
 export type StrategyCard = Schemas["StrategyCard"];
-
-export type ResearchAskRequest = Schemas["ResearchAskRequest"];
-export type ResearchRunSummary = Schemas["ResearchRunSummary"];
-export type ResearchRunDetail = Schemas["ResearchRunDetail"];
-export type ToolCallEntry = Schemas["ToolCallEntry"];
-export type FilingNotificationItem = Schemas["FilingNotificationItem"];
-export type SummarizeNotificationResponse = Schemas["SummarizeNotificationResponse"];
 
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
@@ -226,99 +202,6 @@ export const api = {
   market: {
     regime: () => request<MarketRegime>("/api/market/regime"),
     sectors: () => request<SectorsResponse>("/api/market/sectors"),
-  },
-
-  analytics: {
-    calibration: (params?: { min_score?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.min_score != null) q.set("min_score", String(params.min_score));
-      const qs = q.toString();
-      return request<ScoreCalibration>(
-        `/api/analytics/calibration${qs ? `?${qs}` : ""}`,
-      );
-    },
-    tradesSummary: () =>
-      request<TradeAnalytics>("/api/analytics/trades-summary"),
-  },
-
-  trades: {
-    list: (params?: {
-      ticker?: string;
-      min_score?: number;
-      has_notes?: boolean;
-      limit?: number;
-    }) => {
-      const q = new URLSearchParams();
-      if (params?.ticker) q.set("ticker", params.ticker);
-      if (params?.min_score != null) q.set("min_score", String(params.min_score));
-      if (params?.has_notes != null) q.set("has_notes", String(params.has_notes));
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<PaperTradeItem[]>(`/api/trades${qs ? `?${qs}` : ""}`);
-    },
-    updateNotes: (id: number, body: TradeNotesUpdate) =>
-      request<PaperTradeItem>(`/api/trades/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      }),
-  },
-
-  research: {
-    ask: (body: ResearchAskRequest) =>
-      request<ResearchRunDetail>("/api/research/ask", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    list: (params?: { status?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.status) q.set("status", params.status);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<ResearchRunSummary[]>(
-        `/api/research/runs${qs ? `?${qs}` : ""}`,
-      );
-    },
-    get: (id: number, params?: { include_transcript?: boolean }) => {
-      const q = new URLSearchParams();
-      if (params?.include_transcript) q.set("include_transcript", "true");
-      const qs = q.toString();
-      return request<ResearchRunDetail>(
-        `/api/research/runs/${id}${qs ? `?${qs}` : ""}`,
-      );
-    },
-    notifications: (params?: { ticker?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.ticker) q.set("ticker", params.ticker);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<FilingNotificationItem[]>(
-        `/api/research/notifications${qs ? `?${qs}` : ""}`,
-      );
-    },
-    summarizeNotification: (id: number) =>
-      request<SummarizeNotificationResponse>(
-        `/api/research/notifications/${id}/summarize`,
-        { method: "POST" },
-      ),
-    monitorStatus: () =>
-      request<{ running: boolean; poll_seconds: number; forms: string[] }>(
-        "/api/research/monitor/status",
-      ),
-  },
-
-  ml: {
-    models: (params?: {
-      model_name?: string;
-      limit?: number;
-      window_days?: number;
-    }) => {
-      const q = new URLSearchParams();
-      if (params?.model_name) q.set("model_name", params.model_name);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      if (params?.window_days != null) q.set("window_days", String(params.window_days));
-      const qs = q.toString();
-      return request<MLModelsResponse>(`/api/ml/models${qs ? `?${qs}` : ""}`);
-    },
   },
 
   stocks: {

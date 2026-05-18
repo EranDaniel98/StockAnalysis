@@ -2,23 +2,23 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   BarChart3,
-  BookText,
-  Brain,
   Briefcase,
   Grid3x3,
   HelpCircle,
   Home,
   LineChart,
   Microscope,
-  MessageSquare,
-  Rss,
   Search,
   Sparkles,
-  Target,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -98,42 +98,6 @@ const NAV: NavLink[] = [
     description: "SPDR sector rotation map",
   },
   {
-    href: "/analytics",
-    label: "Analytics",
-    icon: BarChart3,
-    description: "Closed paper-trade analytics dashboard",
-  },
-  {
-    href: "/calibration",
-    label: "Calibration",
-    icon: Target,
-    description: "Score → realized-return calibration",
-  },
-  {
-    href: "/journal",
-    label: "Journal",
-    icon: BookText,
-    description: "Closed-trade journal with notes",
-  },
-  {
-    href: "/ml",
-    label: "ML Models",
-    icon: Brain,
-    description: "Trained models, fold metrics, drift status",
-  },
-  {
-    href: "/research",
-    label: "Research",
-    icon: MessageSquare,
-    description: "Ask the agent; runs scans / backtests on your behalf",
-  },
-  {
-    href: "/research/feed",
-    label: "Filing feed",
-    icon: Rss,
-    description: "Live EDGAR 8-K / 10-K / 10-Q notifications for your holdings",
-  },
-  {
     href: "/help",
     label: "Help",
     icon: HelpCircle,
@@ -145,13 +109,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [isMac, setIsMac] = useState(false);
 
-  // Detect Mac vs Windows/Linux for the keyboard-hint label. Defaults to
-  // non-Mac so SSR markup matches first paint on Windows.
-  useEffect(() => {
-    setIsMac(/Mac|iPhone|iPad/i.test(navigator.userAgent));
-  }, []);
+  // Detect Mac vs Windows/Linux for the keyboard-hint label.
+  // useSyncExternalStore is the React-recommended hydration-safe pattern
+  // for browser-API snapshots: SSR uses the fallback (false → Ctrl), and
+  // hydration reads navigator.userAgent so Mac users see ⌘K from first
+  // paint without a flash.
+  const isMac = useSyncExternalStore(
+    () => () => {},
+    () => /Mac|iPhone|iPad/i.test(navigator.userAgent),
+    () => false,
+  );
 
   // ⌘K / Ctrl+K toggles the palette.
   useEffect(() => {
