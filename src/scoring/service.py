@@ -327,6 +327,7 @@ def analyze_and_score(
     if analyst_revisions_data:
         from src.scoring.analyzers import analyst_revisions as _ar
         ar_as_of = as_of or date.today()
+        ar_failures = 0
         for ticker, rows in analyst_revisions_data.items():
             if not rows:
                 continue
@@ -334,9 +335,21 @@ def analyze_and_score(
                 res = _ar.analyze(rows, as_of=ar_as_of)
             except Exception as e:
                 logger.debug("analyst_revisions failed for %s: %s", ticker, e)
+                ar_failures += 1
                 continue
             if res is not None:
                 analyst_revisions_results[ticker.upper()] = res
+        # Batch-level visibility: a transient yfinance outage degrades the
+        # sub-score for many tickers silently if we only debug-log per
+        # ticker. Surface the rate so the operator can spot it in scan logs.
+        if ar_failures > 0:
+            n_attempted = sum(1 for r in analyst_revisions_data.values() if r)
+            logger.warning(
+                "analyst_revisions: %d / %d tickers failed (%.0f%%); "
+                "sub-score missing for those names",
+                ar_failures, n_attempted,
+                100.0 * ar_failures / max(1, n_attempted),
+            )
 
     # options_skew pre-pass: LIVE-ONLY analyzer. Caller supplies
     # dict[ticker, OptionsChain] (from yfinance Ticker.option_chain).
@@ -346,6 +359,7 @@ def analyze_and_score(
     options_skew_results: dict[str, dict[str, Any]] = {}
     if options_chains:
         from src.scoring.analyzers import options_skew as _os
+        os_failures = 0
         for ticker, chain in options_chains.items():
             df = price_data_map.get(ticker)
             if df is None or df.empty or chain is None:
@@ -355,9 +369,22 @@ def analyze_and_score(
                 res = _os.analyze(chain, current_price=current_price)
             except Exception as e:
                 logger.debug("options_skew failed for %s: %s", ticker, e)
+                os_failures += 1
                 continue
             if res is not None:
                 options_skew_results[ticker.upper()] = res
+        if os_failures > 0:
+            n_attempted = sum(
+                1 for t, c in options_chains.items()
+                if c is not None and price_data_map.get(t) is not None
+                and not price_data_map[t].empty
+            )
+            logger.warning(
+                "options_skew: %d / %d tickers failed (%.0f%%); "
+                "sub-score missing for those names",
+                os_failures, n_attempted,
+                100.0 * os_failures / max(1, n_attempted),
+            )
 
     # Sector-flows pre-pass: caller can pass sector_etfs explicitly (live
     # scan path fetches the 11 SPDR sector ETFs once per run and threads
@@ -368,6 +395,8 @@ def analyze_and_score(
         from src.scoring.analyzers import sector_flows as _sf
         from src.scoring.analyzers.sector_flows import SECTOR_TO_ETF as _SECTOR_TO_ETF
         as_of_ts = pd.Timestamp(as_of) if as_of else pd.Timestamp.now().normalize()
+        sf_failures = 0
+        sf_attempted = 0
         for ticker, fund in fundamentals_map.items():
             sec = (fund.get("sector") or "").strip()
             if not sec or sec not in _SECTOR_TO_ETF:
@@ -376,13 +405,22 @@ def analyze_and_score(
             etf_df = sector_etfs.get(etf_symbol)
             if etf_df is None or etf_df.empty:
                 continue
+            sf_attempted += 1
             try:
                 res = _sf.analyze(etf_df, as_of=as_of_ts, etf_symbol=etf_symbol)
             except Exception as e:
                 logger.debug("sector_flows analyze failed for %s: %s", ticker, e)
+                sf_failures += 1
                 continue
             if res is not None:
                 sector_flows_results[ticker.upper()] = res
+        if sf_failures > 0:
+            logger.warning(
+                "sector_flows: %d / %d tickers failed (%.0f%%); "
+                "sub-score missing for those names",
+                sf_failures, sf_attempted,
+                100.0 * sf_failures / max(1, sf_attempted),
+            )
 
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)

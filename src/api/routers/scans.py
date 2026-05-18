@@ -213,7 +213,29 @@ async def latest_buys(
             ticker = rec.get("ticker")
             if not ticker:
                 continue
-            score = float(rec.get("composite_score") or 0.0)
+            # composite_score is supposed to be a float on every BUY-marked
+            # row. None means schema drift or a pre-migration row leaked
+            # past the action filter — log loudly and skip rather than
+            # rank it as zero (which used to demote it to the bottom of
+            # the list and silently hide the underlying problem).
+            raw_score = rec.get("composite_score")
+            if raw_score is None:
+                logger.warning(
+                    "latest_buys: row for %s in strategy=%s has no "
+                    "composite_score; skipping. This usually means a "
+                    "pre-refactor row needs migration.",
+                    ticker, run.strategy,
+                )
+                continue
+            try:
+                score = float(raw_score)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "latest_buys: row for %s in strategy=%s has malformed "
+                    "composite_score=%r; skipping.",
+                    ticker, run.strategy, raw_score,
+                )
+                continue
             entry = bucket.setdefault(
                 ticker,
                 {

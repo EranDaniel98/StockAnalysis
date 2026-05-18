@@ -21,7 +21,12 @@ from src.contracts.entities.fundamentals import FundamentalSnapshot
 from src.scoring.fundamentals_adapter import snapshot_to_analyzer_dict
 
 # Source-precedence: higher rank wins when several snapshots are valid at as_of.
-# Matches the repository's own ranking so behavior is consistent.
+# When lookup() sees both an EDGAR 10-Q and a yfinance snapshot covering as_of
+# it picks 10-Q (rank 3) over 10-K (rank 2) over yfinance (rank 1). Adding a
+# new source: pick a number BIGGER than the most-authoritative existing source
+# you want to override (e.g. an audited XBRL feed → 4), or smaller if it's a
+# permissible fallback. The lookup() sort uses (rank, valid_from) so source
+# wins first; ties (same source from multiple filings) break on recency.
 _SOURCE_RANK: dict[str, int] = {
     "yfinance_snapshot": 1,
     "edgar_10k": 2,

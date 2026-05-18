@@ -233,19 +233,65 @@ def generate_recommendation(
     }
 
 
+_DEFAULT_ACTION_THRESHOLDS: dict[str, float] = {
+    "strong_buy": 80,
+    "buy": 65,
+    "hold_upper": 50,
+    "hold_lower": 35,
+    "sell": 20,
+}
+
+
 def _determine_action(
-    composite: float, thresholds: dict,
+    composite: float, thresholds: dict | None,
 ) -> tuple[str, str]:
-    """Map composite score to action label and confidence."""
-    if composite >= thresholds.get("strong_buy", 80):
+    """Map composite score to action label and confidence.
+
+    ``thresholds`` is expected to be a dict keyed by
+    ``{strong_buy, buy, hold_upper, hold_lower, sell}``. Missing keys
+    fall back to module defaults — but with a WARN log, since a missing
+    key usually means a typo or schema drift in ``config/strategies.yaml``
+    that was silently masking a strategy misconfig.
+    """
+    if thresholds is None:
+        logger.warning(
+            "_determine_action received None thresholds; applying defaults. "
+            "This usually means the strategy YAML is missing a thresholds "
+            "block — fix the YAML rather than relying on defaults."
+        )
+        thresholds = {}
+    elif not isinstance(thresholds, dict):
+        logger.warning(
+            "_determine_action received non-dict thresholds (%s); applying "
+            "defaults. Check config/strategies.yaml for malformed entries.",
+            type(thresholds).__name__,
+        )
+        thresholds = {}
+    else:
+        missing = [k for k in _DEFAULT_ACTION_THRESHOLDS if k not in thresholds]
+        if missing:
+            logger.warning(
+                "_determine_action thresholds missing key(s) %s; applying "
+                "defaults for those. Add them to the strategy YAML to silence "
+                "this.", missing,
+            )
+    if composite >= thresholds.get(
+        "strong_buy", _DEFAULT_ACTION_THRESHOLDS["strong_buy"]
+    ):
         return "STRONG BUY", "High"
-    elif composite >= thresholds.get("buy", 65):
+    elif composite >= thresholds.get("buy", _DEFAULT_ACTION_THRESHOLDS["buy"]):
         return "BUY", "Medium-High"
-    elif composite >= thresholds.get("hold_upper", 50):
+    elif composite >= thresholds.get(
+        "hold_upper", _DEFAULT_ACTION_THRESHOLDS["hold_upper"]
+    ):
         return "HOLD", "Medium"
-    elif composite >= thresholds.get("hold_lower", 35):
+    elif composite >= thresholds.get(
+        "hold_lower", _DEFAULT_ACTION_THRESHOLDS["hold_lower"]
+    ):
         return "HOLD", "Low"
-    elif composite >= thresholds.get("sell", 20):
+    elif composite >= thresholds.get(
+        "sell", _DEFAULT_ACTION_THRESHOLDS["sell"]
+    ):
         return "SELL", "Medium-High"
     else:
         return "STRONG SELL", "High"
