@@ -53,6 +53,7 @@ from src.factors.vix_regime import (
     DEFAULT_WINDOW as VIX_DEFAULT_WINDOW,
     vix_percentile_series,
 )
+from src.factors.volatility import low_vol_filter
 from src.storage.snapshot import load_snapshot
 
 logger = logging.getLogger("run_factor_backtest")
@@ -94,6 +95,14 @@ def _parse_args() -> argparse.Namespace:
                         "today's default (equal weight m+q+v). Other "
                         "profiles weight differently per VIX regime; see "
                         "src/factors/regime_weights.py for the full table.")
+    p.add_argument("--low-vol-keep-pct", type=float, default=1.0,
+                   help="Post-composite vol filter: keep names in the "
+                        "bottom N%% of realized vol. 1.0 (default) disables. "
+                        "0.80 = drop the top 20%% most-volatile from the "
+                        "factor top-decile before allocation. Matches the "
+                        "'low-vol quality sleeve' from the 2026-05-18 plan.")
+    p.add_argument("--low-vol-window", type=int, default=63,
+                   help="Rolling window for low-vol filter (default 63 td).")
     p.add_argument("--factor",
                    default="momentum",
                    choices=("momentum", "quality", "value", "composite"),
@@ -363,7 +372,18 @@ def run(args: argparse.Namespace) -> dict:
             continue
         n_pick = max(1, int(round(len(ranking) * args.top_decile)))
         top = ranking.iloc[:n_pick]
-        target_set = set(top["ticker"].tolist())
+        target_list = top["ticker"].tolist()
+        # Optional post-composite low-vol filter: drop the top-vol
+        # names from the picks. Computed on the full snapshot universe
+        # so a factor-skewed top decile doesn't shift the vol cutoff.
+        if 0 < args.low_vol_keep_pct < 1.0:
+            kept = low_vol_filter(
+                prices, target_list, d,
+                window=args.low_vol_window,
+                keep_pct=args.low_vol_keep_pct,
+            )
+            target_list = kept
+        target_set = set(target_list)
 
         # Sell names not in target.
         for t in list(holdings.keys()):
