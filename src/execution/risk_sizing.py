@@ -167,10 +167,97 @@ def short_percentage_bracket_levels(
     )
 
 
+@dataclass(frozen=True)
+class PositionPlan:
+    """Output of ``size_position``. Either a sized order or an explicit
+    skip with a human-readable reason."""
+
+    target_shares: int       # signed: positive = long, negative = short
+    delta_shares: int        # target - current; what we'd trade
+    skip_reason: Optional[str]  # set when the plan can't open a position
+
+
+def size_position(
+    *,
+    price: float,
+    per_slot: float,
+    current_shares: int,
+    is_long: bool,
+) -> PositionPlan:
+    """Decide the target share count for one ticker.
+
+    Parameters
+    ----------
+    price : current quote per share. Must be > 0.
+    per_slot : dollar capital allocated per position (per-long or
+        per-short side).
+    current_shares : signed share count currently held — positive for a
+        long position, negative for a short. 0 = flat.
+    is_long : True = build a long target (positive shares); False = build
+        a short target (negative shares).
+
+    Returns
+    -------
+    PositionPlan with one of two outcomes:
+
+    1. **sized** — ``target_shares`` and ``delta_shares`` populated, no
+       skip_reason. The caller submits ``abs(delta_shares)`` in the
+       direction of ``sign(delta_shares)``.
+    2. **skipped** — ``skip_reason`` populated. This happens when the
+       ticker's price exceeds the slot so ``int(per // price) == 0``
+       AND we'd be opening a brand-new position. The pick is reported
+       to the operator instead of silently sized to zero.
+
+    A held position we can no longer resize at the same direction
+    (price exceeds slot but we already own some) still returns a
+    sized plan — ``target_shares = 0`` so the delta closes the
+    existing position. That's safer than holding ghost positions.
+
+    Edge: when the operator targets a SHORT but currently holds a
+    LONG of the same name (or vice versa), the delta closes the
+    wrong-direction position AND opens the targeted side simultaneously
+    only if the slot fits. If the slot doesn't fit, the existing
+    position is closed and no new one is opened (we don't carry the
+    operator's intent through a partial fill).
+    """
+    if price <= 0:
+        return PositionPlan(
+            target_shares=0, delta_shares=0,
+            skip_reason=f"non_positive_price ({price})",
+        )
+    if per_slot <= 0:
+        return PositionPlan(
+            target_shares=0, delta_shares=0,
+            skip_reason=f"non_positive_slot ({per_slot})",
+        )
+
+    magnitude = int(per_slot // price)
+    target_shares = magnitude if is_long else -magnitude
+    delta_shares = target_shares - current_shares
+
+    if magnitude == 0 and current_shares == 0:
+        return PositionPlan(
+            target_shares=0, delta_shares=0,
+            skip_reason=(
+                f"price ${price:.2f} exceeds per-position slot "
+                f"${per_slot:.2f} (would size 0 shares — increase "
+                f"capital allocation or accept this name's skip)"
+            ),
+        )
+
+    return PositionPlan(
+        target_shares=target_shares,
+        delta_shares=delta_shares,
+        skip_reason=None,
+    )
+
+
 __all__ = [
     "BracketLevels",
+    "PositionPlan",
     "atr_bracket_levels",
     "percentage_bracket_levels",
     "short_atr_bracket_levels",
     "short_percentage_bracket_levels",
+    "size_position",
 ]

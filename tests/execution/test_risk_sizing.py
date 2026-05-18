@@ -13,8 +13,10 @@ import pytest
 
 from src.execution.risk_sizing import (
     BracketLevels,
+    PositionPlan,
     atr_bracket_levels,
     percentage_bracket_levels,
+    size_position,
 )
 
 
@@ -151,3 +153,98 @@ def test_short_percentage_refuses_when_tp_negative() -> None:
         entry=100.0, stop_pct=0.5, risk_reward=3.0,
     )
     assert levels is None
+
+
+# ── size_position: high-price-short footgun + general sizing ───────────
+
+
+def test_size_long_within_slot() -> None:
+    plan = size_position(
+        price=100.0, per_slot=834.0, current_shares=0, is_long=True,
+    )
+    assert plan.skip_reason is None
+    # int(834 // 100) = 8 shares
+    assert plan.target_shares == 8
+    assert plan.delta_shares == 8
+
+
+def test_size_short_within_slot() -> None:
+    plan = size_position(
+        price=100.0, per_slot=834.0, current_shares=0, is_long=False,
+    )
+    assert plan.skip_reason is None
+    assert plan.target_shares == -8
+    assert plan.delta_shares == -8
+
+
+def test_size_short_price_exceeds_slot_returns_skip() -> None:
+    """The COST footgun: $1000 price vs $834 slot → previously silently
+    sized to 0 and dropped the pick. Now must return a skip with reason."""
+    plan = size_position(
+        price=1000.0, per_slot=834.0, current_shares=0, is_long=False,
+    )
+    assert plan.skip_reason is not None
+    assert "exceeds per-position slot" in plan.skip_reason
+    assert plan.target_shares == 0
+    assert plan.delta_shares == 0
+
+
+def test_size_long_price_exceeds_slot_returns_skip() -> None:
+    """Same skip path applies on the long side — a $1500 BRK.B with $834
+    per-long would otherwise size to 0 silently."""
+    plan = size_position(
+        price=1500.0, per_slot=834.0, current_shares=0, is_long=True,
+    )
+    assert plan.skip_reason is not None
+    assert plan.target_shares == 0
+
+
+def test_size_held_position_at_high_price_resizes_to_zero() -> None:
+    """If we already hold the high-price name, the plan computes a
+    DELTA that closes it. We don't want ghost positions hanging around
+    just because a re-open wouldn't fit the slot."""
+    plan = size_position(
+        price=1000.0, per_slot=834.0, current_shares=2, is_long=True,
+    )
+    # target=0, current=2, delta=-2 (sell 2 to close)
+    assert plan.skip_reason is None
+    assert plan.target_shares == 0
+    assert plan.delta_shares == -2
+
+
+def test_size_resize_existing_long_down() -> None:
+    """Slot shrank from prior rebalance; resize the held position down."""
+    plan = size_position(
+        price=100.0, per_slot=500.0, current_shares=10, is_long=True,
+    )
+    # New target: int(500 // 100) = 5. Delta: 5 - 10 = -5.
+    assert plan.target_shares == 5
+    assert plan.delta_shares == -5
+    assert plan.skip_reason is None
+
+
+def test_size_flip_long_to_short() -> None:
+    """Operator targets short, currently long → close long AND open
+    short in one delta."""
+    plan = size_position(
+        price=100.0, per_slot=500.0, current_shares=5, is_long=False,
+    )
+    # target: -5, current: +5, delta: -10
+    assert plan.target_shares == -5
+    assert plan.delta_shares == -10
+
+
+def test_size_zero_price_returns_skip() -> None:
+    plan = size_position(
+        price=0.0, per_slot=834.0, current_shares=0, is_long=True,
+    )
+    assert plan.skip_reason is not None
+    assert "non_positive_price" in plan.skip_reason
+
+
+def test_size_zero_slot_returns_skip() -> None:
+    plan = size_position(
+        price=100.0, per_slot=0.0, current_shares=0, is_long=True,
+    )
+    assert plan.skip_reason is not None
+    assert "non_positive_slot" in plan.skip_reason

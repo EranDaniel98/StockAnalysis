@@ -366,6 +366,7 @@ def main() -> int:
     from src.execution.risk_sizing import (
         atr_bracket_levels, percentage_bracket_levels,
         short_atr_bracket_levels, short_percentage_bracket_levels,
+        size_position,
     )
 
     def _resolve_levels(t: str, price: float, is_long: bool):
@@ -416,11 +417,26 @@ def main() -> int:
         if price <= 0:
             return None
         per = per_long if is_long else per_short
-        if per <= 0:
-            return None
-        magnitude = int(per // price)
-        target_shares = magnitude if is_long else -magnitude
-        delta = target_shares - current_shares
+        plan = size_position(
+            price=price, per_slot=per,
+            current_shares=current_shares, is_long=is_long,
+        )
+        if plan.skip_reason is not None:
+            # Operator-visible skip — the alternative (silently sizing to
+            # 0 shares) was the high-price-short footgun that dropped
+            # COST from today's plan without any warning.
+            return {
+                "ticker": t,
+                "side": "long" if is_long else "short",
+                "current_shares": current_shares,
+                "target_shares": plan.target_shares,
+                "current_price": round(price, 4),
+                "delta_shares": plan.delta_shares,
+                "submit_type": "skip_no_size",
+                "skip_reason": plan.skip_reason,
+            }
+        target_shares = plan.target_shares
+        delta = plan.delta_shares
         if delta == 0:
             return None
         bracket: dict | None = None
@@ -509,6 +525,9 @@ def main() -> int:
         elif b["submit_type"] == "skip_no_price":
             print(f"  {b['ticker']:>6s}  SKIP — no quote available "
                   f"({b.get('skip_reason')})")
+        elif b["submit_type"] == "skip_no_size":
+            print(f"  {b['ticker']:>6s}  SKIP @ ${b.get('current_price', 0):.2f}  "
+                  f"— {b.get('skip_reason')}")
 
     if longs_in_plan:
         print(f"\nLONGS ({len(longs_in_plan)}):")
