@@ -133,16 +133,27 @@ async def check_buy_signal(
     # scan when the sanity check is disabled.
     from src.research_agent.llm_client import AnthropicClient
 
-    client = AnthropicClient()
+    client = AnthropicClient(timeout_s=timeout_seconds)
     prompt = _render_prompt(inputs)
 
-    response = await client.acomplete(
+    # The shared client exposes ``create(...)`` (tool-use aware). The
+    # sanity check is a single text round-trip — no tools, no system —
+    # so we hand the prompt as a user message and concatenate any text
+    # blocks the model returns.
+    response = await client.create(
         model=model,
+        system="",
         messages=[{"role": "user", "content": prompt}],
+        tools=[],
         max_tokens=300,
-        timeout=timeout_seconds,
+        cache_system=False,
     )
-    return _parse_llm_output(response.text, model=model, mocked=False)
+    text = "".join(
+        b.get("text", "")
+        for b in response.content
+        if isinstance(b, dict) and b.get("type") == "text"
+    )
+    return _parse_llm_output(text, model=model, mocked=False)
 
 
 def _parse_llm_output(text: str, *, model: str, mocked: bool) -> SanityCheck:
