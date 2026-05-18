@@ -106,15 +106,74 @@ class AlpacaClient:
         api_secret=None,
         *,
         safety_gate: TradingSafetyGate | None = None,
+        paper: bool = True,
     ):
-        api_key = api_key or os.getenv("ALPACA_API_KEY")
-        api_secret = api_secret or os.getenv("ALPACA_API_SECRET")
-        if not api_key or not api_secret:
-            raise AlpacaClientError(
-                "ALPACA_API_KEY and ALPACA_API_SECRET must be set in .env "
-                "(get them from https://app.alpaca.markets/paper/dashboard/overview)"
+        """Build a client for the Alpaca PAPER endpoint (default) or LIVE.
+
+        Defense in depth on the live-trading boundary:
+
+        * ``paper=True`` (default) reads ALPACA_PAPER_API_KEY / SECRET
+          (or the legacy ALPACA_API_KEY / SECRET as fallback). The
+          client hits Alpaca's paper endpoint. Suitable for the default
+          ``paper_trade_factor_picks`` flow.
+        * ``paper=False`` is the LIVE endpoint and requires THREE things
+          to all be true at construction time:
+              1. ``paper=False`` passed explicitly (no env-var override),
+              2. ALPACA_LIVE_API_KEY + ALPACA_LIVE_API_SECRET set (NOT
+                 the same env vars as paper, so an operator who only
+                 has paper keys configured cannot accidentally hit live),
+              3. ALPACA_LIVE_TRADING_CONFIRMED=1 in the environment
+                 (a separate consent toggle that survives a key swap).
+          Missing any one raises. The check sits at construction so a
+          single line of "paper=False" can't reach Alpaca without all
+          three boxes ticked.
+        """
+        if not paper:
+            # Live mode — every gate must be lit. This is intentionally
+            # noisy to fail loud rather than fail open.
+            if os.getenv("ALPACA_LIVE_TRADING_CONFIRMED") != "1":
+                raise AlpacaClientError(
+                    "Live trading requires ALPACA_LIVE_TRADING_CONFIRMED=1 in "
+                    "the environment. This is a deliberate hurdle — flip it "
+                    "ONLY in a session where you intend to place live orders."
+                )
+            api_key = api_key or os.getenv("ALPACA_LIVE_API_KEY")
+            api_secret = api_secret or os.getenv("ALPACA_LIVE_API_SECRET")
+            if not api_key or not api_secret:
+                raise AlpacaClientError(
+                    "Live mode requires ALPACA_LIVE_API_KEY and "
+                    "ALPACA_LIVE_API_SECRET (distinct from the paper keys) "
+                    "so a single env-var leak cannot route paper traffic "
+                    "to live."
+                )
+            logger.warning(
+                "AlpacaClient: LIVE MODE — real-money orders. The kill "
+                "switch + circuit breakers are your last line of defense."
             )
-        self._client = TradingClient(api_key, api_secret, paper=True)
+        else:
+            # Paper mode — prefer the explicit PAPER env vars, fall back
+            # to legacy ALPACA_API_KEY for compat. If an operator has
+            # accidentally set ALPACA_LIVE_API_KEY *only*, refuse rather
+            # than silently grabbing it.
+            api_key = (
+                api_key
+                or os.getenv("ALPACA_PAPER_API_KEY")
+                or os.getenv("ALPACA_API_KEY")
+            )
+            api_secret = (
+                api_secret
+                or os.getenv("ALPACA_PAPER_API_SECRET")
+                or os.getenv("ALPACA_API_SECRET")
+            )
+            if not api_key or not api_secret:
+                raise AlpacaClientError(
+                    "Paper mode requires ALPACA_PAPER_API_KEY + "
+                    "ALPACA_PAPER_API_SECRET (or the legacy ALPACA_API_KEY / "
+                    "ALPACA_API_SECRET) in .env. Get them from "
+                    "https://app.alpaca.markets/paper/dashboard/overview"
+                )
+        self._client = TradingClient(api_key, api_secret, paper=paper)
+        self._paper = paper
         # Fail-closed default: a client built without an explicit gate
         # refuses every submission. The caller MUST build a gate from the
         # project config (or pass an explicit `trading_enabled=True` one
@@ -137,6 +196,11 @@ class AlpacaClient:
     @property
     def safety_gate(self) -> TradingSafetyGate:
         return self._safety_gate
+
+    @property
+    def is_paper(self) -> bool:
+        """True when this client points at Alpaca's paper endpoint."""
+        return self._paper
 
     def _build_session_state(self) -> SessionState:
         """Snapshot the live account for the safety gate.
