@@ -159,6 +159,17 @@ class FundamentalsPITLoader:
         flags missing tickers."""
         return {t: len(rows) for t, rows in self._by_ticker.items()}
 
+    def lookup_sector(self, ticker: str, as_of: datetime) -> str | None:
+        """Return the sector string for ticker at as_of, or None when uncovered.
+
+        Sector is carried on every FundamentalSnapshot row but rarely changes
+        within a ticker's history; this is a thin wrapper that surfaces it
+        without forcing callers to reach through the full snapshot. Used by
+        the factor-pipeline sector-cap selector.
+        """
+        snap = self.lookup(ticker, as_of)
+        return snap.sector if snap is not None else None
+
     @property
     def tickers(self) -> set[str]:
         return set(self._by_ticker.keys())

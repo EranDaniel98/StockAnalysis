@@ -40,6 +40,56 @@ class FactorPicksResult:
     snapshot_id: Optional[str] = None
     strategy: str = "composite_d05_r63"
     coverage: dict[str, int] = field(default_factory=dict)
+    sector_cap_skipped: list[dict] = field(default_factory=list)
+
+
+def _select_with_sector_cap(
+    composite: pd.DataFrame,
+    sectors: dict[str, str],
+    top_n: int,
+    max_sector_pct: float,
+) -> tuple[pd.DataFrame, list[dict]]:
+    """Walk the ranked composite picking up to ``top_n`` names with a per-sector cap.
+
+    The cap is expressed as a percentage of ``top_n`` and rounded up so a
+    20% cap on 24 picks yields 5 names/sector (not 4). When every remaining
+    candidate is in a capped sector we under-fill rather than relax the
+    cap — the under-fill is the honest signal that the cap is binding.
+
+    Returns the selected picks DataFrame and a skipped-log of evicted
+    higher-ranked names with the reason. ``None`` / missing sectors are
+    bucketed as ``"Unknown"`` with their own cap.
+    """
+    import math
+    from collections import defaultdict
+
+    max_per_sector = max(1, math.ceil(top_n * max_sector_pct / 100.0))
+    selected: list[dict] = []
+    sector_counts: dict[str, int] = defaultdict(int)
+    skipped: list[dict] = []
+    for _, row in composite.iterrows():
+        if len(selected) >= top_n:
+            break
+        ticker = row["ticker"]
+        sector = sectors.get(ticker) or "Unknown"
+        if sector_counts[sector] >= max_per_sector:
+            skipped.append({
+                "ticker": ticker,
+                "rank": int(row["rank"]),
+                "sector": sector,
+                "reason": f"sector_cap:{sector}",
+            })
+            continue
+        record = row.to_dict()
+        record["sector"] = sector
+        selected.append(record)
+        sector_counts[sector] += 1
+    if not selected:
+        empty = composite.iloc[0:0].copy()
+        if "sector" not in empty.columns:
+            empty["sector"] = pd.Series(dtype="object")
+        return empty, skipped
+    return pd.DataFrame(selected), skipped
 
 
 def _attach_per_factor_ranks(
@@ -96,6 +146,7 @@ def run_factor_picks(
     include_pead: bool = False,
     earnings_cache_dir: Path | str = "data/earnings_history",
     min_overlap: int = 2,
+    max_sector_pct: float | None = 30.0,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -112,6 +163,11 @@ def run_factor_picks(
     earnings_cache_dir : where to cache per-ticker earnings parquets.
     min_overlap : ``composite.combine`` parameter — minimum frames a
         ticker must appear in to qualify.
+    max_sector_pct : per-sector cap as a percentage of ``top_n``. The
+        2026-05-17 picks ran 46% Financial Services because the naive
+        ``head(top_n)`` selector ignored sector. Default 30 matches
+        ``config/settings.yaml:risk_management.position_sizing.max_sector_pct``.
+        Pass ``None`` to restore the legacy naive top-N behaviour.
 
     Returns
     -------
@@ -176,7 +232,26 @@ def run_factor_picks(
             snapshot_id=snapshot_id,
         )
 
-    top = composite.head(top_n).copy()
+    sector_cap_skipped: list[dict] = []
+    if max_sector_pct is None or max_sector_pct >= 100:
+        top = composite.head(top_n).copy()
+        top["sector"] = top["ticker"].map(
+            lambda t: loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown"
+        )
+    else:
+        sectors = {
+            t: (loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown")
+            for t in composite["ticker"].tolist()
+        }
+        top, sector_cap_skipped = _select_with_sector_cap(
+            composite, sectors, top_n=top_n, max_sector_pct=max_sector_pct,
+        )
+        if len(top) < top_n:
+            logger.warning(
+                "Sector cap bound at %.0f%%: filled %d of %d picks (%d skipped)",
+                max_sector_pct, len(top), top_n, len(sector_cap_skipped),
+            )
+
     top = _attach_per_factor_ranks(top, mom, qual, val, pead)
 
     return FactorPicksResult(
@@ -187,4 +262,5 @@ def run_factor_picks(
         top_n=top,
         snapshot_id=snapshot_id,
         coverage={"fundamentals_covered": n_covered, "universe": len(universe)},
+        sector_cap_skipped=sector_cap_skipped,
     )

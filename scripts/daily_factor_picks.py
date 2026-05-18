@@ -55,6 +55,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--earnings-cache-dir", default="data/earnings_history",
                    help="Where to cache per-ticker earnings parquets so "
                         "subsequent --include-pead runs are fast.")
+    p.add_argument("--max-sector-pct", type=float, default=30.0,
+                   help="Per-sector cap as %% of top_n (default 30). 100 or "
+                        "negative disables the cap (legacy naive top-N).")
     return p.parse_args()
 
 
@@ -67,16 +70,24 @@ def _render_markdown(picks: pd.DataFrame, as_of: pd.Timestamp,
     lines.append(f"**Selection:** top {len(picks)} by composite rank "
                  f"(~{100*len(picks)/max(1,total_universe):.1f}% of universe)\n")
     has_pead = "pead_rank" in picks.columns
+    has_sector = "sector" in picks.columns
+    header_cols = ["Rank", "Ticker"]
+    if has_sector:
+        header_cols.append("Sector")
+    header_cols += ["Momentum", "Quality", "Value"]
     if has_pead:
-        lines.append("| Rank | Ticker | Momentum | Quality | Value | PEAD | Composite z |")
-        lines.append("|------|--------|----------|---------|-------|------|-------------|")
-    else:
-        lines.append("| Rank | Ticker | Momentum | Quality | Value | Composite z |")
-        lines.append("|------|--------|----------|---------|-------|-------------|")
+        header_cols.append("PEAD")
+    header_cols.append("Composite z")
+    lines.append("| " + " | ".join(header_cols) + " |")
+    lines.append("|" + "|".join("---" for _ in header_cols) + "|")
     for _, r in picks.iterrows():
         cells = [
             f"{int(r['rank']):>4d}",
             f"{r['ticker']:>6s}",
+        ]
+        if has_sector:
+            cells.append(f"{(r.get('sector') or 'Unknown'):>20s}")
+        cells += [
             f"{r['mom_rank'] if pd.notna(r['mom_rank']) else '-':>8}",
             f"{r['qual_rank'] if pd.notna(r['qual_rank']) else '-':>7}",
             f"{r['val_rank'] if pd.notna(r['val_rank']) else '-':>5}",
@@ -108,6 +119,7 @@ def _write_outputs(result: FactorPicksResult, output_dir: Path) -> None:
         "top_n": len(result.top_n),
         "picks": result.top_n.to_dict(orient="records"),
         "snapshot_id": result.snapshot_id,
+        "sector_cap_skipped": result.sector_cap_skipped,
     }
     out_json.write_text(json.dumps(payload, indent=2, default=str),
                         encoding="utf-8")
@@ -132,12 +144,16 @@ def main() -> int:
     )
     logger.info("As-of: %s | top_n: %d", as_of.date(), args.top_n)
 
+    max_sector_pct: float | None = args.max_sector_pct
+    if max_sector_pct is not None and (max_sector_pct >= 100 or max_sector_pct <= 0):
+        max_sector_pct = None
     result = run_factor_picks(
         as_of=as_of,
         top_n=args.top_n,
         snapshot_id=args.snapshot_id,
         include_pead=args.include_pead,
         earnings_cache_dir=Path(args.earnings_cache_dir),
+        max_sector_pct=max_sector_pct,
     )
     if result.composite.empty:
         return 2
