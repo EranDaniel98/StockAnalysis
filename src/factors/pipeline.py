@@ -47,6 +47,34 @@ class FactorPicksResult:
     shorts: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
+# Known share-class groups -- when two tickers represent the same
+# underlying company (differing only in voting rights / index inclusion),
+# selecting both is dilution without diversification benefit. The
+# pipeline picks the higher-ranked of any group and skips the rest with
+# reason='share_class_dup'.
+#
+# Keep this list short and curated. False positives (treating unrelated
+# names as a pair) are worse than false negatives (missing a pair).
+# Add a row only after confirming the two tickers are the same legal
+# entity, not just same sector/business.
+_SHARE_CLASS_GROUPS: list[frozenset[str]] = [
+    frozenset({"GOOG", "GOOGL"}),    # Alphabet (C non-voting / A voting)
+    frozenset({"BRK.A", "BRK.B"}),   # Berkshire Hathaway
+    frozenset({"BF.A", "BF.B"}),     # Brown-Forman
+    frozenset({"FOX", "FOXA"}),      # Fox Corp
+    frozenset({"LBRDA", "LBRDK"}),   # Liberty Broadband
+    frozenset({"LEN", "LEN.B"}),     # Lennar
+]
+
+
+def _share_class_group_for(ticker: str) -> frozenset[str] | None:
+    """Return the share-class group containing ``ticker``, or None."""
+    for group in _SHARE_CLASS_GROUPS:
+        if ticker in group:
+            return group
+    return None
+
+
 def _select_with_sector_cap(
     composite: pd.DataFrame,
     sectors: dict[str, str],
@@ -60,6 +88,10 @@ def _select_with_sector_cap(
     candidate is in a capped sector we under-fill rather than relax the
     cap — the under-fill is the honest signal that the cap is binding.
 
+    Also dedups share-class twins via ``_SHARE_CLASS_GROUPS``: the first
+    (highest-ranked) member of a group is selected; subsequent members
+    are skipped with reason ``share_class_dup``.
+
     Returns the selected picks DataFrame and a skipped-log of evicted
     higher-ranked names with the reason. ``None`` / missing sectors are
     bucketed as ``"Unknown"`` with their own cap.
@@ -70,12 +102,23 @@ def _select_with_sector_cap(
     max_per_sector = max(1, math.ceil(top_n * max_sector_pct / 100.0))
     selected: list[dict] = []
     sector_counts: dict[str, int] = defaultdict(int)
+    claimed_share_groups: set[frozenset[str]] = set()
     skipped: list[dict] = []
     for _, row in composite.iterrows():
         if len(selected) >= top_n:
             break
         ticker = row["ticker"]
         sector = sectors.get(ticker) or "Unknown"
+        group = _share_class_group_for(ticker)
+        if group is not None and group in claimed_share_groups:
+            twins = ",".join(sorted(t for t in group if t != ticker))
+            skipped.append({
+                "ticker": ticker,
+                "rank": int(row["rank"]),
+                "sector": sector,
+                "reason": f"share_class_dup:{twins}",
+            })
+            continue
         if sector_counts[sector] >= max_per_sector:
             skipped.append({
                 "ticker": ticker,
@@ -88,6 +131,8 @@ def _select_with_sector_cap(
         record["sector"] = sector
         selected.append(record)
         sector_counts[sector] += 1
+        if group is not None:
+            claimed_share_groups.add(group)
     if not selected:
         empty = composite.iloc[0:0].copy()
         if "sector" not in empty.columns:
