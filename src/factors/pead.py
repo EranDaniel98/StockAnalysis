@@ -66,6 +66,7 @@ def pead_factor(
     prices: Optional[Mapping[str, pd.DataFrame]] = None,
     drift_window_days: int = 60,
     min_surprise_pct: float = 5.0,
+    fill_universe: bool = False,
 ) -> pd.DataFrame:
     """Compute the cross-sectional PEAD factor at ``as_of``.
 
@@ -119,7 +120,15 @@ def pead_factor(
         if not result.get("drift_window_active"):
             # No active drift window → no PEAD signal for this ticker.
             # Drop rather than emit a 50-baseline row (see module
-            # docstring on coverage).
+            # docstring on coverage), UNLESS fill_universe=True — then
+            # emit a neutral raw=0 so coverage reporting is complete.
+            if fill_universe:
+                rows.append({
+                    "ticker": ticker,
+                    "raw": 0.0,
+                    "surprise_pct": None,
+                    "days_since_earnings": None,
+                })
             continue
         score = result.get("score", 50.0)
         rows.append({

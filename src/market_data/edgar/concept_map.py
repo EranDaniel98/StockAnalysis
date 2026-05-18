@@ -30,12 +30,31 @@ CONCEPT_MAP: list[tuple[str, list[str]]] = [
             "SalesRevenueNet",
             "RevenueFromContractWithCustomerExcludingAssessedTax",
             "RevenueFromContractWithCustomerIncludingAssessedTax",
+            # Banks: true bank top-line netted of interest expense.
+            # Coverage-pass fallback so BK/MS/NTRS/L get a revenue
+            # number and downstream margin ratios are computable.
+            "RevenuesNetOfInterestExpense",
+            # Utilities (AES + co.)
+            "RegulatedAndUnregulatedOperatingRevenue",
+            "ElectricUtilityRevenue",
+            # Oil & gas (parts of XOM/OXY etc.)
+            "OilAndGasRevenue",
         ],
     ),
     # --- profitability ---
     ("gross_margin", ["GrossProfit"]),  # need revenue to compute margin
     # net income drives earnings_growth_yoy
-    ("eps_diluted", ["EarningsPerShareDiluted"]),
+    # REG / many REITs report EPS only under the continuing-ops tag, not
+    # EarningsPerShareDiluted. The first match wins (in reversed-priority
+    # walk), so EarningsPerShareDiluted still preempts the REIT fallback
+    # when both are present (modern filers).
+    (
+        "eps_diluted",
+        [
+            "EarningsPerShareDiluted",
+            "IncomeLossFromContinuingOperationsPerDilutedShare",
+        ],
+    ),
     # --- balance sheet ---
     ("total_cash", ["CashAndCashEquivalentsAtCarryingValue", "Cash"]),
     # Tier-1 audit #9 (D#5): `total_debt` used to include `DebtCurrent` in
@@ -50,6 +69,9 @@ CONCEPT_MAP: list[tuple[str, list[str]]] = [
         [
             "LongTermDebt",
             "LongTermDebtNoncurrent",
+            # Capital-lease-inclusive aggregate used by DOW, APA, L.
+            "LongTermDebtAndCapitalLeaseObligations",
+            "LongTermBorrowings",
         ],
     ),
 ]
@@ -68,6 +90,12 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
     "operating_income": [
         "OperatingIncomeLoss",
         "IncomeLossFromContinuingOperationsBeforeInterestExpenseInterestIncomeIncomeTaxesExtraordinaryItemsNoncontrollingInterestsNet",
+        # Bank / financials surrogate: pre-tax continuing-ops income.
+        # Not a pure operating measure (it includes interest income),
+        # but it gives a comparable profitability signal for filers
+        # (MS, BK, NTRS, L) that don't tag OperatingIncomeLoss at all.
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ],
     "current_assets": ["AssetsCurrent"],
     "current_liabilities": ["LiabilitiesCurrent"],
@@ -84,7 +112,15 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
     # (below) so the FundamentalSnapshot.free_cash_flow column is TRUE
     # FCF when capex is available, falling back to OCF as a proxy with
     # a logged warning when capex is absent.
-    "operating_cash_flow": ["NetCashProvidedByOperatingActivities"],
+    # The "UsedIn" variant is the dominant tag in modern XBRL filings
+    # (AAPL, MSFT, and the majority of S&P 500 names). Listing it FIRST
+    # is what gives us FCF coverage at all — pre-fix the slot only had
+    # `NetCashProvidedByOperatingActivities` and FCF was 0% universe-wide.
+    "operating_cash_flow": [
+        "NetCashProvidedByUsedInOperatingActivities",
+        "NetCashProvidedByOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    ],
     # Capital expenditures. EDGAR reports as a positive cash outflow;
     # subtract from OCF (positive number) to get FCF (positive = cash
     # generated AFTER reinvestment). Two common tags cover ~all filers.

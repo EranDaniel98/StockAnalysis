@@ -106,13 +106,18 @@ def value_factor(
 
         # earnings_yield = EPS_TTM / price. The loader sums the
         # trailing 4 quarterly EPS (10-Q rows) and returns None when
-        # fewer than 4 are available — we drop those tickers rather
-        # than fabricating partial-year TTM, so the factor stays
-        # comparable across the universe.
+        # fewer than 4 are available — those names are dropped (we
+        # can't fabricate a partial-year TTM).
+        #
+        # Negative-EPS names are KEPT with a negative earnings yield,
+        # which correctly sorts them to the bottom of the value rank.
+        # Pre-2026-05-18 they were dropped entirely; the result was
+        # that legitimate loss-making picks (DOW, VTRS, DD) silently
+        # lost their value column. Better to score them honestly
+        # (cheap-looking on revenue but losing money → low value rank)
+        # than to leave them blank.
         eps_ttm = loader.compute_eps_ttm(t, as_of_dt)
-        if eps_ttm is None or eps_ttm <= 0:
-            # Negative-earnings names don't belong in a "cheap stocks"
-            # basket via this metric; dropped (not -ve yield).
+        if eps_ttm is None:
             continue
         rows.append({
             "ticker": t,

@@ -289,6 +289,7 @@ def run_factor_picks(
 
     factor_frames = [mom, qual, val]
     pead = pd.DataFrame()
+    pead_display = pd.DataFrame()
     factors_used = ["momentum", "quality", "value"]
     if sector_neutral_quality:
         factors_used.append("sector_neutral")
@@ -296,6 +297,14 @@ def run_factor_picks(
         logger.info("Loading earnings histories for PEAD (--include-pead)...")
         earnings = load_earnings_histories(universe, earnings_cache_dir)
         pead = pead_factor(earnings, as_of, prices=prices)
+        # Composite uses the strict PEAD frame (drift-active names only).
+        # Display ranks use a fill_universe variant so picks without an
+        # active drift window get a neutral PEAD rank rather than NaN —
+        # keeps the briefing dashboard's coverage bar at 24/24 without
+        # polluting composite selection.
+        pead_display = pead_factor(
+            earnings, as_of, prices=prices, fill_universe=True,
+        )
         factor_frames.append(pead)
         factors_used.append("pead")
 
@@ -386,7 +395,7 @@ def run_factor_picks(
                 max_sector_pct, len(top), top_n, len(sector_cap_skipped),
             )
 
-    top = _attach_per_factor_ranks(top, mom, qual, val, pead)
+    top = _attach_per_factor_ranks(top, mom, qual, val, pead_display)
 
     # Long-short: pull the BOTTOM names by composite as shorts. Sector
     # cap also applies on the short side — we don't want a sector
@@ -415,7 +424,7 @@ def run_factor_picks(
         # on a 480-name universe with d05 selection but defensive).
         if not shorts.empty and not top.empty:
             shorts = shorts[~shorts["ticker"].isin(set(top["ticker"]))]
-        shorts = _attach_per_factor_ranks(shorts, mom, qual, val, pead)
+        shorts = _attach_per_factor_ranks(shorts, mom, qual, val, pead_display)
 
     return FactorPicksResult(
         as_of=as_of,

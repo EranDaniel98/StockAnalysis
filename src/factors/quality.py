@@ -40,7 +40,13 @@ logger = logging.getLogger(__name__)
 
 _COMPONENTS_DIRECT = ("roe", "operating_margin", "profit_margin", "fcf_margin")
 _COMPONENT_INVERTED = "debt_to_equity"
-_MIN_COMPONENTS_REQUIRED = 3
+# Lowered from 3 → 2 on 2026-05-18 after expanding the concept-map for
+# bank/utility filers. Some filers (APA, AES) report only 2 of the 5
+# components under standard us-gaap tags; requiring 3 dropped them from
+# the quality ranking even though they have a credible profitability
+# signal (e.g. ROE + debt/equity). Two of five is enough to differentiate
+# names cross-sectionally when each is z-scored independently.
+_MIN_COMPONENTS_REQUIRED = 2
 
 
 def quality_factor(
