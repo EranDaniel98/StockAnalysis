@@ -313,6 +313,12 @@ class AlpacaClient:
         Bracket orders on Alpaca require whole-share qty (no fractional).
         Caller should int() qty before passing.
 
+        Direction-specific level invariants (enforced):
+          * Long (side='buy'):  stop_loss < take_profit. Stop is BELOW
+            the entry; TP is ABOVE. The children are sells (close long).
+          * Short (side='sell'): stop_loss > take_profit. Stop is ABOVE
+            the entry; TP is BELOW. The children are buys (cover short).
+
         `client_order_id` is required for real-money idempotency: pass a
         deterministic id (see `make_client_order_id`) so retries collide
         on Alpaca's duplicate check instead of double-filling. Duplicates
@@ -328,6 +334,20 @@ class AlpacaClient:
         if qty < 1:
             raise AlpacaClientError(
                 f"Bracket orders require qty >= 1 whole share (got {qty} for {ticker})"
+            )
+
+        # Direction-specific invariant: shorts must have stop ABOVE TP,
+        # longs the reverse. Catches the most common foot-gun where a
+        # caller flips the side without flipping the prices.
+        if side == "buy" and take_profit_price <= stop_loss_price:
+            raise AlpacaClientError(
+                f"Long bracket on {ticker}: take_profit ({take_profit_price}) "
+                f"must be > stop_loss ({stop_loss_price})"
+            )
+        if side == "sell" and take_profit_price >= stop_loss_price:
+            raise AlpacaClientError(
+                f"Short bracket on {ticker}: take_profit ({take_profit_price}) "
+                f"must be < stop_loss ({stop_loss_price})"
             )
 
         # Estimate notional for the order-value gate. Bracket entries

@@ -71,6 +71,15 @@ def _parse_args() -> argparse.Namespace:
                    help="VIX-percentile cutoff for --vix-gate (default 0.80).")
     p.add_argument("--vix-window", type=int, default=252,
                    help="Rolling window for --vix-gate (default 252 td).")
+    p.add_argument("--long-short", action="store_true",
+                   help="Emit BOTH long (top-N composite) and short "
+                        "(bottom-N composite) sets. Picks JSON gains a "
+                        "'shorts' key. paper_trade_factor_picks --long-short "
+                        "consumes both. Off by default; the long-only path "
+                        "remains the production default.")
+    p.add_argument("--short-n", type=int, default=None,
+                   help="Number of shorts to emit when --long-short. "
+                        "Defaults to --top-n for a balanced book.")
     return p.parse_args()
 
 
@@ -123,14 +132,21 @@ def _render_markdown(picks: pd.DataFrame, as_of: pd.Timestamp,
 def _write_outputs(result: FactorPicksResult, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     out_json = output_dir / f"{result.as_of.date().isoformat()}.json"
+    long_short_mode = not result.shorts.empty
     payload = {
         "as_of": result.as_of.date().isoformat(),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "strategy": result.strategy,
+        "strategy": (
+            result.strategy + "_ls" if long_short_mode else result.strategy
+        ),
         "factors": result.factors_used,
         "universe_size": result.universe_size,
         "top_n": len(result.top_n),
         "picks": result.top_n.to_dict(orient="records"),
+        "shorts": (
+            result.shorts.to_dict(orient="records") if long_short_mode else []
+        ),
+        "long_short": long_short_mode,
         "snapshot_id": result.snapshot_id,
         "sector_cap_skipped": result.sector_cap_skipped,
     }
@@ -225,6 +241,8 @@ def main() -> int:
         include_pead=args.include_pead,
         earnings_cache_dir=Path(args.earnings_cache_dir),
         max_sector_pct=max_sector_pct,
+        long_short=args.long_short,
+        short_n=args.short_n,
     )
     if result.composite.empty:
         return 2

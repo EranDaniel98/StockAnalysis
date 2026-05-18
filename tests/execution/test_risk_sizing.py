@@ -97,3 +97,57 @@ def test_bracket_levels_is_immutable() -> None:
     levels = BracketLevels(stop=90.0, take_profit=130.0, basis="atr")
     with pytest.raises(Exception):
         levels.stop = 80.0  # type: ignore[misc]
+
+
+from src.execution.risk_sizing import (  # noqa: E402
+    short_atr_bracket_levels,
+    short_percentage_bracket_levels,
+)
+
+
+def test_short_atr_bracket_stop_above_tp() -> None:
+    ohlc = _trending_ohlc(start=100.0, n=30)
+    entry = float(ohlc["Close"].iloc[-1])
+    levels = short_atr_bracket_levels(
+        entry=entry, ohlc=ohlc, atr_multiplier=2.0, risk_reward=3.0,
+    )
+    assert levels is not None
+    assert levels.stop > entry, "short stop must be ABOVE entry"
+    assert levels.take_profit < entry, "short TP must be BELOW entry"
+    assert levels.stop > levels.take_profit
+    risk = levels.stop - entry
+    reward = entry - levels.take_profit
+    assert reward == pytest.approx(3.0 * risk, rel=1e-3)
+
+
+def test_short_atr_refuses_when_tp_goes_negative() -> None:
+    # Pathologically wide ATR on a low entry → 3x risk would go negative.
+    ohlc = pd.DataFrame({
+        "High": [100, 105, 80, 110, 70, 105, 90, 75, 120, 80,
+                 110, 90, 100, 70, 130, 80],
+        "Low":  [50, 50, 50, 50, 50, 50, 50, 50, 50, 50,
+                 50, 50, 50, 50, 50, 50],
+        "Close": [80] * 16,
+    })
+    levels = short_atr_bracket_levels(
+        entry=10.0, ohlc=ohlc, atr_multiplier=2.0, risk_reward=3.0,
+    )
+    assert levels is None
+
+
+def test_short_percentage_bracket_levels() -> None:
+    levels = short_percentage_bracket_levels(
+        entry=100.0, stop_pct=0.10, risk_reward=3.0,
+    )
+    assert levels is not None
+    assert levels.stop == pytest.approx(110.0)
+    # 3:1 RR: risk = 10, reward = 30 → TP = 70.
+    assert levels.take_profit == pytest.approx(70.0)
+
+
+def test_short_percentage_refuses_when_tp_negative() -> None:
+    # stop_pct=0.5 → stop at 1.5x entry, risk=50, reward=150 → TP = -50.
+    levels = short_percentage_bracket_levels(
+        entry=100.0, stop_pct=0.5, risk_reward=3.0,
+    )
+    assert levels is None

@@ -41,6 +41,10 @@ class FactorPicksResult:
     strategy: str = "composite_d05_r63"
     coverage: dict[str, int] = field(default_factory=dict)
     sector_cap_skipped: list[dict] = field(default_factory=list)
+    # When the caller asked for the long-short variant, ``shorts`` holds
+    # the bottom-N picks (worst composite → expected to underperform).
+    # Empty otherwise.
+    shorts: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _select_with_sector_cap(
@@ -147,6 +151,8 @@ def run_factor_picks(
     earnings_cache_dir: Path | str = "data/earnings_history",
     min_overlap: int = 2,
     max_sector_pct: float | None = 30.0,
+    long_short: bool = False,
+    short_n: Optional[int] = None,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -254,6 +260,35 @@ def run_factor_picks(
 
     top = _attach_per_factor_ranks(top, mom, qual, val, pead)
 
+    # Long-short: pull the BOTTOM names by composite as shorts. Sector
+    # cap also applies on the short side — we don't want a sector
+    # tilted long AND short at the same time (concentration risk).
+    shorts = pd.DataFrame()
+    if long_short:
+        n_short = short_n if short_n is not None else top_n
+        # Sort by descending rank (worst first), then take top n_short.
+        bottom = composite.sort_values("rank", ascending=False)
+        if max_sector_pct is None or max_sector_pct >= 100:
+            shorts = bottom.head(n_short).copy()
+            shorts["sector"] = shorts["ticker"].map(
+                lambda t: loader.lookup_sector(t, as_of.to_pydatetime())
+                or "Unknown"
+            )
+        else:
+            short_sectors = {
+                t: (loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown")
+                for t in bottom["ticker"].tolist()
+            }
+            shorts, _ = _select_with_sector_cap(
+                bottom, short_sectors, top_n=n_short,
+                max_sector_pct=max_sector_pct,
+            )
+        # Drop any ticker that appears on both sides (shouldn't happen
+        # on a 480-name universe with d05 selection but defensive).
+        if not shorts.empty and not top.empty:
+            shorts = shorts[~shorts["ticker"].isin(set(top["ticker"]))]
+        shorts = _attach_per_factor_ranks(shorts, mom, qual, val, pead)
+
     return FactorPicksResult(
         as_of=as_of,
         factors_used=factors_used,
@@ -263,4 +298,5 @@ def run_factor_picks(
         snapshot_id=snapshot_id,
         coverage={"fundamentals_covered": n_covered, "universe": len(universe)},
         sector_cap_skipped=sector_cap_skipped,
+        shorts=shorts,
     )
