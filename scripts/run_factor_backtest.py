@@ -43,7 +43,9 @@ import numpy as np
 import pandas as pd
 
 from src.factors.composite import combine as combine_factors
+from src.factors.insider_cluster import insider_cluster_factor
 from src.factors.momentum import momentum_12_1
+from src.factors.pead import pead_factor
 from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
 from src.factors.regime_weights import list_profiles, weights_for
@@ -103,6 +105,24 @@ def _parse_args() -> argparse.Namespace:
                         "'low-vol quality sleeve' from the 2026-05-18 plan.")
     p.add_argument("--low-vol-window", type=int, default=63,
                    help="Rolling window for low-vol filter (default 63 td).")
+    p.add_argument("--include-insider", action="store_true",
+                   help="Add the Cohen-Malloy-Pomorski insider-cluster "
+                        "factor as a 4th rank frame in the composite. "
+                        "Requires insider_transactions table loaded; off "
+                        "by default until backtest-validated.")
+    p.add_argument("--insider-window-days", type=int, default=90,
+                   help="Trailing window for insider clusters (default 90).")
+    p.add_argument("--insider-min-cluster", type=int, default=2,
+                   help="Minimum distinct insiders required to count as a "
+                        "cluster (default 2).")
+    p.add_argument("--include-pead", action="store_true",
+                   help="Add the Bernard-Thomas PEAD factor as a 4th "
+                        "(or 5th) rank frame. Loads earnings histories "
+                        "from --earnings-cache-dir.")
+    p.add_argument("--earnings-cache-dir", default="data/earnings_history",
+                   help="Per-ticker earnings parquet cache for PEAD.")
+    p.add_argument("--pead-drift-window", type=int, default=60,
+                   help="PEAD drift envelope in calendar days (default 60).")
     p.add_argument("--factor",
                    default="momentum",
                    choices=("momentum", "quality", "value", "composite"),
@@ -136,6 +156,24 @@ def _load_pit_fundamentals(tickers: list[str]):
     return run_with_dispose(_go())
 
 
+def _fetch_insider_factor_sync(
+    tickers: list[str], as_of: pd.Timestamp,
+    *, window_days: int, min_cluster: int,
+) -> pd.DataFrame:
+    """Synchronous wrapper for the async insider factor — used inside the
+    sync backtest loop. Spins a fresh session per call (cheap relative
+    to factor compute), closes it cleanly."""
+    from src.db.session import get_sessionmaker, run_with_dispose
+
+    async def _go():
+        async with get_sessionmaker()() as session:
+            return await insider_cluster_factor(
+                session, tickers=tickers, as_of=as_of,
+                window_days=window_days, min_cluster=min_cluster,
+            )
+    return run_with_dispose(_go())
+
+
 def _resolve_ranking(
     factor: str,
     prices: dict,
@@ -145,6 +183,12 @@ def _resolve_ranking(
     *,
     regime_profile: str = "equal",
     vix_df: pd.DataFrame | None = None,
+    include_insider: bool = False,
+    insider_window_days: int = 90,
+    insider_min_cluster: int = 2,
+    include_pead: bool = False,
+    earnings_histories: dict | None = None,
+    pead_drift_window: int = 60,
 ) -> tuple[pd.DataFrame, str]:
     """Dispatch to the requested factor. Returns ``(ranking, regime_label)``.
 
@@ -165,11 +209,35 @@ def _resolve_ranking(
         weights, regime = weights_for(
             regime_profile, as_of=as_of, vix_df=vix_df,
         )
-        # Permissive overlap: a ticker that's in 2 of 3 factors still
-        # gets ranked. Strict overlap (must be in all 3) drops too
-        # many names from the universe at any given as_of.
+        frames = [m, q, v]
+        weights = list(weights)
+        if include_insider:
+            ins = _fetch_insider_factor_sync(
+                universe_tickers, as_of,
+                window_days=insider_window_days,
+                min_cluster=insider_min_cluster,
+            )
+            # Insider sparsity is real (often <100 of 500 names have a
+            # qualifying cluster). min_overlap stays at 2 so a ticker
+            # without insider data is still ranked on m+q+v.
+            frames.append(ins)
+            # Weights extension: insider gets the same weight as
+            # momentum unless the profile dictates otherwise.
+            weights.append(float(weights[0]))
+        if include_pead and earnings_histories is not None:
+            pead = pead_factor(
+                earnings_histories, as_of,
+                prices=prices, drift_window_days=pead_drift_window,
+            )
+            frames.append(pead)
+            # PEAD coverage is ~60-70% of names (quarterly cycle + 60d
+            # window); weight on par with momentum.
+            weights.append(float(weights[0]))
+        # Permissive overlap: a ticker that's in 2 of N factors still
+        # gets ranked. Strict overlap (must be in all) drops too many
+        # names from the universe at any given as_of.
         ranking = combine_factors(
-            [m, q, v], min_overlap=2, weights=weights,
+            frames, min_overlap=2, weights=weights,
         )
         return ranking, regime
     raise ValueError(f"unknown factor {factor!r}")
@@ -256,6 +324,18 @@ def run(args: argparse.Namespace) -> dict:
 
     universe_tickers = sorted(prices.keys())
     # Quality/value/composite need EDGAR PIT fundamentals. Pull once.
+    earnings_histories: dict | None = None
+    if args.include_pead:
+        from src.scoring.earnings_cache import load_earnings_histories
+        logger.info("Loading earnings histories for PEAD...")
+        earnings_histories = load_earnings_histories(
+            universe_tickers, Path(args.earnings_cache_dir),
+        )
+        logger.info(
+            "Loaded earnings histories for %d / %d tickers",
+            sum(1 for h in earnings_histories.values() if h is not None),
+            len(universe_tickers),
+        )
     fund_loader = None
     if args.factor in ("quality", "value", "composite"):
         logger.info(
@@ -367,6 +447,12 @@ def run(args: argparse.Namespace) -> dict:
             args.factor, prices, fund_loader, d, universe_tickers,
             regime_profile=args.regime_weights,
             vix_df=snap.vix_df if args.regime_weights != "equal" else None,
+            include_insider=args.include_insider,
+            insider_window_days=args.insider_window_days,
+            insider_min_cluster=args.insider_min_cluster,
+            include_pead=args.include_pead,
+            earnings_histories=earnings_histories,
+            pead_drift_window=args.pead_drift_window,
         )
         if ranking.empty:
             continue
