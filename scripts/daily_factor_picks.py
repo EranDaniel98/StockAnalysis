@@ -60,6 +60,20 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--max-sector-pct", type=float, default=30.0,
                    help="Per-sector cap as %% of top_n (default 30). 100 or "
                         "negative disables the cap (legacy naive top-N).")
+    p.add_argument("--trend-gate", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="When SPY closes below its --trend-entry-sma, emit "
+                        "empty picks (skip the rebalance). On by default. "
+                        "Backed by the 2026-05-18 asymmetric-filter backtest: "
+                        "75-SMA improves 2022-2024 alpha by +10.87pp vs the "
+                        "old 200-SMA filter while staying bit-identical on "
+                        "the 2024-2026 window. Pass --no-trend-gate to "
+                        "disable.")
+    p.add_argument("--trend-entry-sma", type=int, default=75,
+                   help="SMA window for --trend-gate (default 75 td). "
+                        "Calibrated by the asymmetric-filter sweep: 75 is "
+                        "the most aggressive setting that still ignores the "
+                        "Aug-2024 Japan-carry single-day spike.")
     p.add_argument("--vix-gate", action="store_true",
                    help="When today's VIX trailing 252d percentile is at or "
                         "above --vix-cutoff, return an empty picks list "
@@ -190,6 +204,78 @@ def main() -> int:
         else pd.Timestamp.utcnow().normalize().tz_localize(None)
     )
     logger.info("As-of: %s | top_n: %d", as_of.date(), args.top_n)
+
+    # Trend gate (default ON) -- skip the rebalance entirely when SPY is
+    # below its --trend-entry-sma. Run BEFORE the heavy factor pipeline so
+    # we short-circuit the expensive EDGAR load on gate-off days.
+    # Backed by the 2026-05-18 asymmetric-filter backtest (75-SMA: +10.87pp
+    # on 2022-2024 stress, bit-identical on 2024-2026 recent).
+    if args.trend_gate:
+        from src.config_loader import Config
+        from src.data.cache import DataCache
+        from src.data.fetcher import DataFetcher
+
+        config = Config()
+        cache = DataCache(
+            expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+            market_hours_expiry_minutes=config.get(
+                "data", "market_hours_cache_minutes", default=5,
+            ),
+        )
+        fetcher = DataFetcher(config, cache)
+        spy_data = fetcher.fetch_batch(["SPY"]).get("SPY")
+        if spy_data is None or spy_data.empty:
+            logger.warning(
+                "--trend-gate active but no SPY data available; "
+                "treating today as risk-on and proceeding."
+            )
+        else:
+            if getattr(spy_data.index, "tz", None) is not None:
+                spy_data = spy_data.copy()
+                spy_data.index = spy_data.index.tz_localize(None)
+            close = spy_data["Close"].astype(float)
+            sma = close.rolling(
+                window=args.trend_entry_sma,
+                min_periods=args.trend_entry_sma,
+            ).mean()
+            eligible = sma[sma.index <= as_of].dropna()
+            if eligible.empty:
+                logger.warning(
+                    "--trend-gate active but %d-SMA hasn't warmed up at %s; "
+                    "treating today as risk-on and proceeding.",
+                    args.trend_entry_sma, as_of.date(),
+                )
+            else:
+                latest_sma = float(eligible.iloc[-1])
+                latest_close = float(close.loc[eligible.index[-1]])
+                if latest_close < latest_sma:
+                    logger.warning(
+                        "Trend gate BLOCKING as_of=%s: SPY $%.2f < %d-SMA "
+                        "$%.2f. Returning empty picks. Skip the rebalance.",
+                        as_of.date(), latest_close, args.trend_entry_sma,
+                        latest_sma,
+                    )
+                    output_dir = Path(args.output_dir)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    out_json = output_dir / f"{as_of.date().isoformat()}.json"
+                    out_json.write_text(json.dumps({
+                        "as_of": as_of.date().isoformat(),
+                        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "strategy": "composite_d05_r63",
+                        "factors": [],
+                        "universe_size": 0,
+                        "top_n": 0,
+                        "picks": [],
+                        "snapshot_id": args.snapshot_id,
+                        "sector_cap_skipped": [],
+                        "gate": {
+                            "trend_blocked": True,
+                            "trend_entry_sma": args.trend_entry_sma,
+                            "spy_close": round(latest_close, 2),
+                            "spy_sma": round(latest_sma, 2),
+                        },
+                    }, indent=2, default=str), encoding="utf-8")
+                    return 0
 
     # VIX gate (opt-in) — pulled BEFORE the heavy factor pipeline so we
     # short-circuit the expensive EDGAR load when the gate blocks us.
