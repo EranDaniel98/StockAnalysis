@@ -47,11 +47,13 @@ def _parse_args() -> argparse.Namespace:
                    help="As-of date (YYYY-MM-DD). Default = today.")
     p.add_argument("--output-dir", default="data/daily_picks",
                    help="Where to write the JSON.")
-    p.add_argument("--include-pead", action="store_true",
-                   help="Include the PEAD factor in the composite. Requires "
-                        "an earnings-history fetch (yfinance, slow on a cold "
-                        "cache; ~3-5 min for the full S&P 500). Default OFF "
-                        "until validated against frozen snapshots.")
+    p.add_argument("--include-pead", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Include the PEAD factor in the composite. "
+                        "Validated 2026-05-18: +2.53pp avg α across 3 "
+                        "windows, tighter drawdowns. ON by default; pass "
+                        "--no-include-pead to disable (e.g., debugging "
+                        "without the earnings cache).")
     p.add_argument("--earnings-cache-dir", default="data/earnings_history",
                    help="Where to cache per-ticker earnings parquets so "
                         "subsequent --include-pead runs are fast.")
