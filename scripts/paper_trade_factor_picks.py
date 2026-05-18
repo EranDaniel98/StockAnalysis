@@ -4,14 +4,14 @@ Reads the most recent ``data/daily_picks/YYYY-MM-DD.json``, computes
 the equal-weight rebalance from current paper positions, and submits
 market orders.
 
-Default mode is **DRY RUN** — it prints the plan but does NOT submit.
+Default mode is **DRY RUN** -- it prints the plan but does NOT submit.
 Pass ``--execute`` to actually place orders.
 
 Safety
 ------
 - Paper-only client (AlpacaClient is hard-coded to paper=True).
 - Trading kill switch overridden via ``STOCKNEW_TRADING_ENABLED=1``
-  for the lifetime of this process only — no config edit.
+  for the lifetime of this process only -- no config edit.
 - Deterministic client_order_ids: a re-run on the same UTC date is
   refused by Alpaca as a duplicate; no double-fills.
 - The script DOES NOT touch positions outside the strategy's
@@ -22,7 +22,7 @@ Safety
 Usage
 -----
 
-    # Dry run (default) — show the plan only:
+    # Dry run (default) -- show the plan only:
     uv run python -m scripts.paper_trade_factor_picks
 
     # Pick a different date's picks file:
@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +53,8 @@ logger = logging.getLogger("paper_trade_factor_picks")
 
 STRATEGY_LABEL = "factor_composite_d05_r63"
 
+
+# ─── arg parsing ─────────────────────────────────────────────────────
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
@@ -102,13 +105,15 @@ def _parse_args() -> argparse.Namespace:
                         "ONLY when you've manually verified the cause.")
     p.add_argument("--override-sanity-errors", action="store_true",
                    help="Proceed even when the sanity gate had transport / "
-                        "API errors (not LLM verdicts — actual call failures). "
+                        "API errors (not LLM verdicts -- actual call failures). "
                         "Default refuses because the gate had its silent-mock "
                         "fallback removed: a failure now means the call broke, "
                         "not that the LLM is uncertain. Override ONLY for "
                         "known-transient issues.")
     return p.parse_args()
 
+
+# ─── picks loading ───────────────────────────────────────────────────
 
 def _load_picks(picks_dir: str, date_str: str | None) -> dict:
     if date_str is None:
@@ -122,16 +127,31 @@ def _load_picks(picks_dir: str, date_str: str | None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _resolve_long_short_mode(args, payload: dict) -> bool:
+    """CLI overrides JSON; JSON default False. Refuse LS mode if picks
+    file has no shorts (silent degrade hides the misconfiguration)."""
+    if args.long_short is None:
+        mode = bool(payload.get("long_short", False))
+    else:
+        mode = bool(args.long_short)
+    if mode and not (payload.get("shorts") or []):
+        raise SystemExit(
+            "--long-short requested but picks file has no 'shorts' set. "
+            "Generate with: python -m scripts.daily_factor_picks --long-short"
+        )
+    return mode
+
+
 def _fetch_quotes(
     tickers: list[str],
-) -> tuple[dict[str, float], dict[str, "pd.DataFrame"]]:
+) -> tuple[dict[str, float], dict[str, pd.DataFrame]]:
     """Pull last close + OHLC history for the ticker list via yfinance.
 
     The OHLC frames are needed for ATR-based stop sizing on the BUY side.
     yfinance is the same data source the picks generator uses, so prices
     align with the strategy's view.
 
-    Returns ``(quotes, ohlc_by_ticker)`` — quotes is last-close per ticker;
+    Returns ``(quotes, ohlc_by_ticker)`` -- quotes is last-close per ticker;
     ohlc_by_ticker holds the full DataFrame for ATR computation.
     """
     if not tickers:
@@ -162,66 +182,39 @@ def _fetch_quotes(
     return quotes, ohlc
 
 
-def main() -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    args = _parse_args()
+# ─── pre-trade gates ─────────────────────────────────────────────────
 
-    payload = _load_picks(args.picks_dir, args.picks_date)
-    longs = payload["picks"]
-    shorts = payload.get("shorts") or []
-    # Resolve long-short mode: CLI overrides JSON; JSON default False.
-    if args.long_short is None:
-        long_short_mode = bool(payload.get("long_short", False))
-    else:
-        long_short_mode = bool(args.long_short)
-    # If LS mode requested but no shorts present, refuse rather than
-    # silently degrade to long-only.
-    if long_short_mode and not shorts:
-        raise SystemExit(
-            "--long-short requested but picks file has no 'shorts' set. "
-            "Generate with: python -m scripts.daily_factor_picks --long-short"
-        )
-    if not long_short_mode:
-        shorts = []
-    if not longs:
-        raise SystemExit("Picks file's longs list is empty.")
-    logger.info(
-        "Loaded %d longs%s for %s from strategy=%s",
-        len(longs),
-        f" + {len(shorts)} shorts" if long_short_mode else "",
-        payload["as_of"], payload.get("strategy", "?"),
-    )
+def _run_drift_gate(args) -> None:
+    """Refuse to trade if today's picks composition has drifted from the
+    trailing baseline (universe shrink, factor coverage collapse, sector
+    cap break, top-z outlier, hysteresis carry rate anomaly).
 
-    # ─── Pre-trade drift gate ──────────────────────────────────────────
-    # Refuse to trade if today's picks composition has drifted from the
-    # trailing baseline (universe shrink, factor coverage collapse,
-    # sector cap break, top-z outlier, hysteresis carry rate anomaly).
-    # See reports/decision_logic_uplift_2026_05_18.md — the detector
-    # caught a real value-coverage drop on its first run.
+    See reports/decision_logic_uplift_2026_05_18.md -- the detector
+    caught a real value-coverage drop on its first run.
+    """
     from src.factors.drift_detector import (
         compute_drift_report, format_markdown,
     )
-    drift_report = compute_drift_report(
-        today_path=Path(args.picks_dir)
-        / f"{args.picks_date or datetime.now(timezone.utc).date().isoformat()}.json",
+    today_str = (
+        args.picks_date or datetime.now(timezone.utc).date().isoformat()
+    )
+    report = compute_drift_report(
+        today_path=Path(args.picks_dir) / f"{today_str}.json",
         history_dir=Path(args.picks_dir),
         days=30,
     )
-    if drift_report.overall_status == "fail":
+    if report.overall_status == "fail":
         logger.error(
             "Drift detector returned FAIL. Picks composition has shifted "
             "vs trailing baseline. Refusing to trade.",
         )
-        for c in drift_report.checks:
+        for c in report.checks:
             if c.status == "fail":
                 logger.error("  FAIL %s: %s", c.name, c.message)
         if not args.override_drift:
-            print(format_markdown(drift_report))
+            print(format_markdown(report))
             raise SystemExit(
-                "\nRefusing to trade — drift detector failed. "
+                "\nRefusing to trade -- drift detector failed. "
                 "Investigate the FAILs above. To override (NOT "
                 "recommended without manual verification), rerun with "
                 "--override-drift."
@@ -229,170 +222,157 @@ def main() -> int:
         logger.warning(
             "Proceeding despite drift FAIL because --override-drift was set."
         )
-    elif drift_report.overall_status == "warn":
-        logger.warning(
-            "Drift detector returned WARN (proceeding):"
-        )
-        for c in drift_report.checks:
+    elif report.overall_status == "warn":
+        logger.warning("Drift detector returned WARN (proceeding):")
+        for c in report.checks:
             if c.status == "warn":
                 logger.warning("  WARN %s: %s", c.name, c.message)
     else:
-        logger.info("Drift gate OK (%d checks)", len(drift_report.checks))
+        logger.info("Drift gate OK (%d checks)", len(report.checks))
 
-    # ─── Pre-trade LLM sanity gate ──────────────────────────────────────
-    # Asymmetric trust: REJECT removes; CAUTION warns. SKIP (gate error)
-    # is treated as REJECT — "when in doubt, don't trade". Run separately
-    # on longs (action=BUY) and shorts (action=SHORT) so the prompt
-    # framing matches.
-    sanity_summary: dict = {"applied": False, "kept": [], "rejected": [],
-                            "cautioned": [], "outcomes": {}}
-    if not args.skip_sanity:
-        from src.research_agent.sanity_gate import gate_picks_sync, is_available
 
-        if args.sanity_mode == "live" and not is_available():
-            raise SystemExit(
-                "--sanity-mode=live requires ANTHROPIC_API_KEY. "
-                "Either set the key or rerun with --sanity-mode=mock."
-            )
-        logger.info(
-            "Running sanity gate (mode=%s) on %d longs%s...",
-            args.sanity_mode, len(longs),
-            f" + {len(shorts)} shorts" if long_short_mode else "",
-        )
-        long_result = gate_picks_sync(
-            picks=longs, mode=args.sanity_mode, action="BUY",
-        )
-        short_result = (
-            gate_picks_sync(picks=shorts, mode=args.sanity_mode, action="SHORT")
-            if long_short_mode and shorts
-            else None
-        )
+def _sanity_outcomes_to_dict(res) -> dict:
+    """Flatten sanity-gate ``outcomes`` into the JSON shape we log."""
+    return {t: {
+        "verdict": o.verdict,
+        "reason": o.reason,
+        "confidence": o.check.confidence if o.check else None,
+        "model": o.check.model_used if o.check else None,
+        "mocked": o.check.mocked if o.check else None,
+    } for t, o in res.outcomes.items()}
 
-        def _outcome_dict(res) -> dict:
-            return {t: {
-                "verdict": o.verdict,
-                "reason": o.reason,
-                "confidence": o.check.confidence if o.check else None,
-                "model": o.check.model_used if o.check else None,
-                "mocked": o.check.mocked if o.check else None,
-            } for t, o in res.outcomes.items()}
 
-        sanity_summary = {
-            "applied": True,
-            "mode": args.sanity_mode,
-            "long_kept": long_result.kept,
-            "long_rejected": long_result.rejected,
-            "long_cautioned": long_result.cautioned,
-            "long_outcomes": _outcome_dict(long_result),
-            "short_kept": short_result.kept if short_result else [],
-            "short_rejected": short_result.rejected if short_result else [],
-            "short_cautioned": short_result.cautioned if short_result else [],
-            "short_outcomes": (
-                _outcome_dict(short_result) if short_result else {}
-            ),
-        }
-        if long_result.rejected:
-            logger.warning(
-                "Sanity gate REJECTED %d longs: %s",
-                len(long_result.rejected), ", ".join(long_result.rejected),
-            )
-        if short_result and short_result.rejected:
-            logger.warning(
-                "Sanity gate REJECTED %d shorts: %s",
-                len(short_result.rejected), ", ".join(short_result.rejected),
-            )
+def _sanity_gate_errors(res) -> list[str]:
+    """Tickers whose gate call FAILED (transport / API), distinct from
+    LLM-verdict REJECTs. ``_gate_one`` tags those reasons with
+    ``gate_error:``. Any such ticker is a hard stop unless overridden --
+    masking call failures with mock fallback is what hid the 5-day
+    silent gate failure after commit 411d288."""
+    if res is None:
+        return []
+    return [
+        t for t, o in res.outcomes.items()
+        if (o.reason or "").startswith("gate_error:")
+    ]
 
-        # Detect gate ERRORS (API / network failure) as distinct from LLM
-        # verdicts. ``_gate_one`` tags those reasons with "gate_error:".
-        # Any gate-error is a hard stop unless explicitly overridden —
-        # masking call failures with mock fallback is what hid the
-        # 5-day silent gate failure after commit 411d288.
-        def _gate_errors(res) -> list[str]:
-            if res is None:
-                return []
-            return [
-                t for t, o in res.outcomes.items()
-                if (o.reason or "").startswith("gate_error:")
-            ]
-        gate_errors = _gate_errors(long_result) + _gate_errors(short_result)
-        if gate_errors:
-            logger.error(
-                "Sanity gate had %d API/transport ERRORS (not LLM "
-                "verdicts): %s",
-                len(gate_errors), ", ".join(sorted(set(gate_errors))),
-            )
-            outcomes_long = long_result.outcomes if long_result else {}
-            outcomes_short = (
-                short_result.outcomes if short_result else {}
-            )
-            for t in sorted(set(gate_errors)):
-                o = outcomes_long.get(t) or outcomes_short.get(t)
-                if o:
-                    logger.error("  %s: %s", t, o.reason)
-            if not args.override_sanity_errors:
-                raise SystemExit(
-                    "\nRefusing to trade — sanity gate had transport "
-                    "errors on the calls above. The previous behaviour "
-                    "(silently fall back to mock) hid a five-day broken "
-                    "gate. Diagnose the underlying call failure, or "
-                    "rerun with --override-sanity-errors (NOT "
-                    "recommended)."
-                )
-            logger.warning(
-                "Proceeding despite %d sanity-gate errors because "
-                "--override-sanity-errors was set.",
-                len(gate_errors),
-            )
 
-        kept_longs = set(long_result.kept)
-        kept_shorts = set(short_result.kept) if short_result else set()
-        longs = [p for p in longs if p["ticker"] in kept_longs]
-        shorts = [p for p in shorts if p["ticker"] in kept_shorts]
+def _run_sanity_gate(
+    args, longs: list[dict], shorts: list[dict], long_short_mode: bool,
+) -> tuple[list[dict], list[dict], dict]:
+    """Apply asymmetric LLM sanity check. REJECT removes; CAUTION warns.
+    SKIP (gate error) is treated as REJECT -- 'when in doubt, don't trade'.
 
-        if not longs and not shorts:
-            raise SystemExit(
-                "Sanity gate rejected every pick. Nothing to trade. "
-                "Investigate the verdicts above; rerun with --skip-sanity "
-                "only if you have a reason to override (you should not)."
-            )
-    else:
+    Returns (filtered_longs, filtered_shorts, summary).
+    Raises SystemExit on transport errors (without --override-sanity-errors)
+    or if every pick gets rejected.
+    """
+    if args.skip_sanity:
         logger.warning(
             "Sanity gate BYPASSED via --skip-sanity. Picks reach the "
             "broker unfiltered. NOT recommended for live trading."
         )
+        return longs, shorts, {
+            "applied": False, "kept": [], "rejected": [],
+            "cautioned": [], "outcomes": {},
+        }
 
-    long_tickers = {p["ticker"] for p in longs}
-    short_tickers = {p["ticker"] for p in shorts}
-    target_tickers = long_tickers | short_tickers
-    n_longs = len(longs)
-    n_shorts = len(shorts)
+    from src.research_agent.sanity_gate import gate_picks_sync, is_available
+
+    if args.sanity_mode == "live" and not is_available():
+        raise SystemExit(
+            "--sanity-mode=live requires ANTHROPIC_API_KEY. "
+            "Either set the key or rerun with --sanity-mode=mock."
+        )
     logger.info(
-        "Post-sanity: %d longs + %d shorts → rebalance plan",
-        n_longs, n_shorts,
+        "Running sanity gate (mode=%s) on %d longs%s...",
+        args.sanity_mode, len(longs),
+        f" + {len(shorts)} shorts" if long_short_mode else "",
+    )
+    long_result = gate_picks_sync(picks=longs, mode=args.sanity_mode, action="BUY")
+    short_result = (
+        gate_picks_sync(picks=shorts, mode=args.sanity_mode, action="SHORT")
+        if long_short_mode and shorts
+        else None
     )
 
-    # Build the Alpaca client AFTER setting the env override so the
-    # safety gate reads enabled=true. We never write trading_enabled
-    # back to disk — env-only override.
-    if args.execute:
-        os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
+    summary: dict = {
+        "applied": True,
+        "mode": args.sanity_mode,
+        "long_kept": long_result.kept,
+        "long_rejected": long_result.rejected,
+        "long_cautioned": long_result.cautioned,
+        "long_outcomes": _sanity_outcomes_to_dict(long_result),
+        "short_kept": short_result.kept if short_result else [],
+        "short_rejected": short_result.rejected if short_result else [],
+        "short_cautioned": short_result.cautioned if short_result else [],
+        "short_outcomes": (
+            _sanity_outcomes_to_dict(short_result) if short_result else {}
+        ),
+    }
+    if long_result.rejected:
         logger.warning(
-            "EXECUTE MODE: orders will be submitted to Alpaca PAPER."
+            "Sanity gate REJECTED %d longs: %s",
+            len(long_result.rejected), ", ".join(long_result.rejected),
         )
-    else:
-        logger.info("DRY-RUN: no orders will be submitted. Pass --execute "
-                    "to actually trade.")
+    if short_result and short_result.rejected:
+        logger.warning(
+            "Sanity gate REJECTED %d shorts: %s",
+            len(short_result.rejected), ", ".join(short_result.rejected),
+        )
 
+    gate_errors = (
+        _sanity_gate_errors(long_result) + _sanity_gate_errors(short_result)
+    )
+    if gate_errors:
+        logger.error(
+            "Sanity gate had %d API/transport ERRORS (not LLM verdicts): %s",
+            len(gate_errors), ", ".join(sorted(set(gate_errors))),
+        )
+        outcomes_long = long_result.outcomes if long_result else {}
+        outcomes_short = short_result.outcomes if short_result else {}
+        for t in sorted(set(gate_errors)):
+            o = outcomes_long.get(t) or outcomes_short.get(t)
+            if o:
+                logger.error("  %s: %s", t, o.reason)
+        if not args.override_sanity_errors:
+            raise SystemExit(
+                "\nRefusing to trade -- sanity gate had transport errors "
+                "on the calls above. The previous behaviour (silently "
+                "fall back to mock) hid a five-day broken gate. Diagnose "
+                "the underlying call failure, or rerun with "
+                "--override-sanity-errors (NOT recommended)."
+            )
+        logger.warning(
+            "Proceeding despite %d sanity-gate errors because "
+            "--override-sanity-errors was set.",
+            len(gate_errors),
+        )
+
+    kept_longs = set(long_result.kept)
+    kept_shorts = set(short_result.kept) if short_result else set()
+    longs = [p for p in longs if p["ticker"] in kept_longs]
+    shorts = [p for p in shorts if p["ticker"] in kept_shorts]
+
+    if not longs and not shorts:
+        raise SystemExit(
+            "Sanity gate rejected every pick. Nothing to trade. "
+            "Investigate the verdicts above; rerun with --skip-sanity "
+            "only if you have a reason to override (you should not)."
+        )
+    return longs, shorts, summary
+
+
+# ─── broker setup + sizing ───────────────────────────────────────────
+
+def _open_alpaca_client():
+    """Construct an Alpaca PAPER client + safety gate. Returns (client,
+    account_dict). Equity is validated >0 before returning."""
     from src.config_loader import Config
-    from src.execution.alpaca import AlpacaClient, make_client_order_id
+    from src.execution.alpaca import AlpacaClient
     from src.execution.safety_gates import TradingSafetyGate
 
     config = Config()
-    if args.execute:
-        gate = TradingSafetyGate.from_config(config)
-    else:
-        # Dry-run still constructs the gate but never calls submit.
-        gate = TradingSafetyGate.from_config(config)
+    gate = TradingSafetyGate.from_config(config)
     client = AlpacaClient(safety_gate=gate)
 
     account = client.get_account()
@@ -404,11 +384,15 @@ def main() -> int:
         equity, cash, buying_power,
     )
     if equity <= 0:
-        raise SystemExit("Paper account has zero equity — top it up.")
+        raise SystemExit("Paper account has zero equity -- top it up.")
+    return client, {"equity": equity, "cash": cash, "buying_power": buying_power}
 
-    # Sizing. Long-only: all equity on the long side. Long-short: half
-    # to each side (gross ~1.0x, net ~0). Each side applies its own
-    # cash buffer.
+
+def _compute_sizing(
+    args, equity: float, n_longs: int, n_shorts: int, long_short_mode: bool,
+) -> dict:
+    """Long-only: full equity on the long side. Long-short: half to each
+    side (gross ~1.0x, net ~0). Each side applies its own cash buffer."""
     if long_short_mode:
         long_capital = equity * 0.5 * (1.0 - args.cash_buffer_pct / 100.0)
         short_capital = equity * 0.5 * (1.0 - args.short_cash_buffer_pct / 100.0)
@@ -422,32 +406,168 @@ def main() -> int:
         "per_long=$%.2f per_short=$%.2f",
         equity, long_capital, short_capital, per_long, per_short,
     )
+    return {
+        "long_capital": long_capital,
+        "short_capital": short_capital,
+        "per_long": per_long,
+        "per_short": per_short,
+    }
 
-    # Current positions on the paper account. Alpaca returns positive
-    # qty for longs, negative for shorts.
-    current_positions = {p["ticker"]: p for p in client.get_positions()}
-    logger.info("Current paper positions: %d names", len(current_positions))
 
-    # Quote + OHLC fetch for any target ticker (long OR short) we don't
-    # already hold. Sizing + bracket levels need both.
-    needs_quote = [
-        t for t in target_tickers
-        if t not in current_positions
-    ]
-    if needs_quote:
-        logger.info("Fetching live quotes for %d new-position tickers...",
-                    len(needs_quote))
-        fresh_quotes, fresh_ohlc = _fetch_quotes(needs_quote)
-        logger.info("Got %d/%d fresh quotes", len(fresh_quotes), len(needs_quote))
+# ─── action plan ─────────────────────────────────────────────────────
+
+def _resolve_bracket_levels(args, price: float, ohlc, is_long: bool):
+    """ATR-based stop/take-profit, falling back to fixed-percentage if
+    OHLC history is unusable."""
+    from src.execution.risk_sizing import (
+        atr_bracket_levels, percentage_bracket_levels,
+        short_atr_bracket_levels, short_percentage_bracket_levels,
+    )
+    levels = None
+    if is_long:
+        if ohlc is not None and not ohlc.empty:
+            levels = atr_bracket_levels(
+                entry=price, ohlc=ohlc,
+                atr_multiplier=args.atr_multiplier,
+                risk_reward=args.risk_reward,
+            )
+        if levels is None:
+            levels = percentage_bracket_levels(
+                entry=price, risk_reward=args.risk_reward,
+            )
     else:
-        fresh_quotes, fresh_ohlc = {}, {}
+        if ohlc is not None and not ohlc.empty:
+            levels = short_atr_bracket_levels(
+                entry=price, ohlc=ohlc,
+                atr_multiplier=args.atr_multiplier,
+                risk_reward=args.risk_reward,
+            )
+        if levels is None:
+            levels = short_percentage_bracket_levels(
+                entry=price, risk_reward=args.risk_reward,
+            )
+    return levels
 
-    # Build the action plan.
-    closes: list[dict] = []          # close-outs (cover shorts OR sell longs)
-    actions: list[dict] = []         # opens/resizes — carries 'side' field
 
+def _build_one_action(
+    args, p: dict, is_long: bool,
+    current_positions: dict, fresh_quotes: dict, fresh_ohlc: dict,
+    per_long: float, per_short: float, closes: list,
+) -> dict | None:
+    """Build the action dict for one pick. May append to ``closes`` if a
+    position flip is required (current/target opposite signs)."""
+    from src.execution.risk_sizing import is_position_flip, size_position
+
+    t = p["ticker"]
+    current = current_positions.get(t)
+    current_shares = int(float(current["shares"])) if current else 0
+    price = (float(current["current_price"])
+             if current and current.get("current_price")
+             else fresh_quotes.get(t))
+    if price is None:
+        return {
+            "ticker": t,
+            "side": "long" if is_long else "short",
+            "current_shares": current_shares,
+            "target_shares": None,
+            "current_price": None,
+            "delta_shares": None,
+            "submit_type": "skip_no_price",
+            "skip_reason": "no_price_for_bracket_sizing",
+        }
+    if price <= 0:
+        return None
+    per = per_long if is_long else per_short
+    plan = size_position(
+        price=price, per_slot=per,
+        current_shares=current_shares, is_long=is_long,
+    )
+    if plan.skip_reason is not None:
+        # Operator-visible skip -- the alternative (silently sizing to 0
+        # shares) was the high-price-short footgun that dropped COST
+        # from a prior day's plan without any warning.
+        return {
+            "ticker": t,
+            "side": "long" if is_long else "short",
+            "current_shares": current_shares,
+            "target_shares": plan.target_shares,
+            "current_price": round(price, 4),
+            "delta_shares": plan.delta_shares,
+            "submit_type": "skip_no_size",
+            "skip_reason": plan.skip_reason,
+        }
+    target_shares = plan.target_shares
+    delta = plan.delta_shares
+    if delta == 0:
+        return None
+
+    # Position flip: currently long, targeted short (or reverse). Alpaca
+    # rejects a bracket sell on a name with existing long shares with
+    # "bracket orders must be entry orders" -- the order isn't a clean
+    # entry. Inject a market close into ``closes`` so the existing
+    # position flattens FIRST, then the bracket entry submits from
+    # flat. The closes loop runs before opens; flip-close fills are
+    # polled before flip-entry submission in _submit_opens.
+    flip_from = 0
+    if is_position_flip(current_shares, target_shares):
+        flip_from = current_shares
+        closes.append({
+            "ticker": t,
+            "current_shares": current_shares,
+            "side": "flip_long" if current_shares > 0 else "flip_short",
+            "current_price": round(price, 4),
+            "reason": (
+                "flip_to_short" if target_shares < 0 else "flip_to_long"
+            ),
+        })
+        # Treat the entry as a fresh entry from flat: target unchanged,
+        # but the trade-size delta is now just the target magnitude.
+        current_shares = 0
+        delta = target_shares
+
+    bracket: dict | None = None
+    # Bracket levels apply only to OPENING a new position (delta in the
+    # direction of the target). Resizes / partial closes don't spawn new
+    # brackets -- the existing position's bracket (if any) already
+    # covers it.
+    opening = (is_long and delta > 0) or ((not is_long) and delta < 0)
+    if args.order_style == "bracket" and opening:
+        levels = _resolve_bracket_levels(args, price, fresh_ohlc.get(t), is_long)
+        if levels is not None:
+            bracket = {
+                "stop_loss": levels.stop,
+                "take_profit": levels.take_profit,
+                "basis": levels.basis,
+            }
+    return {
+        "ticker": t,
+        "side": "long" if is_long else "short",
+        "current_shares": current_shares,
+        "flip_from_shares": flip_from,
+        "target_shares": target_shares,
+        "current_price": round(price, 4),
+        "delta_shares": delta,
+        "target_notional": round(abs(target_shares) * price, 2),
+        "submit_type": "shares",
+        "bracket": bracket,
+    }
+
+
+def _build_action_plan(
+    args, longs: list[dict], shorts: list[dict],
+    current_positions: dict, fresh_quotes: dict, fresh_ohlc: dict,
+    per_long: float, per_short: float,
+) -> tuple[list[dict], list[dict]]:
+    """Returns (closes, actions). ``closes`` covers positions no longer
+    in the target set AND flip-from-prior-side closes. ``actions`` has
+    every open/resize, with a 'side' field."""
+    target_tickers = (
+        {p["ticker"] for p in longs} | {p["ticker"] for p in shorts}
+    )
+
+    closes: list[dict] = []
     # 1. Close any position NOT in either target set. ``current_shares``
-    # carries the sign (negative = current short → must BUY to cover).
+    # carries the sign (negative = current short -> must BUY to cover).
     for t, pos in current_positions.items():
         if t in target_tickers:
             continue
@@ -462,170 +582,83 @@ def main() -> int:
             "reason": "not_in_target",
         })
 
-    # 2. For each target, compute target_shares (sign-aware) + bracket.
-    from src.execution.risk_sizing import (
-        atr_bracket_levels, is_position_flip, percentage_bracket_levels,
-        short_atr_bracket_levels, short_percentage_bracket_levels,
-        size_position,
-    )
-
-    def _resolve_levels(t: str, price: float, is_long: bool):
-        ohlc = fresh_ohlc.get(t)
-        levels = None
-        if is_long:
-            if ohlc is not None and not ohlc.empty:
-                levels = atr_bracket_levels(
-                    entry=price, ohlc=ohlc,
-                    atr_multiplier=args.atr_multiplier,
-                    risk_reward=args.risk_reward,
-                )
-            if levels is None:
-                levels = percentage_bracket_levels(
-                    entry=price, risk_reward=args.risk_reward,
-                )
-        else:
-            if ohlc is not None and not ohlc.empty:
-                levels = short_atr_bracket_levels(
-                    entry=price, ohlc=ohlc,
-                    atr_multiplier=args.atr_multiplier,
-                    risk_reward=args.risk_reward,
-                )
-            if levels is None:
-                levels = short_percentage_bracket_levels(
-                    entry=price, risk_reward=args.risk_reward,
-                )
-        return levels
-
-    def _build_action(p: dict, is_long: bool) -> dict | None:
-        t = p["ticker"]
-        current = current_positions.get(t)
-        current_shares = int(float(current["shares"])) if current else 0
-        price = (float(current["current_price"])
-                 if current and current.get("current_price")
-                 else fresh_quotes.get(t))
-        if price is None:
-            return {
-                "ticker": t,
-                "side": "long" if is_long else "short",
-                "current_shares": current_shares,
-                "target_shares": None,
-                "current_price": None,
-                "delta_shares": None,
-                "submit_type": "skip_no_price",
-                "skip_reason": "no_price_for_bracket_sizing",
-            }
-        if price <= 0:
-            return None
-        per = per_long if is_long else per_short
-        plan = size_position(
-            price=price, per_slot=per,
-            current_shares=current_shares, is_long=is_long,
-        )
-        if plan.skip_reason is not None:
-            # Operator-visible skip — the alternative (silently sizing to
-            # 0 shares) was the high-price-short footgun that dropped
-            # COST from today's plan without any warning.
-            return {
-                "ticker": t,
-                "side": "long" if is_long else "short",
-                "current_shares": current_shares,
-                "target_shares": plan.target_shares,
-                "current_price": round(price, 4),
-                "delta_shares": plan.delta_shares,
-                "submit_type": "skip_no_size",
-                "skip_reason": plan.skip_reason,
-            }
-        target_shares = plan.target_shares
-        delta = plan.delta_shares
-        if delta == 0:
-            return None
-
-        # Position flip: currently long, targeted short (or reverse). Alpaca
-        # rejects a bracket sell on a name with existing long shares with
-        # "bracket orders must be entry orders" — the order isn't a clean
-        # entry. Inject a market close into the closes list so the existing
-        # position flattens FIRST, then the bracket entry submits from
-        # flat. The closes loop runs before opens, so paper-trading order
-        # of operations is: close fills near-instantly → entry submits
-        # cleanly. For live execution this should poll the close fill
-        # before submitting the entry; left as a follow-up.
-        flip_from = 0
-        if is_position_flip(current_shares, target_shares):
-            flip_from = current_shares
-            closes.append({
-                "ticker": t,
-                "current_shares": current_shares,
-                "side": "flip_long" if current_shares > 0 else "flip_short",
-                "current_price": round(price, 4),
-                "reason": (
-                    "flip_to_short" if target_shares < 0 else "flip_to_long"
-                ),
-            })
-            # Treat the entry as a fresh entry from flat: target unchanged,
-            # but the trade-size delta is now just the target magnitude.
-            current_shares = 0
-            delta = target_shares
-
-        bracket: dict | None = None
-        # Bracket levels apply only to OPENING a new position (delta in
-        # the direction of the target). Resizes / partial closes don't
-        # spawn new brackets — the existing position's bracket (if any)
-        # already covers it.
-        opening = (is_long and delta > 0) or ((not is_long) and delta < 0)
-        if args.order_style == "bracket" and opening:
-            levels = _resolve_levels(t, price, is_long)
-            if levels is not None:
-                bracket = {
-                    "stop_loss": levels.stop,
-                    "take_profit": levels.take_profit,
-                    "basis": levels.basis,
-                }
-        return {
-            "ticker": t,
-            "side": "long" if is_long else "short",
-            "current_shares": current_shares,
-            "flip_from_shares": flip_from,
-            "target_shares": target_shares,
-            "current_price": round(price, 4),
-            "delta_shares": delta,
-            "target_notional": round(abs(target_shares) * price, 2),
-            "submit_type": "shares",
-            "bracket": bracket,
-        }
-
+    # 2. Build the sign-aware target action for each long + short pick.
+    # _build_one_action appends to ``closes`` when a position flip is
+    # detected.
+    actions: list[dict] = []
     for p in longs:
-        act = _build_action(p, is_long=True)
+        act = _build_one_action(
+            args, p, True, current_positions, fresh_quotes, fresh_ohlc,
+            per_long, per_short, closes,
+        )
         if act is not None:
             actions.append(act)
     for p in shorts:
-        act = _build_action(p, is_long=False)
+        act = _build_one_action(
+            args, p, False, current_positions, fresh_quotes, fresh_ohlc,
+            per_long, per_short, closes,
+        )
         if act is not None:
             actions.append(act)
+    return closes, actions
 
-    # Back-compat aliases for the rest of the script (which iterates
-    # over `buys`/`sells` and prints them). The semantics now: `sells`
-    # = closes (sell longs / cover shorts); `buys` = open/resize actions
-    # regardless of direction.
-    sells = closes
-    buys = actions
 
-    # ----- print the plan -----
+# ─── display ────────────────────────────────────────────────────────
+
+def _print_action_line(b: dict) -> None:
+    if b["submit_type"] == "shares":
+        arrow = "+" if b["delta_shares"] > 0 else ""
+        bracket_str = ""
+        if b.get("bracket"):
+            bk = b["bracket"]
+            bracket_str = (
+                f"  stop ${bk['stop_loss']:.2f} / TP "
+                f"${bk['take_profit']:.2f} ({bk['basis']})"
+            )
+        # Flip note: when a pre-flip close was injected, current_shares
+        # reads as 0 (post-virtual-close) but flip_from_shares shows
+        # the actual prior position so the operator sees the intent.
+        flip_str = ""
+        if b.get("flip_from_shares"):
+            flip_str = (
+                f"  [FLIP from {b['flip_from_shares']:+d} -> "
+                f"{b['target_shares']:+d}; close already queued]"
+            )
+        print(f"  {b['ticker']:>6s}  {arrow}{b['delta_shares']} sh "
+              f"(target {b['target_shares']}, current "
+              f"{b['current_shares']})  @ ${b['current_price']:.2f}"
+              f"  notional ${b['target_notional']:,.2f}{bracket_str}"
+              f"{flip_str}")
+    elif b["submit_type"] == "skip_no_price":
+        print(f"  {b['ticker']:>6s}  SKIP -- no quote available "
+              f"({b.get('skip_reason')})")
+    elif b["submit_type"] == "skip_no_size":
+        print(f"  {b['ticker']:>6s}  SKIP @ ${b.get('current_price', 0):.2f}  "
+              f"-- {b.get('skip_reason')}")
+
+
+def _print_plan(
+    payload: dict, sizing: dict, sells: list, buys: list,
+    long_short_mode: bool, sanity_summary: dict,
+) -> None:
     print("\n=== REBALANCE PLAN ===")
     label = STRATEGY_LABEL + ("-ls" if long_short_mode else "")
     print(f"Strategy: {label}")
     print(f"As-of (picks): {payload['as_of']}")
+    equity = sizing.get("equity", 0.0)
     print(f"Paper account equity: ${equity:,.2f}")
     if long_short_mode:
-        print(f"Long capital: ${long_capital:,.2f} (per-long ${per_long:,.2f})")
-        print(f"Short capital: ${short_capital:,.2f} "
-              f"(per-short ${per_short:,.2f})\n")
+        print(f"Long capital: ${sizing['long_capital']:,.2f} "
+              f"(per-long ${sizing['per_long']:,.2f})")
+        print(f"Short capital: ${sizing['short_capital']:,.2f} "
+              f"(per-short ${sizing['per_short']:,.2f})\n")
     else:
-        print(f"Target per-position notional: ${per_long:,.2f}\n")
+        print(f"Target per-position notional: ${sizing['per_long']:,.2f}\n")
 
     if sells:
         n_flip = sum(1 for s in sells if s["side"].startswith("flip_"))
         n_drop = len(sells) - n_flip
-        header = f"CLOSES ({len(sells)} — {n_drop} dropped from target set"
+        header = f"CLOSES ({len(sells)} -- {n_drop} dropped from target set"
         if n_flip:
             header += f", {n_flip} pre-flip"
         print(header + "):")
@@ -647,114 +680,89 @@ def main() -> int:
     longs_in_plan = [b for b in buys if b["side"] == "long"]
     shorts_in_plan = [b for b in buys if b["side"] == "short"]
 
-    def _print_action(b: dict) -> None:
-        if b["submit_type"] == "shares":
-            arrow = "+" if b["delta_shares"] > 0 else ""
-            bracket_str = ""
-            if b.get("bracket"):
-                bk = b["bracket"]
-                bracket_str = (
-                    f"  stop ${bk['stop_loss']:.2f} / TP "
-                    f"${bk['take_profit']:.2f} ({bk['basis']})"
-                )
-            # Flip note: when a pre-flip close was injected, current_shares
-            # reads as 0 (post-virtual-close) but flip_from_shares shows
-            # the actual prior position so the operator sees the intent.
-            flip_str = ""
-            if b.get("flip_from_shares"):
-                flip_str = (
-                    f"  [FLIP from {b['flip_from_shares']:+d} → "
-                    f"{b['target_shares']:+d}; close already queued]"
-                )
-            print(f"  {b['ticker']:>6s}  {arrow}{b['delta_shares']} sh "
-                  f"(target {b['target_shares']}, current "
-                  f"{b['current_shares']})  @ ${b['current_price']:.2f}"
-                  f"  notional ${b['target_notional']:,.2f}{bracket_str}"
-                  f"{flip_str}")
-        elif b["submit_type"] == "skip_no_price":
-            print(f"  {b['ticker']:>6s}  SKIP — no quote available "
-                  f"({b.get('skip_reason')})")
-        elif b["submit_type"] == "skip_no_size":
-            print(f"  {b['ticker']:>6s}  SKIP @ ${b.get('current_price', 0):.2f}  "
-                  f"— {b.get('skip_reason')}")
-
     if longs_in_plan:
         print(f"\nLONGS ({len(longs_in_plan)}):")
         for b in longs_in_plan:
-            _print_action(b)
+            _print_action_line(b)
     elif not long_short_mode:
         print("\nLONGS: none")
 
     if shorts_in_plan:
         print(f"\nSHORTS ({len(shorts_in_plan)}):")
         for b in shorts_in_plan:
-            _print_action(b)
+            _print_action_line(b)
     elif long_short_mode:
         print("\nSHORTS: none")
 
-    if sanity_summary.get("applied"):
-        long_rej = sanity_summary.get("long_rejected") or []
-        long_cau = sanity_summary.get("long_cautioned") or []
-        short_rej = sanity_summary.get("short_rejected") or []
-        short_cau = sanity_summary.get("short_cautioned") or []
-        any_flag = bool(long_rej or long_cau or short_rej or short_cau)
-        if any_flag:
-            print(f"\nSANITY GATE ({sanity_summary.get('mode')}):  "
-                  f"long rejected={len(long_rej)}/cautioned={len(long_cau)}; "
-                  f"short rejected={len(short_rej)}/cautioned={len(short_cau)}")
-            long_out = sanity_summary.get("long_outcomes") or {}
-            short_out = sanity_summary.get("short_outcomes") or {}
-            for tk in long_rej:
-                print(f"  REJECT LONG  {tk:>6s}: "
-                      f"{long_out.get(tk, {}).get('reason', '')}")
-            for tk in long_cau:
-                print(f"  CAUTION LONG {tk:>6s}: "
-                      f"{long_out.get(tk, {}).get('reason', '')}")
-            for tk in short_rej:
-                print(f"  REJECT SHORT {tk:>6s}: "
-                      f"{short_out.get(tk, {}).get('reason', '')}")
-            for tk in short_cau:
-                print(f"  CAUTION SHORT {tk:>6s}: "
-                      f"{short_out.get(tk, {}).get('reason', '')}")
+    _print_sanity_summary(sanity_summary)
 
-    if not args.execute:
-        print("\n*** DRY RUN — nothing submitted. Pass --execute to trade. ***\n")
-        return 0
 
-    if args.confirm and sys.stdin.isatty():
-        n_opens = sum(
-            1 for b in buys
-            if b["submit_type"] == "shares" and b.get("delta_shares")
-            and (
-                (b["side"] == "long" and b["delta_shares"] > 0)
-                or (b["side"] == "short" and b["delta_shares"] < 0)
-            )
+def _print_sanity_summary(sanity_summary: dict) -> None:
+    if not sanity_summary.get("applied"):
+        return
+    long_rej = sanity_summary.get("long_rejected") or []
+    long_cau = sanity_summary.get("long_cautioned") or []
+    short_rej = sanity_summary.get("short_rejected") or []
+    short_cau = sanity_summary.get("short_cautioned") or []
+    if not (long_rej or long_cau or short_rej or short_cau):
+        return
+    print(f"\nSANITY GATE ({sanity_summary.get('mode')}):  "
+          f"long rejected={len(long_rej)}/cautioned={len(long_cau)}; "
+          f"short rejected={len(short_rej)}/cautioned={len(short_cau)}")
+    long_out = sanity_summary.get("long_outcomes") or {}
+    short_out = sanity_summary.get("short_outcomes") or {}
+    for tk in long_rej:
+        print(f"  REJECT LONG  {tk:>6s}: "
+              f"{long_out.get(tk, {}).get('reason', '')}")
+    for tk in long_cau:
+        print(f"  CAUTION LONG {tk:>6s}: "
+              f"{long_out.get(tk, {}).get('reason', '')}")
+    for tk in short_rej:
+        print(f"  REJECT SHORT {tk:>6s}: "
+              f"{short_out.get(tk, {}).get('reason', '')}")
+    for tk in short_cau:
+        print(f"  CAUTION SHORT {tk:>6s}: "
+              f"{short_out.get(tk, {}).get('reason', '')}")
+
+
+# ─── execution ──────────────────────────────────────────────────────
+
+def _confirm_execution(args, sells: list, buys: list) -> bool:
+    """Y/N prompt before live submission. Returns False if operator aborts;
+    True otherwise (including when not interactive)."""
+    if not (args.confirm and sys.stdin.isatty()):
+        return True
+    n_opens = sum(
+        1 for b in buys
+        if b["submit_type"] == "shares" and b.get("delta_shares")
+        and (
+            (b["side"] == "long" and b["delta_shares"] > 0)
+            or (b["side"] == "short" and b["delta_shares"] < 0)
         )
-        prompt = (
-            f"\n*** CONFIRM ***  About to submit {len(sells)} CLOSES + "
-            f"{n_opens} OPENs to Alpaca PAPER. Continue? [y/N]: "
-        )
-        response = input(prompt).strip().lower()
-        if response not in ("y", "yes"):
-            print("Aborted by operator.")
-            return 0
+    )
+    prompt = (
+        f"\n*** CONFIRM ***  About to submit {len(sells)} CLOSES + "
+        f"{n_opens} OPENs to Alpaca PAPER. Continue? [y/N]: "
+    )
+    response = input(prompt).strip().lower()
+    if response not in ("y", "yes"):
+        print("Aborted by operator.")
+        return False
+    return True
 
-    # ----- execute -----
-    print("\n=== EXECUTING ===")
+
+def _submit_closes(
+    client, sells: list, today,
+) -> tuple[list[dict], list[dict], dict[str, str]]:
+    """Submit close-out market orders. Returns (submitted, failed,
+    flip_close_coids) -- flip COIDs are returned so the caller can poll
+    them before submitting the matching entry brackets."""
+    from src.execution.alpaca import make_client_order_id
+
     submitted: list[dict] = []
-    skipped: list[dict] = []
     failed: list[dict] = []
-
-    today = datetime.now(timezone.utc).date()
-
-    # Track flip-close COIDs so we can poll them for fill before submitting
-    # the corresponding flip-entry bracket. Without this, Alpaca rejects
-    # the entry with "bracket orders must be entry orders" if the close
-    # hasn't filled yet (real risk in live trading; paper is near-instant
-    # but still race-prone if the market is closed).
     flip_close_coids: dict[str, str] = {}
 
-    # Closes first (free up margin/cash for new opens).
     for s in sells:
         cs = s["current_shares"]
         if cs == 0:
@@ -780,64 +788,81 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             failed.append({"ticker": s["ticker"], "side": "close", "error": str(e)})
             print(f"  FAIL CLOSE {s['ticker']:>6s}: {e}")
+    return submitted, failed, flip_close_coids
 
-    # Poll each flip-close to fill (or terminal-fail) before submitting
-    # the matching bracket entry. Terminal statuses other than 'filled'
-    # block the entry — we don't want to short a name we couldn't
-    # successfully close out of long first.
+
+def _poll_flip_close_fills(
+    client, flip_close_coids: dict[str, str],
+) -> dict[str, str]:
+    """Poll each flip-close to filled (or terminal-fail) before allowing
+    its matching bracket entry to submit. Terminal statuses other than
+    'filled' block the entry -- we don't want to short a name we
+    couldn't successfully close out of long first."""
     flip_close_status: dict[str, str] = {}
-    if flip_close_coids:
-        import time
-        terminal_bad = {"canceled", "expired", "replaced", "stopped",
-                        "done_for_day", "rejected", "suspended"}
-        deadline = time.monotonic() + 60.0  # 60s budget; paper fills <1s
-        remaining = dict(flip_close_coids)
-        print(f"\n  Polling {len(remaining)} flip close(s) for fill...")
-        while remaining and time.monotonic() < deadline:
-            for t in list(remaining):
-                coid = remaining[t]
-                order = client.get_order_by_coid(coid)
-                if order is None:
-                    continue
-                status = (order.get("status") or "").lower().replace(
-                    "orderstatus.", "",
-                )
-                if status == "filled":
-                    flip_close_status[t] = "filled"
-                    del remaining[t]
-                    print(f"    {t:>6s}  flip close FILLED")
-                elif any(bad in status for bad in terminal_bad):
-                    flip_close_status[t] = status
-                    del remaining[t]
-                    print(f"    {t:>6s}  flip close TERMINAL: {status}")
-            if remaining:
-                time.sleep(1.5)
-        for t in remaining:
-            flip_close_status[t] = "timeout"
-            print(f"    {t:>6s}  flip close TIMEOUT (60s) — entry will SKIP")
+    if not flip_close_coids:
+        return flip_close_status
 
-    # Then opens / resizes. Side-aware: long opens via submit_bracket_order
-    # side=buy; short opens via submit_bracket_order side=sell with
-    # short-bracket levels (stop above entry, TP below).
+    terminal_bad = {"canceled", "expired", "replaced", "stopped",
+                    "done_for_day", "rejected", "suspended"}
+    deadline = time.monotonic() + 60.0  # 60s budget; paper fills <1s
+    remaining = dict(flip_close_coids)
+    print(f"\n  Polling {len(remaining)} flip close(s) for fill...")
+    while remaining and time.monotonic() < deadline:
+        for t in list(remaining):
+            coid = remaining[t]
+            order = client.get_order_by_coid(coid)
+            if order is None:
+                continue
+            status = (order.get("status") or "").lower().replace(
+                "orderstatus.", "",
+            )
+            if status == "filled":
+                flip_close_status[t] = "filled"
+                del remaining[t]
+                print(f"    {t:>6s}  flip close FILLED")
+            elif any(bad in status for bad in terminal_bad):
+                flip_close_status[t] = status
+                del remaining[t]
+                print(f"    {t:>6s}  flip close TERMINAL: {status}")
+        if remaining:
+            time.sleep(1.5)
+    for t in remaining:
+        flip_close_status[t] = "timeout"
+        print(f"    {t:>6s}  flip close TIMEOUT (60s) -- entry will SKIP")
+    return flip_close_status
+
+
+def _submit_opens(
+    args, client, buys: list,
+    flip_close_status: dict[str, str], today,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Submit open / resize orders. Side-aware: long opens via
+    submit_bracket_order side=buy; short opens via submit_bracket_order
+    side=sell with short-bracket levels (stop above entry, TP below).
+
+    Flip entries are blocked if their matching flip-close didn't fill --
+    submitting a bracket against an unflattened position is what Alpaca
+    rejects with 'bracket orders must be entry orders'.
+    """
+    from src.execution.alpaca import make_client_order_id
+
+    submitted: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
     for b in buys:
         if b["submit_type"] != "shares":
             # No-price actions surface as failures, not silent skips.
+            reason = b.get("skip_reason") or "no_quote_or_bracket"
             skipped.append({
-                "ticker": b["ticker"],
-                "side": b["side"],
-                "reason": b.get("skip_reason") or "no_quote_or_bracket",
+                "ticker": b["ticker"], "side": b["side"], "reason": reason,
             })
             print(f"  SKIP {b['ticker']:>6s} {b['side']:>5s}: "
-                  f"{b.get('skip_reason') or 'no_quote_or_bracket'} "
-                  f"— investigate before next rebalance")
+                  f"{reason} -- investigate before next rebalance")
             continue
         delta = b.get("delta_shares") or 0
         if delta == 0:
             continue
-        # Block the flip entry if its prior close didn't fill. Submitting
-        # a bracket against an unflattened position is what Alpaca
-        # rejected with "bracket orders must be entry orders" before this
-        # polling step was added.
         if b.get("flip_from_shares"):
             status = flip_close_status.get(b["ticker"])
             if status != "filled":
@@ -858,8 +883,8 @@ def main() -> int:
         is_long = b["side"] == "long"
         opening = (is_long and delta > 0) or ((not is_long) and delta < 0)
         bracket = b.get("bracket")
-        # COID namespace per side so a same-day re-run never collides
-        # a long entry with a short entry on the same ticker.
+        # COID namespace per side so a same-day re-run never collides a
+        # long entry with a short entry on the same ticker.
         coid_ns = STRATEGY_LABEL + ("-long" if is_long else "-short")
         coid = make_client_order_id(coid_ns, b["ticker"], today)
 
@@ -894,7 +919,7 @@ def main() -> int:
                       f"${bracket['take_profit']:.2f} ({bracket['basis']}) "
                       f"-> order {res['order_id']} ({res['status']})")
             else:
-                # Resize / partial close — naked market order is fine
+                # Resize / partial close -- naked market order is fine
                 # because we're not opening fresh risk; existing bracket
                 # (if any) still covers the residual position.
                 broker_side = "buy" if delta > 0 else "sell"
@@ -905,10 +930,7 @@ def main() -> int:
                     client_order_id=coid,
                     reference_price=b["current_price"],
                 )
-                submitted.append({
-                    "side": f"resize_{b['side']}",
-                    **res,
-                })
+                submitted.append({"side": f"resize_{b['side']}", **res})
                 arrow = "+" if delta > 0 else ""
                 print(f"  RESIZE {b['ticker']:>6s} {b['side']:>5s} "
                       f"{arrow}{delta} sh -> order {res['order_id']} "
@@ -918,11 +940,15 @@ def main() -> int:
                 "ticker": b["ticker"], "side": b["side"], "error": str(e),
             })
             print(f"  FAIL {b['side'].upper():>5s} {b['ticker']:>6s}: {e}")
+    return submitted, skipped, failed
 
-    print(f"\n=== DONE ===  submitted={len(submitted)}  "
-          f"skipped={len(skipped)}  failed={len(failed)}")
 
-    # Write an execution log.
+def _write_execution_log(
+    args, payload: dict, equity: float, sizing: dict,
+    n_longs: int, n_shorts: int, long_short_mode: bool,
+    sanity_summary: dict, submitted: list, skipped: list, failed: list,
+    today,
+) -> Path:
     log_dir = Path(args.picks_dir) / "execution_log"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{today.isoformat()}.json"
@@ -932,8 +958,8 @@ def main() -> int:
         "strategy": STRATEGY_LABEL + ("-ls" if long_short_mode else ""),
         "long_short_mode": long_short_mode,
         "equity_at_start": equity,
-        "long_capital": long_capital,
-        "short_capital": short_capital,
+        "long_capital": sizing["long_capital"],
+        "short_capital": sizing["short_capital"],
         "n_longs": n_longs,
         "n_shorts": n_shorts,
         "sanity_gate": sanity_summary,
@@ -943,6 +969,110 @@ def main() -> int:
         "failed": failed,
     }, indent=2, default=str), encoding="utf-8")
     print(f"\nExecution log: {log_path}")
+    return log_path
+
+
+# ─── orchestration ───────────────────────────────────────────────────
+
+def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    args = _parse_args()
+
+    payload = _load_picks(args.picks_dir, args.picks_date)
+    longs = payload["picks"]
+    shorts = payload.get("shorts") or []
+    long_short_mode = _resolve_long_short_mode(args, payload)
+    if not long_short_mode:
+        shorts = []
+    if not longs:
+        raise SystemExit("Picks file's longs list is empty.")
+    logger.info(
+        "Loaded %d longs%s for %s from strategy=%s",
+        len(longs),
+        f" + {len(shorts)} shorts" if long_short_mode else "",
+        payload["as_of"], payload.get("strategy", "?"),
+    )
+
+    _run_drift_gate(args)
+    longs, shorts, sanity_summary = _run_sanity_gate(
+        args, longs, shorts, long_short_mode,
+    )
+    n_longs, n_shorts = len(longs), len(shorts)
+    logger.info(
+        "Post-sanity: %d longs + %d shorts -> rebalance plan", n_longs, n_shorts,
+    )
+
+    # Build the Alpaca client AFTER setting the env override so the
+    # safety gate reads enabled=true. We never write trading_enabled
+    # back to disk -- env-only override.
+    if args.execute:
+        os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
+        logger.warning("EXECUTE MODE: orders will be submitted to Alpaca PAPER.")
+    else:
+        logger.info(
+            "DRY-RUN: no orders will be submitted. Pass --execute to trade."
+        )
+    client, account = _open_alpaca_client()
+    equity = account["equity"]
+
+    sizing = _compute_sizing(args, equity, n_longs, n_shorts, long_short_mode)
+    sizing["equity"] = equity
+
+    current_positions = {p["ticker"]: p for p in client.get_positions()}
+    logger.info("Current paper positions: %d names", len(current_positions))
+
+    # Quote + OHLC fetch for any target ticker we don't already hold.
+    target_tickers = (
+        {p["ticker"] for p in longs} | {p["ticker"] for p in shorts}
+    )
+    needs_quote = [t for t in target_tickers if t not in current_positions]
+    if needs_quote:
+        logger.info(
+            "Fetching live quotes for %d new-position tickers...",
+            len(needs_quote),
+        )
+        fresh_quotes, fresh_ohlc = _fetch_quotes(needs_quote)
+        logger.info("Got %d/%d fresh quotes", len(fresh_quotes), len(needs_quote))
+    else:
+        fresh_quotes, fresh_ohlc = {}, {}
+
+    sells, buys = _build_action_plan(
+        args, longs, shorts, current_positions, fresh_quotes, fresh_ohlc,
+        sizing["per_long"], sizing["per_short"],
+    )
+
+    _print_plan(payload, sizing, sells, buys, long_short_mode, sanity_summary)
+
+    if not args.execute:
+        print("\n*** DRY RUN -- nothing submitted. Pass --execute to trade. ***\n")
+        return 0
+
+    if not _confirm_execution(args, sells, buys):
+        return 0
+
+    print("\n=== EXECUTING ===")
+    today = datetime.now(timezone.utc).date()
+
+    submitted_closes, failed_closes, flip_close_coids = _submit_closes(
+        client, sells, today,
+    )
+    flip_close_status = _poll_flip_close_fills(client, flip_close_coids)
+    submitted_opens, skipped, failed_opens = _submit_opens(
+        args, client, buys, flip_close_status, today,
+    )
+
+    submitted = submitted_closes + submitted_opens
+    failed = failed_closes + failed_opens
+    print(f"\n=== DONE ===  submitted={len(submitted)}  "
+          f"skipped={len(skipped)}  failed={len(failed)}")
+
+    _write_execution_log(
+        args, payload, equity, sizing, n_longs, n_shorts, long_short_mode,
+        sanity_summary, submitted, skipped, failed, today,
+    )
     return 0 if not failed else 1
 
 
