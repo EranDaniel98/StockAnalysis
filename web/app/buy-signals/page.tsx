@@ -32,6 +32,15 @@ import { cn } from "@/lib/utils";
 
 type GradeFilter = "ALL" | "STRONG_ONLY";
 
+// "factor" reads the d05_r63 composite-factor picks from the daily
+// pipeline (data/daily_picks/*.json), which is what the paper trader
+// actually executes. "composite" reads the OLD 6-analyzer scan path
+// (scan_runs DB) — kept for research but proven NOISE at 44D in
+// reports/analyzer_ic_2022_2024_extended.md. Default = factor since
+// it's the live edge; composite is shown only when factor picks are
+// empty (system not bootstrapped) OR the user opts in via the toggle.
+type DataSource = "factor" | "composite";
+
 // Maps a sanity-check verdict to its badge palette. REJECT borrows the
 // bearish tone so it scans the same way as a SELL elsewhere on the
 // platform; CAUTION uses neutral so the user spots "look closer"
@@ -84,6 +93,9 @@ function formatScanAge(iso: string): string {
 
 export default function BuySignalsPage() {
   const [grade, setGrade] = useState<GradeFilter>("ALL");
+  // Default to the factor pipeline since that's what the paper trader
+  // executes. Composite is research-only — see DataSource note.
+  const [source, setSource] = useState<DataSource>("factor");
   // Per-sub-score minimum thresholds. Empty = no filter on that key.
   // The UI lists every sub-score the latest scans emit; the user types
   // a number (0-100) into the field to require that sub-score >= N.
@@ -95,11 +107,27 @@ export default function BuySignalsPage() {
 
   const qc = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  // Factor picks ignore the strongOnly toggle (their action labels are
+  // derived from today's z-quartile, not historical thresholds). When
+  // the user flips strongOnly on the factor path we filter client-side
+  // below; the composite path forwards it to the API which has the
+  // proper threshold logic baked in.
+  const factorQuery = useQuery({
+    queryKey: qk.scans.factorPicks(),
+    queryFn: () => api.scans.factorPicks(),
+    enabled: source === "factor",
+  });
+  const compositeQuery = useQuery({
     queryKey: qk.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
     queryFn: () =>
       api.scans.latestBuys({ strongOnly: grade === "STRONG_ONLY" }),
+    enabled: source === "composite",
   });
+  const data =
+    source === "factor" ? factorQuery.data : compositeQuery.data;
+  const isLoading =
+    source === "factor" ? factorQuery.isLoading : compositeQuery.isLoading;
+  const error = source === "factor" ? factorQuery.error : compositeQuery.error;
 
   // Pre-trade sanity check. Mocked path is default until the user has
   // an ANTHROPIC_API_KEY wired — the mock is rule-based and free, lets
@@ -133,7 +161,16 @@ export default function BuySignalsPage() {
     },
   });
 
-  const rawRows = data ?? [];
+  // Factor source returns BOTH STRONG BUY and BUY rows; apply the
+  // strong-only filter client-side so the UI behaves consistently
+  // regardless of which pipeline is selected.
+  const rawRows = useMemo(() => {
+    const rows = data ?? [];
+    if (source === "factor" && grade === "STRONG_ONLY") {
+      return rows.filter((r) => r.action === "STRONG BUY");
+    }
+    return rows;
+  }, [data, source, grade]);
 
   // Union of every sub-score key any returned row exposes. Used to
   // populate the filter UI even when only one strategy's row carries
@@ -191,7 +228,11 @@ export default function BuySignalsPage() {
     <>
       <PageHeader
         title="BUY signals · right now"
-        description="Tickers currently flagged BUY+ in the latest scan per strategy. Cross-strategy consensus is the strongest tell — when multiple strategies agree, that's a stack."
+        description={
+          source === "factor"
+            ? "Today's composite-factor picks (m+q+v rank-blend, top 5% of PIT S&P 500). This is what the paper trader executes — same source as data/daily_picks/*.json."
+            : "Latest BUY+ rows from the OLD 6-analyzer composite. Research-only; proven NOISE at 44D in reports/analyzer_ic_2022_2024_extended.md. Use the Factor tab for live picks."
+        }
       />
 
       {error ? <ErrorState error={error} /> : null}
@@ -259,6 +300,36 @@ export default function BuySignalsPage() {
 
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+          Source
+        </span>
+        <button
+          type="button"
+          onClick={() => setSource("factor")}
+          className={cn(
+            "px-2 py-1 text-xs font-mono uppercase tracking-wider rounded border transition-colors",
+            source === "factor"
+              ? "border-bullish text-bullish bg-bullish/10"
+              : "border-border text-muted-foreground hover:text-foreground",
+          )}
+          title="Factor pipeline (composite_d05_r63) — what the paper trader actually executes"
+        >
+          Factor (live)
+        </button>
+        <button
+          type="button"
+          onClick={() => setSource("composite")}
+          className={cn(
+            "px-2 py-1 text-xs font-mono uppercase tracking-wider rounded border transition-colors",
+            source === "composite"
+              ? "border-neutral text-neutral bg-neutral/10"
+              : "border-border text-muted-foreground hover:text-foreground",
+          )}
+          title="Old 6-analyzer composite — research only; proven NOISE at 44D in reports/analyzer_ic_2022_2024_extended.md"
+        >
+          Composite (research)
+        </button>
+
+        <span className="ml-2 font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
           Filter
         </span>
         <button

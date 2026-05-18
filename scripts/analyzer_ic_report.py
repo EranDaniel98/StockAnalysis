@@ -205,6 +205,11 @@ def _load_regime_series(
             )
             return None
         vix = vix_data["Close"]
+        # The fetcher returns a tz-aware (America/Chicago) DatetimeIndex
+        # on yfinance frames, but ``start`` / ``end`` here are tz-naive.
+        # Strip tz on both sides so the boolean mask doesn't raise.
+        if getattr(vix.index, "tz", None) is not None:
+            vix.index = vix.index.tz_localize(None)
         vix = vix.loc[(vix.index >= (start - runway)) & (vix.index <= end)]
         # Forward-fill weekends/holidays so every panel date has a regime.
         labels = pd.Series(
@@ -221,6 +226,8 @@ def _load_regime_series(
             )
             return None
         spy_close = spy_data["Close"]
+        if getattr(spy_close.index, "tz", None) is not None:
+            spy_close.index = spy_close.index.tz_localize(None)
         # Pull extra runway so the 200-DMA exists at panel start.
         spy_close = spy_close.loc[
             (spy_close.index >= (start - runway)) & (spy_close.index <= end)

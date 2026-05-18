@@ -23,6 +23,7 @@ export const qk = {
     detail: (runId: string) => ["scans", "detail", runId] as const,
     latestBuys: (params?: { strongOnly?: boolean }) =>
       ["scans", "latest-buys", params ?? {}] as const,
+    factorPicks: () => ["scans", "factor-picks"] as const,
   },
 
   backtests: {

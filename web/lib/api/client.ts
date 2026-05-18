@@ -180,6 +180,8 @@ export const api = {
         `/api/scans/latest-buys${qs ? `?${qs}` : ""}`,
       );
     },
+    factorPicks: () =>
+      request<BuySignal[]>("/api/scans/factor-picks"),
     triggerSanityCheck: (body: SanityCheckTriggerRequest) =>
       request<BuySignal[]>("/api/scans/sanity-check", {
         method: "POST",

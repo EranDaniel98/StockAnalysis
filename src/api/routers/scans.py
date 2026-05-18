@@ -21,6 +21,7 @@ from src.api.schemas.scan import (
     ScanResultItem,
     ScanSummary,
 )
+from src.api.services.factor_picks_reader import load_latest_factor_picks
 from src.api.services.scan_runner import run_scan_sync
 from src.config_loader import Config
 from src.db.models import SanityCheckRow, ScanRun
@@ -269,6 +270,37 @@ async def latest_buys(
         key=lambda b: (-b.composite_score, -b.consensus_count, b.ticker),
     )
     return out
+
+
+@router.get("/factor-picks", response_model=list[BuySignal])
+async def factor_picks(
+    db: AsyncSession = Depends(get_db_session),
+) -> list[BuySignal]:
+    """Today's composite-factor picks (PIT S&P 500, m+q+v rank-blend).
+
+    Reads from ``data/daily_picks/YYYY-MM-DD.json`` — the source the
+    paper trader uses to place real (paper) orders. This is the
+    canonical "what does the system want to BUY?" surface for the
+    factor strategy. Sanity-check verdicts (cached against the
+    synthetic ``factor:<strategy>:<as_of>`` run_id) are attached when
+    present so the web UI can render the same brake-light pattern as
+    the composite-path /latest-buys endpoint.
+
+    Returns an empty list when no picks file exists (system not yet
+    bootstrapped) or when the file is malformed — by design, since
+    the scoring-path /latest-buys endpoint is a viable fallback for
+    the FE.
+    """
+    signals = load_latest_factor_picks()
+    if not signals:
+        return []
+    run_ids = list({s.run_id for s in signals})
+    sanity_cache = await _load_cached_sanity_checks(db, run_ids)
+    for s in signals:
+        cached = sanity_cache.get((s.ticker, s.run_id))
+        if cached is not None:
+            s.sanity_check = cached
+    return signals
 
 
 @router.post("/sanity-check", response_model=list[BuySignal])
