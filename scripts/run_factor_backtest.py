@@ -46,6 +46,7 @@ from src.factors.composite import combine as combine_factors
 from src.factors.momentum import momentum_12_1
 from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
+from src.factors.regime_weights import list_profiles, weights_for
 from src.factors.value import value_factor
 from src.factors.vix_regime import (
     DEFAULT_CUTOFF as VIX_DEFAULT_CUTOFF,
@@ -86,6 +87,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--vix-window", type=int, default=VIX_DEFAULT_WINDOW,
                    help=f"Rolling window for --vix-gate (default "
                         f"{VIX_DEFAULT_WINDOW} trading days).")
+    p.add_argument("--regime-weights",
+                   default="equal",
+                   choices=tuple(list_profiles()),
+                   help="Composite rank-blend weight profile. 'equal' is "
+                        "today's default (equal weight m+q+v). Other "
+                        "profiles weight differently per VIX regime; see "
+                        "src/factors/regime_weights.py for the full table.")
     p.add_argument("--factor",
                    default="momentum",
                    choices=("momentum", "quality", "value", "composite"),
@@ -125,22 +133,36 @@ def _resolve_ranking(
     fund_loader,
     as_of: pd.Timestamp,
     universe_tickers: list[str],
-) -> pd.DataFrame:
-    """Dispatch to the requested factor. Returns a tidy ranking frame."""
+    *,
+    regime_profile: str = "equal",
+    vix_df: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, str]:
+    """Dispatch to the requested factor. Returns ``(ranking, regime_label)``.
+
+    For single-factor runs (momentum / quality / value alone) the
+    regime_label is always "low_vix" because there's no blend to
+    reshape. The composite path consults the regime-weights profile.
+    """
     if factor == "momentum":
-        return momentum_12_1(prices, as_of)
+        return momentum_12_1(prices, as_of), "low_vix"
     if factor == "quality":
-        return quality_factor(fund_loader, universe_tickers, as_of)
+        return quality_factor(fund_loader, universe_tickers, as_of), "low_vix"
     if factor == "value":
-        return value_factor(fund_loader, prices, universe_tickers, as_of)
+        return value_factor(fund_loader, prices, universe_tickers, as_of), "low_vix"
     if factor == "composite":
         m = momentum_12_1(prices, as_of)
         q = quality_factor(fund_loader, universe_tickers, as_of)
         v = value_factor(fund_loader, prices, universe_tickers, as_of)
+        weights, regime = weights_for(
+            regime_profile, as_of=as_of, vix_df=vix_df,
+        )
         # Permissive overlap: a ticker that's in 2 of 3 factors still
         # gets ranked. Strict overlap (must be in all 3) drops too
         # many names from the universe at any given as_of.
-        return combine_factors([m, q, v], min_overlap=2)
+        ranking = combine_factors(
+            [m, q, v], min_overlap=2, weights=weights,
+        )
+        return ranking, regime
     raise ValueError(f"unknown factor {factor!r}")
 
 
@@ -332,8 +354,10 @@ def run(args: argparse.Namespace) -> dict:
             continue
 
         # Compute factor; pick top decile.
-        ranking = _resolve_ranking(
+        ranking, regime_label = _resolve_ranking(
             args.factor, prices, fund_loader, d, universe_tickers,
+            regime_profile=args.regime_weights,
+            vix_df=snap.vix_df if args.regime_weights != "equal" else None,
         )
         if ranking.empty:
             continue
@@ -389,6 +413,7 @@ def run(args: argparse.Namespace) -> dict:
             "date": d.date().isoformat(),
             "action": "rebalance",
             "n_positions": len(holdings),
+            "regime": regime_label,
         })
 
     # ----- metrics -----

@@ -40,6 +40,7 @@ def combine(
     frames: list[pd.DataFrame],
     *,
     min_overlap: int | None = None,
+    weights: list[float] | None = None,
 ) -> pd.DataFrame:
     """Rank-combine N factor frames.
 
@@ -48,23 +49,49 @@ def combine(
     frames : list of factor frames with ['ticker', 'rank'] columns.
     min_overlap : minimum number of frames a ticker must appear in.
         Default = len(frames) (strict: ticker must be in every frame).
+    weights : optional per-frame weight vector. Same length as
+        ``frames``. When provided, the composite is a weighted average
+        of the per-frame normalized ranks instead of a simple mean.
+        Weights are normalized to sum to 1; zero or negative weights
+        skip that frame entirely. Used by the regime-conditional
+        weighting variant (see ``src/factors/regime_weights.py``).
 
     Returns
     -------
     DataFrame with columns ['ticker', 'mean_normalized_rank', 'raw',
     'rank', 'z_score'] sorted by rank ascending (1 = best composite).
+    Note: when weights are passed, ``mean_normalized_rank`` is the
+    *weighted* mean — the column name is preserved for downstream
+    compatibility.
     """
     if not frames:
         return _empty_result()
 
-    threshold = min_overlap if min_overlap is not None else len(frames)
+    if weights is not None:
+        if len(weights) != len(frames):
+            raise ValueError(
+                f"weights length {len(weights)} != frames length {len(frames)}"
+            )
+
+    # When weights zero out some frames, the effective frame count for
+    # min_overlap purposes drops. ``len(frames)`` is the wrong default
+    # in that case — it would demand every ticker be in frames we just
+    # told the composite to ignore.
+    active_count = (
+        sum(1 for w in weights if w > 0) if weights is not None else len(frames)
+    )
+    threshold = min_overlap if min_overlap is not None else active_count
 
     # Normalize ranks within each frame to [0, 1]. This handles the
     # case where different frames have different N (e.g., momentum has
     # 480, quality has 450 — without normalization the smaller-N frame
     # dominates).
     normalized: list[pd.DataFrame] = []
+    frame_weights: list[float] = []
     for i, f in enumerate(frames):
+        w = float(weights[i]) if weights is not None else 1.0
+        if w <= 0:
+            continue
         if f.empty or "ticker" not in f.columns or "rank" not in f.columns:
             continue
         n = len(f)
@@ -73,6 +100,7 @@ def combine(
         sub = f[["ticker", "rank"]].copy()
         sub[f"nr_{i}"] = (sub["rank"] - 1) / max(1, n - 1)  # 0 = best, 1 = worst
         normalized.append(sub[["ticker", f"nr_{i}"]])
+        frame_weights.append(w)
 
     if not normalized:
         return _empty_result()
@@ -88,7 +116,26 @@ def combine(
     if merged.empty:
         return _empty_result()
 
-    merged["mean_normalized_rank"] = merged[nr_cols].mean(axis=1, skipna=True)
+    if weights is None:
+        merged["mean_normalized_rank"] = merged[nr_cols].mean(axis=1, skipna=True)
+    else:
+        # Weighted mean per row, ignoring NaN (a ticker missing from a
+        # frame contributes 0 weight for that frame). Re-normalize per
+        # row so weights sum to 1 across the frames the ticker is in.
+        weight_arr = pd.Series(frame_weights, index=nr_cols)
+        weight_sum = weight_arr.sum()
+        if weight_sum <= 0:
+            return _empty_result()
+        # Multiply each column by its weight, sum, divide by per-row
+        # weight (the sum over columns where the value is not NaN).
+        weighted = merged[nr_cols].mul(weight_arr, axis=1)
+        row_weight = (
+            merged[nr_cols].notna()
+            .mul(weight_arr, axis=1).sum(axis=1)
+        )
+        merged["mean_normalized_rank"] = (
+            weighted.sum(axis=1, min_count=1) / row_weight.replace(0, pd.NA)
+        )
     # raw = -mean_normalized_rank so HIGHER raw = better (matches the
     # per-factor convention; downstream code that sorts by raw descending
     # still works).
