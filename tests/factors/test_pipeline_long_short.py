@@ -60,11 +60,13 @@ def fake_pipeline():
 
     with patch("src.factors.pipeline._load_fundamentals_sync") as mock_loader, \
          patch("src.storage.universe_loader.load_pit_sp500_with_prices") as mock_universe, \
+         patch("src.data.sector_cache.get_sectors") as mock_sectors, \
          patch("src.factors.momentum.momentum_12_1") as mock_mom, \
          patch("src.factors.quality.quality_factor") as mock_qual, \
          patch("src.factors.value.value_factor") as mock_val:
         mock_universe.return_value = (tickers, prices)
         mock_loader.return_value = _FakeLoader(sectors)
+        mock_sectors.return_value = sectors
         # Make the three factors agree so the composite ordering is
         # deterministic.
         mock_mom.return_value = _make_factor_frame(tickers)

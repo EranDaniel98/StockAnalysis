@@ -180,6 +180,7 @@ def run_factor_picks(
     FactorPicksResult — both the full ranked universe and the top-N
     picks-table.
     """
+    from src.data.sector_cache import get_sectors
     from src.factors.composite import combine as combine_factors
     from src.factors.momentum import momentum_12_1
     from src.factors.pead import pead_factor
@@ -238,17 +239,33 @@ def run_factor_picks(
             snapshot_id=snapshot_id,
         )
 
+    # Batch sector lookup via yfinance cache. EDGAR rows carry no sector
+    # (the ingest path never populates it), so a tertiary fallback to
+    # loader.lookup_sector returns None for every name → cap binds on
+    # one "Unknown" bucket. yfinance .info is the same source the OLD
+    # analyzer pipeline reads from; we cache to disk to amortize the
+    # cost across runs.
+    composite_tickers = composite["ticker"].tolist()
+    yf_sectors = get_sectors(composite_tickers)
+    sectors: dict[str, str] = {}
+    for t in composite_tickers:
+        sector = yf_sectors.get(t)
+        if not sector:
+            sector = loader.lookup_sector(t, as_of.to_pydatetime())
+        sectors[t] = sector or "Unknown"
+    n_classified = sum(1 for s in sectors.values() if s != "Unknown")
+    logger.info(
+        "Sector classification: %d / %d names (%.1f%%) — yfinance hits %d",
+        n_classified, len(sectors),
+        100.0 * n_classified / max(1, len(sectors)),
+        sum(1 for t in composite_tickers if yf_sectors.get(t)),
+    )
+
     sector_cap_skipped: list[dict] = []
     if max_sector_pct is None or max_sector_pct >= 100:
         top = composite.head(top_n).copy()
-        top["sector"] = top["ticker"].map(
-            lambda t: loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown"
-        )
+        top["sector"] = top["ticker"].map(lambda t: sectors.get(t, "Unknown"))
     else:
-        sectors = {
-            t: (loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown")
-            for t in composite["ticker"].tolist()
-        }
         top, sector_cap_skipped = _select_with_sector_cap(
             composite, sectors, top_n=top_n, max_sector_pct=max_sector_pct,
         )
@@ -271,16 +288,11 @@ def run_factor_picks(
         if max_sector_pct is None or max_sector_pct >= 100:
             shorts = bottom.head(n_short).copy()
             shorts["sector"] = shorts["ticker"].map(
-                lambda t: loader.lookup_sector(t, as_of.to_pydatetime())
-                or "Unknown"
+                lambda t: sectors.get(t, "Unknown")
             )
         else:
-            short_sectors = {
-                t: (loader.lookup_sector(t, as_of.to_pydatetime()) or "Unknown")
-                for t in bottom["ticker"].tolist()
-            }
             shorts, _ = _select_with_sector_cap(
-                bottom, short_sectors, top_n=n_short,
+                bottom, sectors, top_n=n_short,
                 max_sector_pct=max_sector_pct,
             )
         # Drop any ticker that appears on both sides (shouldn't happen
