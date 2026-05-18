@@ -345,6 +345,32 @@
         }
       }
     },
+    "/api/scans/factor-picks": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Factor Picks",
+        "description": "Today's composite-factor picks (PIT S&P 500, m+q+v rank-blend).\n\nReads from ``data/daily_picks/YYYY-MM-DD.json`` \u2014 the source the\npaper trader uses to place real (paper) orders. This is the\ncanonical \"what does the system want to BUY?\" surface for the\nfactor strategy. Sanity-check verdicts (cached against the\nsynthetic ``factor:<strategy>:<as_of>`` run_id) are attached when\npresent so the web UI can render the same brake-light pattern as\nthe composite-path /latest-buys endpoint.\n\nReturns an empty list when no picks file exists (system not yet\nbootstrapped) or when the file is malformed \u2014 by design, since\nthe scoring-path /latest-buys endpoint is a viable fallback for\nthe FE.",
+        "operationId": "factor_picks_api_scans_factor_picks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BuySignal"
+                  },
+                  "type": "array",
+                  "title": "Response Factor Picks Api Scans Factor Picks Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scans/sanity-check": {
       "post": {
         "tags": [
@@ -1281,653 +1307,6 @@
         }
       }
     },
-    "/api/analytics/calibration": {
-      "get": {
-        "tags": [
-          "analytics"
-        ],
-        "summary": "Score Calibration",
-        "description": "Score-vs-realized-return calibration.\n\nBuckets every closed paper trade by its composite_score band and reports\nn_trades + avg / median pnl_pct + win_rate per bucket. The goal: confirm\nthat higher composite scores really do produce higher realized returns\n\u2014 and surface drift early if they stop doing so.",
-        "operationId": "score_calibration_api_analytics_calibration_get",
-        "parameters": [
-          {
-            "name": "min_score",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "maximum": 100,
-              "minimum": 0,
-              "default": 40.0,
-              "title": "Min Score"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScoreCalibration"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/analytics/trades-summary": {
-      "get": {
-        "tags": [
-          "analytics"
-        ],
-        "summary": "Trades Summary",
-        "description": "Aggregate analytics across every closed paper trade.\n\nRead-only \u2014 pulls all closed trades + their parent recommendation (for\nstrategy attribution) in one query, then computes everything in memory.\nThe trade table is unlikely to outgrow this scope for personal use; if\nit ever does, the per-section work each isolates cleanly.",
-        "operationId": "trades_summary_api_analytics_trades_summary_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TradeAnalytics"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/trades": {
-      "get": {
-        "tags": [
-          "trades"
-        ],
-        "summary": "List Trades",
-        "description": "Closed paper trades, newest exit first. Filter by ticker, score\nfloor, or whether the row already has notes.",
-        "operationId": "list_trades_api_trades_get",
-        "parameters": [
-          {
-            "name": "ticker",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ticker"
-            }
-          },
-          {
-            "name": "min_score",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 100,
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Min Score"
-            }
-          },
-          {
-            "name": "has_notes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Has Notes"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 500,
-              "exclusiveMinimum": 0,
-              "default": 100,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PaperTradeItem"
-                  },
-                  "title": "Response List Trades Api Trades Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/trades/{trade_id}": {
-      "patch": {
-        "tags": [
-          "trades"
-        ],
-        "summary": "Update Trade Notes",
-        "description": "Replace the notes field. ``null`` clears the entry.",
-        "operationId": "update_trade_notes_api_trades__trade_id__patch",
-        "parameters": [
-          {
-            "name": "trade_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Trade Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TradeNotesUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaperTradeItem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ml/models": {
-      "get": {
-        "tags": [
-          "ml"
-        ],
-        "summary": "List Ml Models",
-        "description": "List registered model versions + drift status for the latest of each name.\n\nFilter to a single ``model_name`` to see its history. Without a filter,\nyou get the full registry (newest first) plus a \"latest per name\" view\nthat mirrors what the ensemble would use right now.",
-        "operationId": "list_ml_models_api_ml_models_get",
-        "parameters": [
-          {
-            "name": "model_name",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Model Name"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 50,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "window_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 180,
-              "minimum": 7,
-              "default": 30,
-              "title": "Window Days"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MLModelsResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/ask": {
-      "post": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Ask",
-        "description": "Kick off one synchronous research run. Returns the completed\n(or failed / budget_exceeded) run row inline.\n\nThe orchestrator never raises on tool failures \u2014 those are threaded\nback into the transcript. We do raise 503 if the ANTHROPIC_API_KEY\nis missing so the UI can prompt for setup.",
-        "operationId": "ask_api_research_ask_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResearchAskRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResearchRunDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/ask/stream": {
-      "post": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Ask Stream",
-        "description": "Stream the agent's mid-run thoughts over SSE.\n\nEvents (named):\n  - ``started``         {run_id, question}\n  - ``turn_start``      {turn}\n  - ``assistant_text``  {turn, text}   any prose the model emits\n                                        alongside a tool call\n  - ``tool_call``       {turn, tool, input}\n  - ``tool_result``     {turn, tool, is_error, summary}\n  - ``usage``           {turn, input_tokens, output_tokens, cost_usd}\n  - ``final_answer``    {text}\n  - ``complete``        {run_id, status}\n  - ``error``           {detail, kind}\n\nClient disconnects cancel the worker task \u2014 the partial run row\nstays in the DB with whatever transcript it had at the time.",
-        "operationId": "ask_stream_api_research_ask_stream_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResearchAskRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/runs": {
-      "get": {
-        "tags": [
-          "research"
-        ],
-        "summary": "List Runs",
-        "operationId": "list_runs_api_research_runs_get",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 20,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ResearchRunSummary"
-                  },
-                  "title": "Response List Runs Api Research Runs Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/runs/{run_id}": {
-      "get": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Get Run",
-        "operationId": "get_run_api_research_runs__run_id__get",
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Run Id"
-            }
-          },
-          {
-            "name": "include_transcript",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Transcript"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResearchRunDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/notifications": {
-      "get": {
-        "tags": [
-          "research"
-        ],
-        "summary": "List Notifications",
-        "description": "Recent filings the background monitor surfaced. Newest first.",
-        "operationId": "list_notifications_api_research_notifications_get",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 30,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "ticker",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ticker"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/FilingNotificationItem"
-                  },
-                  "title": "Response List Notifications Api Research Notifications Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/notifications/{notification_id}/summarize": {
-      "post": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Summarize Notification",
-        "description": "Kick off an agent run to summarize one filing.\n\nUses ``search_filings`` under the hood \u2014 the filing's chunks are\nalready in the corpus (the monitor ingested them at detection\ntime). Result is cached on ``filing_notifications.summary`` so\nrepeat clicks return instantly.",
-        "operationId": "summarize_notification_api_research_notifications__notification_id__summarize_post",
-        "parameters": [
-          {
-            "name": "notification_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Notification Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SummarizeNotificationResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/notifications/stream": {
-      "get": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Stream Notifications",
-        "description": "SSE channel: live filing notifications. Events are named\n``notification`` with the persisted row's slim shape.\n\nNo ``status`` event on the channel \u2014 the EventMonitor is either\nrunning (background task alive) or not (env-disabled); the API\nsurface for that lives at ``GET /api/research/monitor/status``.",
-        "operationId": "stream_notifications_api_research_notifications_stream_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/research/monitor/status": {
-      "get": {
-        "tags": [
-          "research"
-        ],
-        "summary": "Monitor Status",
-        "description": "Lightweight liveness probe for the /research/feed page header.",
-        "operationId": "monitor_status_api_research_monitor_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Monitor Status Api Research Monitor Status Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/dashboard": {
       "get": {
         "tags": [
@@ -1969,6 +1348,58 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DashboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/briefing": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Get Briefing",
+        "operationId": "get_briefing_api_dashboard_briefing_get",
+        "parameters": [
+          {
+            "name": "picks_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "YYYY-MM-DD. Defaults to today's UTC date.",
+              "title": "Picks Date"
+            },
+            "description": "YYYY-MM-DD. Defaults to today's UTC date."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefingResponse"
                 }
               }
             }
@@ -2305,6 +1736,108 @@
         ],
         "title": "BacktestSummary"
       },
+      "BriefingResponse": {
+        "properties": {
+          "picks_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picks Date",
+            "description": "Date of the picks file underlying this briefing. Null when no picks have been generated yet for today."
+          },
+          "gate_status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "fail",
+              "no_picks"
+            ],
+            "title": "Gate Status",
+            "description": "Overall pre-trade gate verdict. 'fail' means refuse the rebalance; 'warn' means proceed with caution; 'ok' means drift checks clean; 'no_picks' means today's picks file is missing (briefing degrades to position alerts only)."
+          },
+          "gate_message": {
+            "type": "string",
+            "title": "Gate Message",
+            "description": "One-line summary of why the gate failed/warned, or 'all drift checks passed' on OK."
+          },
+          "recommendation": {
+            "type": "string",
+            "title": "Recommendation",
+            "description": "Single sentence: what the system thinks the operator should do this morning."
+          },
+          "drift_checks": {
+            "items": {
+              "$ref": "#/components/schemas/DriftCheckOut"
+            },
+            "type": "array",
+            "title": "Drift Checks"
+          },
+          "factor_coverage": {
+            "items": {
+              "$ref": "#/components/schemas/FactorCoverage"
+            },
+            "type": "array",
+            "title": "Factor Coverage"
+          },
+          "n_picks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Picks",
+            "default": 0
+          },
+          "position_alerts": {
+            "items": {
+              "$ref": "#/components/schemas/PositionAlert"
+            },
+            "type": "array",
+            "title": "Position Alerts"
+          },
+          "n_stops_hit": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Stops Hit",
+            "default": 0
+          },
+          "n_targets_hit": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Targets Hit",
+            "default": 0
+          },
+          "n_near_stop": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Near Stop",
+            "default": 0
+          },
+          "n_positions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Positions",
+            "default": 0
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gate_status",
+          "gate_message",
+          "recommendation",
+          "generated_at"
+        ],
+        "title": "BriefingResponse"
+      },
       "BuySignal": {
         "properties": {
           "ticker": {
@@ -2433,91 +1966,6 @@
         ],
         "title": "BuySignal",
         "description": "One ticker with a current BUY+ signal from the latest scan per strategy.\n\nDeduped across strategies: each ticker appears once, attributed to the\nstrategy that produced its highest composite_score. ``consensus_count``\ncounts how many strategies' latest runs all flagged this ticker as\nBUY+ \u2014 high consensus = stronger conviction."
-      },
-      "CalibrationBucket": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "lower": {
-            "type": "number",
-            "title": "Lower"
-          },
-          "upper": {
-            "type": "number",
-            "title": "Upper"
-          },
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          },
-          "avg_pnl_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Pnl Pct"
-          },
-          "median_pnl_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Median Pnl Pct"
-          },
-          "win_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Win Rate"
-          }
-        },
-        "type": "object",
-        "required": [
-          "label",
-          "lower",
-          "upper",
-          "n_trades"
-        ],
-        "title": "CalibrationBucket"
-      },
-      "CumulativePnlPoint": {
-        "properties": {
-          "date": {
-            "type": "string",
-            "format": "date",
-            "title": "Date"
-          },
-          "cumulative_pnl": {
-            "type": "number",
-            "title": "Cumulative Pnl"
-          },
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          }
-        },
-        "type": "object",
-        "required": [
-          "date",
-          "cumulative_pnl",
-          "n_trades"
-        ],
-        "title": "CumulativePnlPoint"
       },
       "DashboardPick": {
         "properties": {
@@ -2850,6 +2298,35 @@
         ],
         "title": "DiagnosticSummary"
       },
+      "DriftCheckOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "fail"
+            ],
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "message"
+        ],
+        "title": "DriftCheckOut",
+        "description": "One drift-detector check, flattened for the FE."
+      },
       "EquityPoint": {
         "properties": {
           "timestamp": {
@@ -2884,169 +2361,48 @@
         ],
         "title": "EquityPoint"
       },
-      "ExitReasonStat": {
+      "FactorCoverage": {
         "properties": {
-          "reason": {
+          "factor": {
             "type": "string",
-            "title": "Reason"
+            "title": "Factor"
           },
-          "n_trades": {
+          "covered": {
             "type": "integer",
-            "title": "N Trades"
+            "minimum": 0.0,
+            "title": "Covered"
           },
-          "avg_pnl_pct": {
-            "type": "number",
-            "title": "Avg Pnl Pct"
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
           },
-          "win_rate": {
+          "pct": {
             "type": "number",
-            "title": "Win Rate"
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pct"
           },
-          "total_pnl": {
-            "type": "number",
-            "title": "Total Pnl"
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "fail"
+            ],
+            "title": "Status"
           }
         },
         "type": "object",
         "required": [
-          "reason",
-          "n_trades",
-          "avg_pnl_pct",
-          "win_rate",
-          "total_pnl"
+          "factor",
+          "covered",
+          "total",
+          "pct",
+          "status"
         ],
-        "title": "ExitReasonStat"
-      },
-      "FilingNotificationItem": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "ticker": {
-            "type": "string",
-            "title": "Ticker"
-          },
-          "form": {
-            "type": "string",
-            "title": "Form"
-          },
-          "accession_no": {
-            "type": "string",
-            "title": "Accession No"
-          },
-          "filing_date": {
-            "type": "string",
-            "title": "Filing Date"
-          },
-          "primary_document": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Primary Document"
-          },
-          "detected_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Detected At"
-          },
-          "research_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Research Run Id"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "ticker",
-          "form",
-          "accession_no",
-          "filing_date",
-          "detected_at"
-        ],
-        "title": "FilingNotificationItem",
-        "description": "Row from filing_notifications \u2014 what the /research/feed page lists."
-      },
-      "FoldMetric": {
-        "properties": {
-          "fold": {
-            "type": "integer",
-            "title": "Fold"
-          },
-          "train_start": {
-            "type": "string",
-            "title": "Train Start"
-          },
-          "train_end": {
-            "type": "string",
-            "title": "Train End"
-          },
-          "test_start": {
-            "type": "string",
-            "title": "Test Start"
-          },
-          "test_end": {
-            "type": "string",
-            "title": "Test End"
-          },
-          "n_train": {
-            "type": "integer",
-            "title": "N Train"
-          },
-          "n_test": {
-            "type": "integer",
-            "title": "N Test"
-          },
-          "ic_pearson": {
-            "type": "number",
-            "title": "Ic Pearson"
-          },
-          "ic_spearman": {
-            "type": "number",
-            "title": "Ic Spearman"
-          },
-          "hit_rate": {
-            "type": "number",
-            "title": "Hit Rate"
-          }
-        },
-        "type": "object",
-        "required": [
-          "fold",
-          "train_start",
-          "train_end",
-          "test_start",
-          "test_end",
-          "n_train",
-          "n_test",
-          "ic_pearson",
-          "ic_spearman",
-          "hit_rate"
-        ],
-        "title": "FoldMetric"
+        "title": "FactorCoverage",
+        "description": "How many of today's picks have a non-null rank for one factor.\nA drop vs the rolling baseline is the canary for an ingest break."
       },
       "HTTPValidationError": {
         "properties": {
@@ -3060,85 +2416,6 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
-      },
-      "HoldTimeBucket": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "lower": {
-            "type": "integer",
-            "title": "Lower"
-          },
-          "upper": {
-            "type": "integer",
-            "title": "Upper"
-          },
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          },
-          "avg_pnl_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Pnl Pct"
-          },
-          "win_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Win Rate"
-          }
-        },
-        "type": "object",
-        "required": [
-          "label",
-          "lower",
-          "upper",
-          "n_trades"
-        ],
-        "title": "HoldTimeBucket"
-      },
-      "MLModelsResponse": {
-        "properties": {
-          "models": {
-            "items": {
-              "$ref": "#/components/schemas/ModelVersionRow"
-            },
-            "type": "array",
-            "title": "Models"
-          },
-          "latest": {
-            "items": {
-              "$ref": "#/components/schemas/ModelVersionRow"
-            },
-            "type": "array",
-            "title": "Latest",
-            "description": "One row per distinct model_name \u2014 the version the ensemble would use right now."
-          },
-          "drift": {
-            "items": {
-              "$ref": "#/components/schemas/ModelDriftSnapshot"
-            },
-            "type": "array",
-            "title": "Drift"
-          }
-        },
-        "type": "object",
-        "title": "MLModelsResponse",
-        "description": "List view at /api/ml/models."
       },
       "MarketRegime": {
         "properties": {
@@ -3238,171 +2515,6 @@
         ],
         "title": "MarketRegime",
         "description": "Snapshot of the broader-market regime indicators a swing trader cares\nabout. Classification is intentionally crude \u2014 the user makes the call;\nthis just surfaces the inputs."
-      },
-      "ModelDriftSnapshot": {
-        "properties": {
-          "model_name": {
-            "type": "string",
-            "title": "Model Name"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "training_ic_mean": {
-            "type": "number",
-            "title": "Training Ic Mean"
-          },
-          "training_ic_std": {
-            "type": "number",
-            "title": "Training Ic Std"
-          },
-          "rolling_ic": {
-            "type": "number",
-            "title": "Rolling Ic"
-          },
-          "z_score": {
-            "type": "number",
-            "title": "Z Score"
-          },
-          "is_drifting": {
-            "type": "boolean",
-            "title": "Is Drifting"
-          },
-          "window_days": {
-            "type": "integer",
-            "title": "Window Days"
-          },
-          "n_observations": {
-            "type": "integer",
-            "title": "N Observations"
-          }
-        },
-        "type": "object",
-        "required": [
-          "model_name",
-          "version",
-          "training_ic_mean",
-          "training_ic_std",
-          "rolling_ic",
-          "z_score",
-          "is_drifting",
-          "window_days",
-          "n_observations"
-        ],
-        "title": "ModelDriftSnapshot",
-        "description": "Latest drift status for one registered model."
-      },
-      "ModelSummaryMetrics": {
-        "properties": {
-          "mean_ic_pearson": {
-            "type": "number",
-            "title": "Mean Ic Pearson",
-            "default": 0.0
-          },
-          "mean_ic_spearman": {
-            "type": "number",
-            "title": "Mean Ic Spearman",
-            "default": 0.0
-          },
-          "mean_hit_rate": {
-            "type": "number",
-            "title": "Mean Hit Rate",
-            "default": 0.0
-          },
-          "n_folds": {
-            "type": "number",
-            "title": "N Folds",
-            "default": 0.0
-          },
-          "total_test_rows": {
-            "type": "number",
-            "title": "Total Test Rows",
-            "default": 0.0
-          }
-        },
-        "type": "object",
-        "title": "ModelSummaryMetrics",
-        "description": "Headline aggregates over the walk-forward folds."
-      },
-      "ModelVersionRow": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "model_name": {
-            "type": "string",
-            "title": "Model Name"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "trained_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Trained At"
-          },
-          "train_window_start": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Train Window Start"
-          },
-          "train_window_end": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Train Window End"
-          },
-          "horizon_days": {
-            "type": "integer",
-            "title": "Horizon Days"
-          },
-          "factor_set": {
-            "type": "string",
-            "title": "Factor Set"
-          },
-          "artifact_path": {
-            "type": "string",
-            "title": "Artifact Path"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/ModelSummaryMetrics"
-          },
-          "folds": {
-            "items": {
-              "$ref": "#/components/schemas/FoldMetric"
-            },
-            "type": "array",
-            "title": "Folds"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "model_name",
-          "version",
-          "trained_at",
-          "train_window_start",
-          "train_window_end",
-          "horizon_days",
-          "factor_set",
-          "artifact_path",
-          "summary"
-        ],
-        "title": "ModelVersionRow",
-        "description": "One row from ``model_versions`` \u2014 for the API list view + /ml page."
       },
       "OHLCBar": {
         "properties": {
@@ -3607,105 +2719,6 @@
         ],
         "title": "PaperRecommendationItem"
       },
-      "PaperTradeItem": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "ticker": {
-            "type": "string",
-            "title": "Ticker"
-          },
-          "qty": {
-            "type": "number",
-            "title": "Qty"
-          },
-          "entry_price": {
-            "type": "number",
-            "title": "Entry Price"
-          },
-          "exit_price": {
-            "type": "number",
-            "title": "Exit Price"
-          },
-          "entry_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Entry At"
-          },
-          "exit_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Exit At"
-          },
-          "hold_days": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hold Days"
-          },
-          "pnl": {
-            "type": "number",
-            "title": "Pnl"
-          },
-          "pnl_pct": {
-            "type": "number",
-            "title": "Pnl Pct"
-          },
-          "exit_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Exit Reason"
-          },
-          "composite_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Composite Score"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "ticker",
-          "qty",
-          "entry_price",
-          "exit_price",
-          "entry_at",
-          "exit_at",
-          "pnl",
-          "pnl_pct"
-        ],
-        "title": "PaperTradeItem"
-      },
       "PortfolioHistory": {
         "properties": {
           "period": {
@@ -3823,6 +2836,70 @@
         ],
         "title": "Position"
       },
+      "PositionAlert": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "STOP_HIT",
+              "TARGET_HIT",
+              "NEAR_STOP",
+              "NEAR_TARGET"
+            ],
+            "title": "Status"
+          },
+          "current_price": {
+            "type": "number",
+            "title": "Current Price"
+          },
+          "avg_entry": {
+            "type": "number",
+            "title": "Avg Entry"
+          },
+          "stop": {
+            "type": "number",
+            "title": "Stop"
+          },
+          "target": {
+            "type": "number",
+            "title": "Target"
+          },
+          "shares": {
+            "type": "number",
+            "title": "Shares"
+          },
+          "pl_pct": {
+            "type": "number",
+            "title": "Pl Pct"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "strategy",
+              "fallback_8pct"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "status",
+          "current_price",
+          "avg_entry",
+          "stop",
+          "target",
+          "shares",
+          "pl_pct",
+          "source"
+        ],
+        "title": "PositionAlert",
+        "description": "A held position that hit a stop, target, or is within 2% of either."
+      },
       "PositionSizing": {
         "properties": {
           "method": {
@@ -3893,245 +2970,6 @@
         ],
         "title": "PositionSizing",
         "description": "Per-trade position sizing output."
-      },
-      "ResearchAskRequest": {
-        "properties": {
-          "question": {
-            "type": "string",
-            "maxLength": 2000,
-            "minLength": 2,
-            "title": "Question"
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model",
-            "description": "Override default Sonnet 4.6"
-          },
-          "max_turns": {
-            "type": "integer",
-            "maximum": 20.0,
-            "minimum": 1.0,
-            "title": "Max Turns",
-            "default": 8
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "question"
-        ],
-        "title": "ResearchAskRequest"
-      },
-      "ResearchRunDetail": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "question": {
-            "type": "string",
-            "title": "Question"
-          },
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "final_answer": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Final Answer"
-          },
-          "n_turns": {
-            "type": "integer",
-            "title": "N Turns"
-          },
-          "input_tokens": {
-            "type": "integer",
-            "title": "Input Tokens"
-          },
-          "output_tokens": {
-            "type": "integer",
-            "title": "Output Tokens"
-          },
-          "estimated_cost_usd": {
-            "type": "number",
-            "title": "Estimated Cost Usd"
-          },
-          "started_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Started At"
-          },
-          "completed_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "tool_calls": {
-            "items": {
-              "$ref": "#/components/schemas/ToolCallEntry"
-            },
-            "type": "array",
-            "title": "Tool Calls"
-          },
-          "transcript": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Transcript",
-            "description": "Full Anthropic message list. Omitted unless include_transcript=true."
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "question",
-          "model",
-          "status",
-          "n_turns",
-          "input_tokens",
-          "output_tokens",
-          "estimated_cost_usd",
-          "started_at"
-        ],
-        "title": "ResearchRunDetail",
-        "description": "Detail view \u2014 adds tool_calls + (optionally) the transcript."
-      },
-      "ResearchRunSummary": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "question": {
-            "type": "string",
-            "title": "Question"
-          },
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "final_answer": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Final Answer"
-          },
-          "n_turns": {
-            "type": "integer",
-            "title": "N Turns"
-          },
-          "input_tokens": {
-            "type": "integer",
-            "title": "Input Tokens"
-          },
-          "output_tokens": {
-            "type": "integer",
-            "title": "Output Tokens"
-          },
-          "estimated_cost_usd": {
-            "type": "number",
-            "title": "Estimated Cost Usd"
-          },
-          "started_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Started At"
-          },
-          "completed_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "question",
-          "model",
-          "status",
-          "n_turns",
-          "input_tokens",
-          "output_tokens",
-          "estimated_cost_usd",
-          "started_at"
-        ],
-        "title": "ResearchRunSummary",
-        "description": "List view \u2014 light shape, no transcript."
       },
       "RiskManagement": {
         "properties": {
@@ -4728,39 +3566,6 @@
         "title": "ScanSummary",
         "description": "Lighter representation for the GET /api/scans list view."
       },
-      "ScoreCalibration": {
-        "properties": {
-          "as_of": {
-            "type": "string",
-            "format": "date-time",
-            "title": "As Of"
-          },
-          "n_total_trades": {
-            "type": "integer",
-            "title": "N Total Trades"
-          },
-          "buckets": {
-            "items": {
-              "$ref": "#/components/schemas/CalibrationBucket"
-            },
-            "type": "array",
-            "title": "Buckets"
-          },
-          "notes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "as_of",
-          "n_total_trades"
-        ],
-        "title": "ScoreCalibration"
-      },
       "SectorMetric": {
         "properties": {
           "ticker": {
@@ -5098,56 +3903,6 @@
         "title": "StrategyCard",
         "description": "Per-strategy summary tile."
       },
-      "StrategyStat": {
-        "properties": {
-          "strategy": {
-            "type": "string",
-            "title": "Strategy"
-          },
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          },
-          "avg_pnl_pct": {
-            "type": "number",
-            "title": "Avg Pnl Pct"
-          },
-          "win_rate": {
-            "type": "number",
-            "title": "Win Rate"
-          },
-          "total_pnl": {
-            "type": "number",
-            "title": "Total Pnl"
-          }
-        },
-        "type": "object",
-        "required": [
-          "strategy",
-          "n_trades",
-          "avg_pnl_pct",
-          "win_rate",
-          "total_pnl"
-        ],
-        "title": "StrategyStat"
-      },
-      "SummarizeNotificationResponse": {
-        "properties": {
-          "notification": {
-            "$ref": "#/components/schemas/FilingNotificationItem"
-          },
-          "run": {
-            "$ref": "#/components/schemas/ResearchRunDetail"
-          }
-        },
-        "type": "object",
-        "required": [
-          "notification",
-          "run"
-        ],
-        "title": "SummarizeNotificationResponse",
-        "description": "What ``POST /api/research/notifications/{id}/summarize`` returns:\nthe notification (now linked to a run) plus the run detail itself."
-      },
       "TakeProfit": {
         "properties": {
           "method": {
@@ -5193,34 +3948,6 @@
         "title": "TakeProfit",
         "description": "Take-profit level + provenance.\n\nNote the asymmetry with StopLoss: when method='resistance' fails\n(no resistance \u2265 min R/R), method is rewritten to 'risk_reward',\nmatching the StopLoss percentage fallback pattern. The FE should\nbranch on the FINAL method, not what was requested."
       },
-      "TickerStat": {
-        "properties": {
-          "ticker": {
-            "type": "string",
-            "title": "Ticker"
-          },
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          },
-          "total_pnl": {
-            "type": "number",
-            "title": "Total Pnl"
-          },
-          "avg_pnl_pct": {
-            "type": "number",
-            "title": "Avg Pnl Pct"
-          }
-        },
-        "type": "object",
-        "required": [
-          "ticker",
-          "n_trades",
-          "total_pnl",
-          "avg_pnl_pct"
-        ],
-        "title": "TickerStat"
-      },
       "TimeStop": {
         "properties": {
           "method": {
@@ -5251,256 +3978,6 @@
         ],
         "title": "TimeStop",
         "description": "Triple-barrier time stop \u2014 forced exit N calendar days after entry."
-      },
-      "ToolCallEntry": {
-        "properties": {
-          "tool": {
-            "type": "string",
-            "title": "Tool"
-          },
-          "input": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Input"
-          },
-          "is_error": {
-            "type": "boolean",
-            "title": "Is Error",
-            "default": false
-          },
-          "result_summary": {
-            "type": "string",
-            "title": "Result Summary",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "required": [
-          "tool"
-        ],
-        "title": "ToolCallEntry"
-      },
-      "TradeAnalytics": {
-        "properties": {
-          "as_of": {
-            "type": "string",
-            "format": "date-time",
-            "title": "As Of"
-          },
-          "headline": {
-            "$ref": "#/components/schemas/TradeHeadline"
-          },
-          "cumulative_pnl": {
-            "items": {
-              "$ref": "#/components/schemas/CumulativePnlPoint"
-            },
-            "type": "array",
-            "title": "Cumulative Pnl"
-          },
-          "by_exit_reason": {
-            "items": {
-              "$ref": "#/components/schemas/ExitReasonStat"
-            },
-            "type": "array",
-            "title": "By Exit Reason"
-          },
-          "by_strategy": {
-            "items": {
-              "$ref": "#/components/schemas/StrategyStat"
-            },
-            "type": "array",
-            "title": "By Strategy"
-          },
-          "hold_time_distribution": {
-            "items": {
-              "$ref": "#/components/schemas/HoldTimeBucket"
-            },
-            "type": "array",
-            "title": "Hold Time Distribution"
-          },
-          "top_winners": {
-            "items": {
-              "$ref": "#/components/schemas/TickerStat"
-            },
-            "type": "array",
-            "title": "Top Winners"
-          },
-          "top_losers": {
-            "items": {
-              "$ref": "#/components/schemas/TickerStat"
-            },
-            "type": "array",
-            "title": "Top Losers"
-          },
-          "notes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Notes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "as_of",
-          "headline"
-        ],
-        "title": "TradeAnalytics"
-      },
-      "TradeHeadline": {
-        "properties": {
-          "n_trades": {
-            "type": "integer",
-            "title": "N Trades"
-          },
-          "n_winners": {
-            "type": "integer",
-            "title": "N Winners"
-          },
-          "n_losers": {
-            "type": "integer",
-            "title": "N Losers"
-          },
-          "n_breakeven": {
-            "type": "integer",
-            "title": "N Breakeven"
-          },
-          "win_rate": {
-            "type": "number",
-            "title": "Win Rate"
-          },
-          "total_pnl": {
-            "type": "number",
-            "title": "Total Pnl"
-          },
-          "avg_pnl": {
-            "type": "number",
-            "title": "Avg Pnl"
-          },
-          "avg_pnl_pct": {
-            "type": "number",
-            "title": "Avg Pnl Pct"
-          },
-          "avg_win_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Win Pct"
-          },
-          "avg_loss_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Loss Pct"
-          },
-          "expectancy_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expectancy Pct"
-          },
-          "profit_factor": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profit Factor"
-          },
-          "avg_hold_days": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Hold Days"
-          },
-          "median_hold_days": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Median Hold Days"
-          },
-          "max_pnl_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Pnl Pct"
-          },
-          "min_pnl_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Pnl Pct"
-          }
-        },
-        "type": "object",
-        "required": [
-          "n_trades",
-          "n_winners",
-          "n_losers",
-          "n_breakeven",
-          "win_rate",
-          "total_pnl",
-          "avg_pnl",
-          "avg_pnl_pct"
-        ],
-        "title": "TradeHeadline",
-        "description": "Top-line aggregate stats over all closed paper trades."
-      },
-      "TradeNotesUpdate": {
-        "properties": {
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes",
-            "description": "Set to null/omit to clear; otherwise replaces the journal entry."
-          }
-        },
-        "type": "object",
-        "title": "TradeNotesUpdate"
       },
       "ValidationError": {
         "properties": {

@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
+import { MorningBriefingBanner } from "@/components/morning-briefing-banner";
 import { PageHeader } from "@/components/page-header";
 import { ScanProgress } from "@/components/scan-progress";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
@@ -404,6 +405,9 @@ export default function DashboardPage() {
       />
 
       {error ? <ErrorState error={error} /> : null}
+
+      {/* ── Morning briefing banner ──────────────────────────────────────── */}
+      <MorningBriefingBanner />
 
       {/* ── Scoreboard strip ─────────────────────────────────────────────── */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">

@@ -22,6 +22,7 @@ from src.api.dependencies import get_config
 from src.api.middleware import RequestIdMiddleware
 from src.api.routers import (
     backtests,
+    briefing,
     dashboard,
     diagnostics,
     health,
@@ -107,6 +108,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(stream.router, prefix="/api/stream", tags=["stream"])
     app.include_router(market.router, prefix="/api/market", tags=["market"])
     app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
+    app.include_router(
+        briefing.router, prefix="/api/dashboard/briefing", tags=["dashboard"],
+    )
 
     return app
 

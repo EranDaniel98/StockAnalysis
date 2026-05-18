@@ -58,5 +58,7 @@ export const qk = {
   dashboard: {
     get: (params?: { top_n_per_strategy?: number; cross_strategy_top_n?: number }) =>
       ["dashboard", params ?? {}] as const,
+    briefing: (params?: { picks_date?: string }) =>
+      ["dashboard", "briefing", params ?? {}] as const,
   },
 } as const;

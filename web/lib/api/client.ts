@@ -108,6 +108,11 @@ export type DashboardResponse = Schemas["DashboardResponse"];
 export type DashboardPick = Schemas["DashboardPick"];
 export type StrategyCard = Schemas["StrategyCard"];
 
+export type BriefingResponse = Schemas["BriefingResponse"];
+export type FactorCoverage = Schemas["FactorCoverage"];
+export type DriftCheckOut = Schemas["DriftCheckOut"];
+export type PositionAlert = Schemas["PositionAlert"];
+
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
 export const api = {
@@ -261,6 +266,10 @@ export const api = {
       return request<DashboardResponse>(
         `/api/dashboard${qs ? `?${qs}` : ""}`,
       );
+    },
+    briefing: (params?: { picks_date?: string }) => {
+      const qs = params?.picks_date ? `?picks_date=${params.picks_date}` : "";
+      return request<BriefingResponse>(`/api/dashboard/briefing${qs}`);
     },
   },
 };

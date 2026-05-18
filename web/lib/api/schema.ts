@@ -183,6 +183,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scans/factor-picks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Factor Picks
+         * @description Today's composite-factor picks (PIT S&P 500, m+q+v rank-blend).
+         *
+         *     Reads from ``data/daily_picks/YYYY-MM-DD.json`` — the source the
+         *     paper trader uses to place real (paper) orders. This is the
+         *     canonical "what does the system want to BUY?" surface for the
+         *     factor strategy. Sanity-check verdicts (cached against the
+         *     synthetic ``factor:<strategy>:<as_of>`` run_id) are attached when
+         *     present so the web UI can render the same brake-light pattern as
+         *     the composite-path /latest-buys endpoint.
+         *
+         *     Returns an empty list when no picks file exists (system not yet
+         *     bootstrapped) or when the file is malformed — by design, since
+         *     the scoring-path /latest-buys endpoint is a viable fallback for
+         *     the FE.
+         */
+        get: operations["factor_picks_api_scans_factor_picks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scans/sanity-check": {
         parameters: {
             query?: never;
@@ -556,305 +589,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/analytics/calibration": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Score Calibration
-         * @description Score-vs-realized-return calibration.
-         *
-         *     Buckets every closed paper trade by its composite_score band and reports
-         *     n_trades + avg / median pnl_pct + win_rate per bucket. The goal: confirm
-         *     that higher composite scores really do produce higher realized returns
-         *     — and surface drift early if they stop doing so.
-         */
-        get: operations["score_calibration_api_analytics_calibration_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/analytics/trades-summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Trades Summary
-         * @description Aggregate analytics across every closed paper trade.
-         *
-         *     Read-only — pulls all closed trades + their parent recommendation (for
-         *     strategy attribution) in one query, then computes everything in memory.
-         *     The trade table is unlikely to outgrow this scope for personal use; if
-         *     it ever does, the per-section work each isolates cleanly.
-         */
-        get: operations["trades_summary_api_analytics_trades_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/trades": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Trades
-         * @description Closed paper trades, newest exit first. Filter by ticker, score
-         *     floor, or whether the row already has notes.
-         */
-        get: operations["list_trades_api_trades_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/trades/{trade_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update Trade Notes
-         * @description Replace the notes field. ``null`` clears the entry.
-         */
-        patch: operations["update_trade_notes_api_trades__trade_id__patch"];
-        trace?: never;
-    };
-    "/api/ml/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Ml Models
-         * @description List registered model versions + drift status for the latest of each name.
-         *
-         *     Filter to a single ``model_name`` to see its history. Without a filter,
-         *     you get the full registry (newest first) plus a "latest per name" view
-         *     that mirrors what the ensemble would use right now.
-         */
-        get: operations["list_ml_models_api_ml_models_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/ask": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask
-         * @description Kick off one synchronous research run. Returns the completed
-         *     (or failed / budget_exceeded) run row inline.
-         *
-         *     The orchestrator never raises on tool failures — those are threaded
-         *     back into the transcript. We do raise 503 if the ANTHROPIC_API_KEY
-         *     is missing so the UI can prompt for setup.
-         */
-        post: operations["ask_api_research_ask_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/ask/stream": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask Stream
-         * @description Stream the agent's mid-run thoughts over SSE.
-         *
-         *     Events (named):
-         *       - ``started``         {run_id, question}
-         *       - ``turn_start``      {turn}
-         *       - ``assistant_text``  {turn, text}   any prose the model emits
-         *                                             alongside a tool call
-         *       - ``tool_call``       {turn, tool, input}
-         *       - ``tool_result``     {turn, tool, is_error, summary}
-         *       - ``usage``           {turn, input_tokens, output_tokens, cost_usd}
-         *       - ``final_answer``    {text}
-         *       - ``complete``        {run_id, status}
-         *       - ``error``           {detail, kind}
-         *
-         *     Client disconnects cancel the worker task — the partial run row
-         *     stays in the DB with whatever transcript it had at the time.
-         */
-        post: operations["ask_stream_api_research_ask_stream_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Runs */
-        get: operations["list_runs_api_research_runs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/runs/{run_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Run */
-        get: operations["get_run_api_research_runs__run_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Notifications
-         * @description Recent filings the background monitor surfaced. Newest first.
-         */
-        get: operations["list_notifications_api_research_notifications_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications/{notification_id}/summarize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Summarize Notification
-         * @description Kick off an agent run to summarize one filing.
-         *
-         *     Uses ``search_filings`` under the hood — the filing's chunks are
-         *     already in the corpus (the monitor ingested them at detection
-         *     time). Result is cached on ``filing_notifications.summary`` so
-         *     repeat clicks return instantly.
-         */
-        post: operations["summarize_notification_api_research_notifications__notification_id__summarize_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications/stream": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Stream Notifications
-         * @description SSE channel: live filing notifications. Events are named
-         *     ``notification`` with the persisted row's slim shape.
-         *
-         *     No ``status`` event on the channel — the EventMonitor is either
-         *     running (background task alive) or not (env-disabled); the API
-         *     surface for that lives at ``GET /api/research/monitor/status``.
-         */
-        get: operations["stream_notifications_api_research_notifications_stream_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/monitor/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Monitor Status
-         * @description Lightweight liveness probe for the /research/feed page header.
-         */
-        get: operations["monitor_status_api_research_monitor_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/dashboard": {
         parameters: {
             query?: never;
@@ -873,6 +607,23 @@ export interface paths {
          *     collision) and capped at ``cross_strategy_top_n``.
          */
         get: operations["get_dashboard_api_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dashboard/briefing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Briefing */
+        get: operations["get_briefing_api_dashboard_briefing_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1048,6 +799,66 @@ export interface components {
             /** Oos Max Drawdown Pct */
             oos_max_drawdown_pct?: number | null;
         };
+        /** BriefingResponse */
+        BriefingResponse: {
+            /**
+             * Picks Date
+             * @description Date of the picks file underlying this briefing. Null when no picks have been generated yet for today.
+             */
+            picks_date?: string | null;
+            /**
+             * Gate Status
+             * @description Overall pre-trade gate verdict. 'fail' means refuse the rebalance; 'warn' means proceed with caution; 'ok' means drift checks clean; 'no_picks' means today's picks file is missing (briefing degrades to position alerts only).
+             * @enum {string}
+             */
+            gate_status: "ok" | "warn" | "fail" | "no_picks";
+            /**
+             * Gate Message
+             * @description One-line summary of why the gate failed/warned, or 'all drift checks passed' on OK.
+             */
+            gate_message: string;
+            /**
+             * Recommendation
+             * @description Single sentence: what the system thinks the operator should do this morning.
+             */
+            recommendation: string;
+            /** Drift Checks */
+            drift_checks?: components["schemas"]["DriftCheckOut"][];
+            /** Factor Coverage */
+            factor_coverage?: components["schemas"]["FactorCoverage"][];
+            /**
+             * N Picks
+             * @default 0
+             */
+            n_picks: number;
+            /** Position Alerts */
+            position_alerts?: components["schemas"]["PositionAlert"][];
+            /**
+             * N Stops Hit
+             * @default 0
+             */
+            n_stops_hit: number;
+            /**
+             * N Targets Hit
+             * @default 0
+             */
+            n_targets_hit: number;
+            /**
+             * N Near Stop
+             * @default 0
+             */
+            n_near_stop: number;
+            /**
+             * N Positions
+             * @default 0
+             */
+            n_positions: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+        };
         /**
          * BuySignal
          * @description One ticker with a current BUY+ signal from the latest scan per strategy.
@@ -1108,35 +919,6 @@ export interface components {
             /** Earnings Call Ts */
             earnings_call_ts?: number | null;
             sanity_check?: components["schemas"]["SanityCheck"] | null;
-        };
-        /** CalibrationBucket */
-        CalibrationBucket: {
-            /** Label */
-            label: string;
-            /** Lower */
-            lower: number;
-            /** Upper */
-            upper: number;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct?: number | null;
-            /** Median Pnl Pct */
-            median_pnl_pct?: number | null;
-            /** Win Rate */
-            win_rate?: number | null;
-        };
-        /** CumulativePnlPoint */
-        CumulativePnlPoint: {
-            /**
-             * Date
-             * Format: date
-             */
-            date: string;
-            /** Cumulative Pnl */
-            cumulative_pnl: number;
-            /** N Trades */
-            n_trades: number;
         };
         /**
          * DashboardPick
@@ -1308,6 +1090,21 @@ export interface components {
              */
             verdict: string;
         };
+        /**
+         * DriftCheckOut
+         * @description One drift-detector check, flattened for the FE.
+         */
+        DriftCheckOut: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "fail";
+            /** Message */
+            message: string;
+        };
         /** EquityPoint */
         EquityPoint: {
             /** Timestamp */
@@ -1319,103 +1116,30 @@ export interface components {
             /** Profit Loss Pct */
             profit_loss_pct?: number | null;
         };
-        /** ExitReasonStat */
-        ExitReasonStat: {
-            /** Reason */
-            reason: string;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
-        };
         /**
-         * FilingNotificationItem
-         * @description Row from filing_notifications — what the /research/feed page lists.
+         * FactorCoverage
+         * @description How many of today's picks have a non-null rank for one factor.
+         *     A drop vs the rolling baseline is the canary for an ingest break.
          */
-        FilingNotificationItem: {
-            /** Id */
-            id: number;
-            /** Ticker */
-            ticker: string;
-            /** Form */
-            form: string;
-            /** Accession No */
-            accession_no: string;
-            /** Filing Date */
-            filing_date: string;
-            /** Primary Document */
-            primary_document?: string | null;
+        FactorCoverage: {
+            /** Factor */
+            factor: string;
+            /** Covered */
+            covered: number;
+            /** Total */
+            total: number;
+            /** Pct */
+            pct: number;
             /**
-             * Detected At
-             * Format: date-time
+             * Status
+             * @enum {string}
              */
-            detected_at: string;
-            /** Research Run Id */
-            research_run_id?: number | null;
-            /** Summary */
-            summary?: string | null;
-        };
-        /** FoldMetric */
-        FoldMetric: {
-            /** Fold */
-            fold: number;
-            /** Train Start */
-            train_start: string;
-            /** Train End */
-            train_end: string;
-            /** Test Start */
-            test_start: string;
-            /** Test End */
-            test_end: string;
-            /** N Train */
-            n_train: number;
-            /** N Test */
-            n_test: number;
-            /** Ic Pearson */
-            ic_pearson: number;
-            /** Ic Spearman */
-            ic_spearman: number;
-            /** Hit Rate */
-            hit_rate: number;
+            status: "ok" | "warn" | "fail";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** HoldTimeBucket */
-        HoldTimeBucket: {
-            /** Label */
-            label: string;
-            /** Lower */
-            lower: number;
-            /** Upper */
-            upper: number;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct?: number | null;
-            /** Win Rate */
-            win_rate?: number | null;
-        };
-        /**
-         * MLModelsResponse
-         * @description List view at /api/ml/models.
-         */
-        MLModelsResponse: {
-            /** Models */
-            models?: components["schemas"]["ModelVersionRow"][];
-            /**
-             * Latest
-             * @description One row per distinct model_name — the version the ensemble would use right now.
-             */
-            latest?: components["schemas"]["ModelVersionRow"][];
-            /** Drift */
-            drift?: components["schemas"]["ModelDriftSnapshot"][];
         };
         /**
          * MarketRegime
@@ -1448,99 +1172,6 @@ export interface components {
             vix_avg_20d?: number | null;
             /** Notes */
             notes?: string[];
-        };
-        /**
-         * ModelDriftSnapshot
-         * @description Latest drift status for one registered model.
-         */
-        ModelDriftSnapshot: {
-            /** Model Name */
-            model_name: string;
-            /** Version */
-            version: number;
-            /** Training Ic Mean */
-            training_ic_mean: number;
-            /** Training Ic Std */
-            training_ic_std: number;
-            /** Rolling Ic */
-            rolling_ic: number;
-            /** Z Score */
-            z_score: number;
-            /** Is Drifting */
-            is_drifting: boolean;
-            /** Window Days */
-            window_days: number;
-            /** N Observations */
-            n_observations: number;
-        };
-        /**
-         * ModelSummaryMetrics
-         * @description Headline aggregates over the walk-forward folds.
-         */
-        ModelSummaryMetrics: {
-            /**
-             * Mean Ic Pearson
-             * @default 0
-             */
-            mean_ic_pearson: number;
-            /**
-             * Mean Ic Spearman
-             * @default 0
-             */
-            mean_ic_spearman: number;
-            /**
-             * Mean Hit Rate
-             * @default 0
-             */
-            mean_hit_rate: number;
-            /**
-             * N Folds
-             * @default 0
-             */
-            n_folds: number;
-            /**
-             * Total Test Rows
-             * @default 0
-             */
-            total_test_rows: number;
-        };
-        /**
-         * ModelVersionRow
-         * @description One row from ``model_versions`` — for the API list view + /ml page.
-         */
-        ModelVersionRow: {
-            /** Id */
-            id: number;
-            /** Model Name */
-            model_name: string;
-            /** Version */
-            version: number;
-            /**
-             * Trained At
-             * Format: date-time
-             */
-            trained_at: string;
-            /**
-             * Train Window Start
-             * Format: date-time
-             */
-            train_window_start: string;
-            /**
-             * Train Window End
-             * Format: date-time
-             */
-            train_window_end: string;
-            /** Horizon Days */
-            horizon_days: number;
-            /** Factor Set */
-            factor_set: string;
-            /** Artifact Path */
-            artifact_path: string;
-            /** Notes */
-            notes?: string | null;
-            summary: components["schemas"]["ModelSummaryMetrics"];
-            /** Folds */
-            folds?: components["schemas"]["FoldMetric"][];
         };
         /**
          * OHLCBar
@@ -1610,41 +1241,6 @@ export interface components {
             /** Realized Pnl Pct */
             realized_pnl_pct?: number | null;
         };
-        /** PaperTradeItem */
-        PaperTradeItem: {
-            /** Id */
-            id: number;
-            /** Ticker */
-            ticker: string;
-            /** Qty */
-            qty: number;
-            /** Entry Price */
-            entry_price: number;
-            /** Exit Price */
-            exit_price: number;
-            /**
-             * Entry At
-             * Format: date-time
-             */
-            entry_at: string;
-            /**
-             * Exit At
-             * Format: date-time
-             */
-            exit_at: string;
-            /** Hold Days */
-            hold_days?: number | null;
-            /** Pnl */
-            pnl: number;
-            /** Pnl Pct */
-            pnl_pct: number;
-            /** Exit Reason */
-            exit_reason?: string | null;
-            /** Composite Score */
-            composite_score?: number | null;
-            /** Notes */
-            notes?: string | null;
-        };
         /** PortfolioHistory */
         PortfolioHistory: {
             /** Period */
@@ -1688,6 +1284,36 @@ export interface components {
             unrealized_pnl_pct: number;
         };
         /**
+         * PositionAlert
+         * @description A held position that hit a stop, target, or is within 2% of either.
+         */
+        PositionAlert: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "STOP_HIT" | "TARGET_HIT" | "NEAR_STOP" | "NEAR_TARGET";
+            /** Current Price */
+            current_price: number;
+            /** Avg Entry */
+            avg_entry: number;
+            /** Stop */
+            stop: number;
+            /** Target */
+            target: number;
+            /** Shares */
+            shares: number;
+            /** Pl Pct */
+            pl_pct: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "strategy" | "fallback_8pct";
+        };
+        /**
          * PositionSizing
          * @description Per-trade position sizing output.
          */
@@ -1711,98 +1337,6 @@ export interface components {
             risk_pct?: number | null;
             /** Risk Budget Pct */
             risk_budget_pct?: number | null;
-        };
-        /** ResearchAskRequest */
-        ResearchAskRequest: {
-            /** Question */
-            question: string;
-            /**
-             * Model
-             * @description Override default Sonnet 4.6
-             */
-            model?: string | null;
-            /**
-             * Max Turns
-             * @default 8
-             */
-            max_turns: number;
-            /** Notes */
-            notes?: string | null;
-        };
-        /**
-         * ResearchRunDetail
-         * @description Detail view — adds tool_calls + (optionally) the transcript.
-         */
-        ResearchRunDetail: {
-            /** Id */
-            id: number;
-            /** Question */
-            question: string;
-            /** Model */
-            model: string;
-            /** Status */
-            status: string;
-            /** Final Answer */
-            final_answer?: string | null;
-            /** N Turns */
-            n_turns: number;
-            /** Input Tokens */
-            input_tokens: number;
-            /** Output Tokens */
-            output_tokens: number;
-            /** Estimated Cost Usd */
-            estimated_cost_usd: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /** Completed At */
-            completed_at?: string | null;
-            /** Error */
-            error?: string | null;
-            /** Tool Calls */
-            tool_calls?: components["schemas"]["ToolCallEntry"][];
-            /**
-             * Transcript
-             * @description Full Anthropic message list. Omitted unless include_transcript=true.
-             */
-            transcript?: {
-                [key: string]: unknown;
-            }[];
-        };
-        /**
-         * ResearchRunSummary
-         * @description List view — light shape, no transcript.
-         */
-        ResearchRunSummary: {
-            /** Id */
-            id: number;
-            /** Question */
-            question: string;
-            /** Model */
-            model: string;
-            /** Status */
-            status: string;
-            /** Final Answer */
-            final_answer?: string | null;
-            /** N Turns */
-            n_turns: number;
-            /** Input Tokens */
-            input_tokens: number;
-            /** Output Tokens */
-            output_tokens: number;
-            /** Estimated Cost Usd */
-            estimated_cost_usd: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /** Completed At */
-            completed_at?: string | null;
-            /** Error */
-            error?: string | null;
         };
         /**
          * RiskManagement
@@ -2066,20 +1600,6 @@ export interface components {
             /** Top Score */
             top_score?: number | null;
         };
-        /** ScoreCalibration */
-        ScoreCalibration: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /** N Total Trades */
-            n_total_trades: number;
-            /** Buckets */
-            buckets?: components["schemas"]["CalibrationBucket"][];
-            /** Notes */
-            notes?: string[];
-        };
         /** SectorMetric */
         SectorMetric: {
             /** Ticker */
@@ -2183,28 +1703,6 @@ export interface components {
             /** Sweep Universe */
             sweep_universe?: string | null;
         };
-        /** StrategyStat */
-        StrategyStat: {
-            /** Strategy */
-            strategy: string;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
-        };
-        /**
-         * SummarizeNotificationResponse
-         * @description What ``POST /api/research/notifications/{id}/summarize`` returns:
-         *     the notification (now linked to a run) plus the run detail itself.
-         */
-        SummarizeNotificationResponse: {
-            notification: components["schemas"]["FilingNotificationItem"];
-            run: components["schemas"]["ResearchRunDetail"];
-        };
         /**
          * TakeProfit
          * @description Take-profit level + provenance.
@@ -2229,17 +1727,6 @@ export interface components {
             /** Atr Multiplier */
             atr_multiplier?: number | null;
         };
-        /** TickerStat */
-        TickerStat: {
-            /** Ticker */
-            ticker: string;
-            /** N Trades */
-            n_trades: number;
-            /** Total Pnl */
-            total_pnl: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-        };
         /**
          * TimeStop
          * @description Triple-barrier time stop — forced exit N calendar days after entry.
@@ -2256,94 +1743,6 @@ export interface components {
             exit_date: string;
             /** Detail */
             detail: string;
-        };
-        /** ToolCallEntry */
-        ToolCallEntry: {
-            /** Tool */
-            tool: string;
-            /** Input */
-            input?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Is Error
-             * @default false
-             */
-            is_error: boolean;
-            /**
-             * Result Summary
-             * @default
-             */
-            result_summary: string;
-        };
-        /** TradeAnalytics */
-        TradeAnalytics: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            headline: components["schemas"]["TradeHeadline"];
-            /** Cumulative Pnl */
-            cumulative_pnl?: components["schemas"]["CumulativePnlPoint"][];
-            /** By Exit Reason */
-            by_exit_reason?: components["schemas"]["ExitReasonStat"][];
-            /** By Strategy */
-            by_strategy?: components["schemas"]["StrategyStat"][];
-            /** Hold Time Distribution */
-            hold_time_distribution?: components["schemas"]["HoldTimeBucket"][];
-            /** Top Winners */
-            top_winners?: components["schemas"]["TickerStat"][];
-            /** Top Losers */
-            top_losers?: components["schemas"]["TickerStat"][];
-            /** Notes */
-            notes?: string[];
-        };
-        /**
-         * TradeHeadline
-         * @description Top-line aggregate stats over all closed paper trades.
-         */
-        TradeHeadline: {
-            /** N Trades */
-            n_trades: number;
-            /** N Winners */
-            n_winners: number;
-            /** N Losers */
-            n_losers: number;
-            /** N Breakeven */
-            n_breakeven: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
-            /** Avg Pnl */
-            avg_pnl: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Avg Win Pct */
-            avg_win_pct?: number | null;
-            /** Avg Loss Pct */
-            avg_loss_pct?: number | null;
-            /** Expectancy Pct */
-            expectancy_pct?: number | null;
-            /** Profit Factor */
-            profit_factor?: number | null;
-            /** Avg Hold Days */
-            avg_hold_days?: number | null;
-            /** Median Hold Days */
-            median_hold_days?: number | null;
-            /** Max Pnl Pct */
-            max_pnl_pct?: number | null;
-            /** Min Pnl Pct */
-            min_pnl_pct?: number | null;
-        };
-        /** TradeNotesUpdate */
-        TradeNotesUpdate: {
-            /**
-             * Notes
-             * @description Set to null/omit to clear; otherwise replaces the journal entry.
-             */
-            notes?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2596,6 +1995,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    factor_picks_api_scans_factor_picks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
                 };
             };
         };
@@ -3168,395 +2587,6 @@ export interface operations {
             };
         };
     };
-    score_calibration_api_analytics_calibration_get: {
-        parameters: {
-            query?: {
-                min_score?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoreCalibration"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    trades_summary_api_analytics_trades_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TradeAnalytics"];
-                };
-            };
-        };
-    };
-    list_trades_api_trades_get: {
-        parameters: {
-            query?: {
-                ticker?: string | null;
-                min_score?: number | null;
-                has_notes?: boolean | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaperTradeItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_trade_notes_api_trades__trade_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                trade_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TradeNotesUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaperTradeItem"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_ml_models_api_ml_models_get: {
-        parameters: {
-            query?: {
-                model_name?: string | null;
-                limit?: number;
-                window_days?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MLModelsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ask_api_research_ask_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchAskRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ask_stream_api_research_ask_stream_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchAskRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_runs_api_research_runs_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunSummary"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_run_api_research_runs__run_id__get: {
-        parameters: {
-            query?: {
-                include_transcript?: boolean;
-            };
-            header?: never;
-            path: {
-                run_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_notifications_api_research_notifications_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                ticker?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FilingNotificationItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    summarize_notification_api_research_notifications__notification_id__summarize_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                notification_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SummarizeNotificationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stream_notifications_api_research_notifications_stream_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    monitor_status_api_research_monitor_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     get_dashboard_api_dashboard_get: {
         parameters: {
             query?: {
@@ -3576,6 +2606,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_briefing_api_dashboard_briefing_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to today's UTC date. */
+                picks_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefingResponse"];
                 };
             };
             /** @description Validation Error */
