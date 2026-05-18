@@ -364,7 +364,7 @@ def main() -> int:
 
     # 2. For each target, compute target_shares (sign-aware) + bracket.
     from src.execution.risk_sizing import (
-        atr_bracket_levels, percentage_bracket_levels,
+        atr_bracket_levels, is_position_flip, percentage_bracket_levels,
         short_atr_bracket_levels, short_percentage_bracket_levels,
         size_position,
     )
@@ -439,6 +439,33 @@ def main() -> int:
         delta = plan.delta_shares
         if delta == 0:
             return None
+
+        # Position flip: currently long, targeted short (or reverse). Alpaca
+        # rejects a bracket sell on a name with existing long shares with
+        # "bracket orders must be entry orders" — the order isn't a clean
+        # entry. Inject a market close into the closes list so the existing
+        # position flattens FIRST, then the bracket entry submits from
+        # flat. The closes loop runs before opens, so paper-trading order
+        # of operations is: close fills near-instantly → entry submits
+        # cleanly. For live execution this should poll the close fill
+        # before submitting the entry; left as a follow-up.
+        flip_from = 0
+        if is_position_flip(current_shares, target_shares):
+            flip_from = current_shares
+            closes.append({
+                "ticker": t,
+                "current_shares": current_shares,
+                "side": "flip_long" if current_shares > 0 else "flip_short",
+                "current_price": round(price, 4),
+                "reason": (
+                    "flip_to_short" if target_shares < 0 else "flip_to_long"
+                ),
+            })
+            # Treat the entry as a fresh entry from flat: target unchanged,
+            # but the trade-size delta is now just the target magnitude.
+            current_shares = 0
+            delta = target_shares
+
         bracket: dict | None = None
         # Bracket levels apply only to OPENING a new position (delta in
         # the direction of the target). Resizes / partial closes don't
@@ -457,6 +484,7 @@ def main() -> int:
             "ticker": t,
             "side": "long" if is_long else "short",
             "current_shares": current_shares,
+            "flip_from_shares": flip_from,
             "target_shares": target_shares,
             "current_price": round(price, 4),
             "delta_shares": delta,
@@ -495,11 +523,22 @@ def main() -> int:
         print(f"Target per-position notional: ${per_long:,.2f}\n")
 
     if sells:
-        print(f"CLOSES ({len(sells)} — positions not in current target set):")
+        n_flip = sum(1 for s in sells if s["side"].startswith("flip_"))
+        n_drop = len(sells) - n_flip
+        header = f"CLOSES ({len(sells)} — {n_drop} dropped from target set"
+        if n_flip:
+            header += f", {n_flip} pre-flip"
+        print(header + "):")
         for s in sells:
             est = abs(s["current_shares"]) * s["current_price"] \
                 if s["current_price"] else 0
-            verb = s["side"]
+            side_label = s["side"]
+            if side_label == "flip_long":
+                verb = "FLIP-sell"
+            elif side_label == "flip_short":
+                verb = "FLIP-cover"
+            else:
+                verb = side_label
             print(f"  {s['ticker']:>6s}  {verb} {abs(s['current_shares'])} sh "
                   f"@ ~${s['current_price']:.2f}  ~${est:,.2f}")
     else:
@@ -518,10 +557,20 @@ def main() -> int:
                     f"  stop ${bk['stop_loss']:.2f} / TP "
                     f"${bk['take_profit']:.2f} ({bk['basis']})"
                 )
+            # Flip note: when a pre-flip close was injected, current_shares
+            # reads as 0 (post-virtual-close) but flip_from_shares shows
+            # the actual prior position so the operator sees the intent.
+            flip_str = ""
+            if b.get("flip_from_shares"):
+                flip_str = (
+                    f"  [FLIP from {b['flip_from_shares']:+d} → "
+                    f"{b['target_shares']:+d}; close already queued]"
+                )
             print(f"  {b['ticker']:>6s}  {arrow}{b['delta_shares']} sh "
                   f"(target {b['target_shares']}, current "
                   f"{b['current_shares']})  @ ${b['current_price']:.2f}"
-                  f"  notional ${b['target_notional']:,.2f}{bracket_str}")
+                  f"  notional ${b['target_notional']:,.2f}{bracket_str}"
+                  f"{flip_str}")
         elif b["submit_type"] == "skip_no_price":
             print(f"  {b['ticker']:>6s}  SKIP — no quote available "
                   f"({b.get('skip_reason')})")

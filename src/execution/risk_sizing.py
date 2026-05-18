@@ -252,10 +252,27 @@ def size_position(
     )
 
 
+def is_position_flip(current_shares: int, target_shares: int) -> bool:
+    """True when current and target are on opposite sides of flat.
+
+    Alpaca rejects a bracket order on a name with existing same-direction-
+    opposite shares (e.g., bracket sell on +4 long) with ``bracket orders
+    must be entry orders``. The caller must close the existing position
+    FIRST, then submit the bracket as a clean entry.
+
+    Strict definition: both must be non-zero AND have opposite signs.
+    Zero on either side is NOT a flip — it's an open or a close, not both.
+    """
+    if current_shares == 0 or target_shares == 0:
+        return False
+    return (current_shares > 0) != (target_shares > 0)
+
+
 __all__ = [
     "BracketLevels",
     "PositionPlan",
     "atr_bracket_levels",
+    "is_position_flip",
     "percentage_bracket_levels",
     "short_atr_bracket_levels",
     "short_percentage_bracket_levels",

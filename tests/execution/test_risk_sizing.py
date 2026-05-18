@@ -15,6 +15,7 @@ from src.execution.risk_sizing import (
     BracketLevels,
     PositionPlan,
     atr_bracket_levels,
+    is_position_flip,
     percentage_bracket_levels,
     size_position,
 )
@@ -248,3 +249,36 @@ def test_size_zero_slot_returns_skip() -> None:
     )
     assert plan.skip_reason is not None
     assert "non_positive_slot" in plan.skip_reason
+
+
+# ── is_position_flip ───────────────────────────────────────────────────
+
+
+def test_flip_long_to_short() -> None:
+    """Today's TSLA: current +4, target -2 → flip."""
+    assert is_position_flip(current_shares=4, target_shares=-2) is True
+
+
+def test_flip_short_to_long() -> None:
+    """Symmetric: current -3, target +5 → flip."""
+    assert is_position_flip(current_shares=-3, target_shares=5) is True
+
+
+def test_no_flip_when_already_flat() -> None:
+    """Fresh entry: current 0, target ±N is NOT a flip — clean entry."""
+    assert is_position_flip(current_shares=0, target_shares=5) is False
+    assert is_position_flip(current_shares=0, target_shares=-5) is False
+
+
+def test_no_flip_when_target_zero() -> None:
+    """Closing-only: current ±N, target 0 is NOT a flip — clean close."""
+    assert is_position_flip(current_shares=4, target_shares=0) is False
+    assert is_position_flip(current_shares=-3, target_shares=0) is False
+
+
+def test_no_flip_when_same_side_resize() -> None:
+    """Resizing within the same direction is NOT a flip."""
+    assert is_position_flip(current_shares=10, target_shares=5) is False
+    assert is_position_flip(current_shares=-10, target_shares=-5) is False
+    assert is_position_flip(current_shares=5, target_shares=10) is False
+    assert is_position_flip(current_shares=-5, target_shares=-10) is False
