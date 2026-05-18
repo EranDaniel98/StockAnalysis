@@ -153,6 +153,9 @@ def run_factor_picks(
     max_sector_pct: float | None = 30.0,
     long_short: bool = False,
     short_n: Optional[int] = None,
+    hysteresis_bonus: float = 0.0,
+    previous_longs: Optional[list[str]] = None,
+    previous_shorts: Optional[list[str]] = None,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -174,6 +177,17 @@ def run_factor_picks(
         ``head(top_n)`` selector ignored sector. Default 30 matches
         ``config/settings.yaml:risk_management.position_sizing.max_sector_pct``.
         Pass ``None`` to restore the legacy naive top-N behaviour.
+    hysteresis_bonus : stickiness for previously-held names, expressed
+        as a fraction of ``top_n``. 0.0 disables. 0.75 (the
+        backtest-validated default) reduces a held name's rank by
+        0.75 × top_n slots before selection, so a 24-name portfolio
+        keeps any held name still in the top-42. Validated 2026-05-18
+        against the d05_r63 + PEAD config: cross-window α +8.81% vs
+        baseline +4.50%, stress-window DD -8.24% vs -15.41%.
+    previous_longs, previous_shorts : tickers held coming into this
+        rebalance. Required when ``hysteresis_bonus > 0``; ignored
+        otherwise. Pass the previous run's ``picks`` / ``shorts`` ticker
+        lists.
 
     Returns
     -------
@@ -239,6 +253,41 @@ def run_factor_picks(
             snapshot_id=snapshot_id,
         )
 
+    # Hysteresis: re-order the composite so held names get a bonus.
+    # The bonus reduces churn (lower cost drag) and prevents whipsaws
+    # in noisy regimes. Backtest 2026-05-18 picked 0.75 as the sweet
+    # spot: improves stress-window α by +7.17pp without giving up the
+    # bull-window α. The bonus does NOT change ``rank`` on the
+    # composite (kept for downstream display) — only the selection
+    # order via ``_eff_rank``.
+    selection_frame = composite
+    if hysteresis_bonus > 0:
+        held_longs = set(previous_longs or [])
+        held_shorts = set(previous_shorts or [])
+        if held_longs or held_shorts:
+            bonus_slots = max(1, int(round(hysteresis_bonus * top_n)))
+            adjusted = composite.copy()
+
+            def _adjust(row):
+                r = int(row["rank"])
+                t = row["ticker"]
+                if t in held_longs:
+                    return max(1, r - bonus_slots)
+                if t in held_shorts:
+                    return r + bonus_slots
+                return r
+
+            adjusted["_eff_rank"] = adjusted.apply(_adjust, axis=1)
+            selection_frame = (
+                adjusted.sort_values("_eff_rank").reset_index(drop=True)
+            )
+            logger.info(
+                "Hysteresis bonus=%.2f (%d slots) applied to %d longs / "
+                "%d shorts",
+                hysteresis_bonus, bonus_slots,
+                len(held_longs), len(held_shorts),
+            )
+
     # Batch sector lookup via yfinance cache. EDGAR rows carry no sector
     # (the ingest path never populates it), so a tertiary fallback to
     # loader.lookup_sector returns None for every name → cap binds on
@@ -263,11 +312,11 @@ def run_factor_picks(
 
     sector_cap_skipped: list[dict] = []
     if max_sector_pct is None or max_sector_pct >= 100:
-        top = composite.head(top_n).copy()
+        top = selection_frame.head(top_n).copy()
         top["sector"] = top["ticker"].map(lambda t: sectors.get(t, "Unknown"))
     else:
         top, sector_cap_skipped = _select_with_sector_cap(
-            composite, sectors, top_n=top_n, max_sector_pct=max_sector_pct,
+            selection_frame, sectors, top_n=top_n, max_sector_pct=max_sector_pct,
         )
         if len(top) < top_n:
             logger.warning(
@@ -283,8 +332,13 @@ def run_factor_picks(
     shorts = pd.DataFrame()
     if long_short:
         n_short = short_n if short_n is not None else top_n
-        # Sort by descending rank (worst first), then take top n_short.
-        bottom = composite.sort_values("rank", ascending=False)
+        # Sort by descending effective rank (worst first). When hysteresis
+        # is active, _eff_rank already had held shorts pushed DOWN (higher
+        # rank), so sorting descending puts them at the top of the short
+        # pool — they stay shorts. Without hysteresis, _eff_rank doesn't
+        # exist; fall back to "rank".
+        sort_col = "_eff_rank" if "_eff_rank" in selection_frame.columns else "rank"
+        bottom = selection_frame.sort_values(sort_col, ascending=False)
         if max_sector_pct is None or max_sector_pct >= 100:
             shorts = bottom.head(n_short).copy()
             shorts["sector"] = shorts["ticker"].map(

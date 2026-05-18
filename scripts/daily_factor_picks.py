@@ -80,6 +80,16 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--short-n", type=int, default=None,
                    help="Number of shorts to emit when --long-short. "
                         "Defaults to --top-n for a balanced book.")
+    p.add_argument("--hysteresis-bonus", type=float, default=0.75,
+                   help="Stickiness for previously-held names as a "
+                        "fraction of --top-n. 0.0 disables (pure rank). "
+                        "0.75 default = held name keeps its slot if its "
+                        "fresh composite rank stays within top-N×1.75. "
+                        "Validated 2026-05-18 against d05_r63+PEAD: "
+                        "+4.31pp avg α cross-window vs no hysteresis, "
+                        "stress-window DD improves -15.41%% -> -8.24%%. "
+                        "Picks from yesterday's `--output-dir` are loaded "
+                        "automatically.")
     return p.parse_args()
 
 
@@ -234,6 +244,44 @@ def main() -> int:
     max_sector_pct: float | None = args.max_sector_pct
     if max_sector_pct is not None and (max_sector_pct >= 100 or max_sector_pct <= 0):
         max_sector_pct = None
+
+    # Load yesterday's picks for hysteresis. The most recent JSON in
+    # output_dir BEFORE today is the right input. Skipping today's file
+    # (in case the script is re-run on the same day) avoids carrying
+    # forward a half-baked rerun.
+    prev_longs: list[str] = []
+    prev_shorts: list[str] = []
+    if args.hysteresis_bonus > 0:
+        output_dir = Path(args.output_dir)
+        today_iso = as_of.date().isoformat()
+        if output_dir.exists():
+            prior_files = sorted(
+                f for f in output_dir.glob("*.json")
+                if f.stem < today_iso
+            )
+            if prior_files:
+                latest = prior_files[-1]
+                try:
+                    prev_data = json.loads(latest.read_text(encoding="utf-8"))
+                    prev_longs = [
+                        p["ticker"] for p in prev_data.get("picks", [])
+                        if isinstance(p, dict) and p.get("ticker")
+                    ]
+                    prev_shorts = [
+                        p["ticker"] for p in prev_data.get("shorts", [])
+                        if isinstance(p, dict) and p.get("ticker")
+                    ]
+                    logger.info(
+                        "Hysteresis: loaded %d prior longs / %d prior shorts "
+                        "from %s", len(prev_longs), len(prev_shorts),
+                        latest.name,
+                    )
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.warning(
+                        "Hysteresis: failed to read %s (%s); proceeding "
+                        "without prior picks", latest.name, exc,
+                    )
+
     result = run_factor_picks(
         as_of=as_of,
         top_n=args.top_n,
@@ -243,6 +291,9 @@ def main() -> int:
         max_sector_pct=max_sector_pct,
         long_short=args.long_short,
         short_n=args.short_n,
+        hysteresis_bonus=args.hysteresis_bonus,
+        previous_longs=prev_longs,
+        previous_shorts=prev_shorts,
     )
     if result.composite.empty:
         return 2

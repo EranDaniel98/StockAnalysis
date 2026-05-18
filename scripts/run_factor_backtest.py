@@ -49,6 +49,7 @@ from src.factors.pead import pead_factor
 from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
 from src.factors.regime_weights import list_profiles, weights_for
+from src.factors.residual_momentum import residual_momentum_12_1
 from src.factors.value import value_factor
 from src.factors.vix_regime import (
     DEFAULT_CUTOFF as VIX_DEFAULT_CUTOFF,
@@ -143,6 +144,23 @@ def _parse_args() -> argparse.Namespace:
                    choices=("momentum", "quality", "value", "composite"),
                    help="Which factor to rank by. composite = "
                         "equal-weight rank-blend of all three.")
+    p.add_argument("--momentum-flavor",
+                   default="raw",
+                   choices=("raw", "residual"),
+                   help="Momentum implementation. 'raw' is the canonical "
+                        "Jegadeesh-Titman 12-1 (current default). 'residual' "
+                        "is Blitz-Huij-Martens 2011 residual momentum — "
+                        "strips SPY beta before cumulating. Applies to the "
+                        "'momentum' single factor and to the momentum sleeve "
+                        "inside 'composite'.")
+    p.add_argument("--hysteresis-bonus", type=float, default=0.0,
+                   help="Hysteresis (stickiness) bonus for currently-held "
+                        "names, expressed as a fraction of the target N. "
+                        "0.0 (default) disables — pure rank-based selection. "
+                        "0.5 = held names get their rank reduced by 0.5*N "
+                        "slots before re-selection, so a top-24 portfolio "
+                        "keeps any held name still in the top-36. Reduces "
+                        "turnover and the cost drag that comes with it.")
     p.add_argument("--output", required=True,
                    help="Output JSON path.")
     return p.parse_args()
@@ -198,6 +216,8 @@ def _resolve_ranking(
     *,
     regime_profile: str = "equal",
     vix_df: pd.DataFrame | None = None,
+    spy_df: pd.DataFrame | None = None,
+    momentum_flavor: str = "raw",
     include_insider: bool = False,
     insider_window_days: int = 90,
     insider_min_cluster: int = 2,
@@ -211,14 +231,23 @@ def _resolve_ranking(
     regime_label is always "low_vix" because there's no blend to
     reshape. The composite path consults the regime-weights profile.
     """
+    def _mom(p, a):
+        if momentum_flavor == "residual":
+            if spy_df is None or spy_df.empty:
+                raise ValueError(
+                    "momentum_flavor='residual' requires spy_df; got None/empty"
+                )
+            return residual_momentum_12_1(p, spy_df, a)
+        return momentum_12_1(p, a)
+
     if factor == "momentum":
-        return momentum_12_1(prices, as_of), "low_vix"
+        return _mom(prices, as_of), "low_vix"
     if factor == "quality":
         return quality_factor(fund_loader, universe_tickers, as_of), "low_vix"
     if factor == "value":
         return value_factor(fund_loader, prices, universe_tickers, as_of), "low_vix"
     if factor == "composite":
-        m = momentum_12_1(prices, as_of)
+        m = _mom(prices, as_of)
         q = quality_factor(fund_loader, universe_tickers, as_of)
         v = value_factor(fund_loader, prices, universe_tickers, as_of)
         weights, regime = weights_for(
@@ -504,6 +533,8 @@ def run(args: argparse.Namespace) -> dict:
             args.factor, prices, fund_loader, d, universe_tickers,
             regime_profile=args.regime_weights,
             vix_df=snap.vix_df if args.regime_weights != "equal" else None,
+            spy_df=spy,
+            momentum_flavor=args.momentum_flavor,
             include_insider=args.include_insider,
             insider_window_days=args.insider_window_days,
             insider_min_cluster=args.insider_min_cluster,
@@ -514,6 +545,34 @@ def run(args: argparse.Namespace) -> dict:
         if ranking.empty:
             continue
         n_long = max(1, int(round(len(ranking) * args.top_decile)))
+
+        # Hysteresis: held names get their rank reduced before selection.
+        # The bonus is expressed as a fraction of n_long (e.g. 0.5 = 12
+        # slots when n_long=24). A held name ranked 30 with bonus=0.5*24
+        # = 12 → effective rank 18 → stays. A name ranked 50 → effective
+        # rank 38 → still out. This reduces churn but won't keep a name
+        # that's genuinely cratered.
+        if args.hysteresis_bonus > 0 and holdings:
+            held_longs = {t for t, sh in holdings.items() if sh > 0}
+            held_shorts = {t for t, sh in holdings.items() if sh < 0}
+            bonus_slots = max(1, int(round(args.hysteresis_bonus * n_long)))
+            ranking = ranking.copy()
+            # Effective rank for selection. Longs get rank reduced (lower
+            # number = better). Shorts get rank INCREASED (higher = worse
+            # = stays as a short) — symmetrical stickiness.
+            def _adjust(row):
+                r = int(row["rank"])
+                t = row["ticker"]
+                if t in held_longs:
+                    return max(1, r - bonus_slots)
+                if t in held_shorts:
+                    return r + bonus_slots
+                return r
+            ranking["_eff_rank"] = ranking.apply(_adjust, axis=1)
+            ranking = (
+                ranking.sort_values("_eff_rank").reset_index(drop=True)
+            )
+
         long_target = ranking.iloc[:n_long]["ticker"].tolist()
         # Optional post-composite low-vol filter: drop the top-vol
         # names from the picks. Computed on the full snapshot universe
