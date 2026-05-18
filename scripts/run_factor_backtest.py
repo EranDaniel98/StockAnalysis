@@ -403,363 +403,302 @@ def _mark_to_market(
     return eq
 
 
-def run(args: argparse.Namespace) -> dict:
-    snap = load_snapshot(args.snapshot_id)
-    prices = snap.price_data
-    spy = snap.spy_df
-    if spy is None or spy.empty:
-        raise SystemExit(f"snapshot {args.snapshot_id} has no SPY frame")
+def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str]):
+    """PEAD analyzer needs per-ticker earnings histories. Loaded once
+    up front (parquet cache hits after the first run)."""
+    if not args.include_pead:
+        return None
+    from src.scoring.earnings_cache import load_earnings_histories
+    logger.info("Loading earnings histories for PEAD...")
+    histories = load_earnings_histories(
+        universe_tickers, Path(args.earnings_cache_dir),
+    )
+    logger.info(
+        "Loaded earnings histories for %d / %d tickers",
+        sum(1 for h in histories.values() if h is not None),
+        len(universe_tickers),
+    )
+    return histories
 
-    universe_tickers = sorted(prices.keys())
-    # Quality/value/composite need EDGAR PIT fundamentals. Pull once.
-    earnings_histories: dict | None = None
-    if args.include_pead:
-        from src.scoring.earnings_cache import load_earnings_histories
-        logger.info("Loading earnings histories for PEAD...")
-        earnings_histories = load_earnings_histories(
-            universe_tickers, Path(args.earnings_cache_dir),
-        )
-        logger.info(
-            "Loaded earnings histories for %d / %d tickers",
-            sum(1 for h in earnings_histories.values() if h is not None),
-            len(universe_tickers),
-        )
-    fund_loader = None
-    if args.factor in ("quality", "value", "composite"):
-        logger.info(
-            "Pre-loading EDGAR PIT fundamentals for %d tickers...",
-            len(universe_tickers),
-        )
-        fund_loader = _load_pit_fundamentals(universe_tickers)
-        cov = fund_loader.coverage()
-        n_covered = sum(1 for c in cov.values() if c > 0)
-        logger.info(
-            "Fundamentals coverage: %d/%d tickers have ≥1 EDGAR row "
-            "(%.1f%%)",
-            n_covered, len(universe_tickers),
-            100.0 * n_covered / max(1, len(universe_tickers)),
-        )
 
-    # Sectors: needed when --sector-neutral-quality is on. yfinance
-    # cache is shared with daily_factor_picks, so this is a hot read
-    # after the first fetch.
-    sectors: dict[str, str] = {}
-    if args.sector_neutral_quality and args.factor == "composite":
-        from src.data.sector_cache import get_sectors
-        logger.info(
-            "Loading sectors (yfinance cache) for sector-neutral quality..."
-        )
-        sectors = get_sectors(universe_tickers)
-        n_sector = sum(1 for s in sectors.values() if s)
-        logger.info(
-            "Sector classification: %d/%d names (%.1f%%)",
-            n_sector, len(universe_tickers),
-            100.0 * n_sector / max(1, len(universe_tickers)),
-        )
+def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: list[str]):
+    """Quality / value / composite all need the EDGAR PIT panel. Momentum-
+    only runs skip this load entirely."""
+    if args.factor not in ("quality", "value", "composite"):
+        return None
+    logger.info(
+        "Pre-loading EDGAR PIT fundamentals for %d tickers...",
+        len(universe_tickers),
+    )
+    loader = _load_pit_fundamentals(universe_tickers)
+    cov = loader.coverage()
+    n_covered = sum(1 for c in cov.values() if c > 0)
+    logger.info(
+        "Fundamentals coverage: %d/%d tickers have ≥1 EDGAR row "
+        "(%.1f%%)",
+        n_covered, len(universe_tickers),
+        100.0 * n_covered / max(1, len(universe_tickers)),
+    )
+    return loader
 
-    window_start = pd.Timestamp(snap.manifest.window_start)
-    window_end = pd.Timestamp(snap.manifest.window_end)
 
-    # Trading calendar from SPY (most reliable continuous series).
+def _load_sectors_if_sn_quality(args: argparse.Namespace, universe_tickers: list[str]) -> dict[str, str]:
+    """Sectors are only needed when sector-neutral quality is on. yfinance
+    cache is shared with daily_factor_picks, so first-run pays the
+    network and subsequent runs are hot."""
+    if not (args.sector_neutral_quality and args.factor == "composite"):
+        return {}
+    from src.data.sector_cache import get_sectors
+    logger.info(
+        "Loading sectors (yfinance cache) for sector-neutral quality..."
+    )
+    sectors = get_sectors(universe_tickers)
+    n_sector = sum(1 for s in sectors.values() if s)
+    logger.info(
+        "Sector classification: %d/%d names (%.1f%%)",
+        n_sector, len(universe_tickers),
+        100.0 * n_sector / max(1, len(universe_tickers)),
+    )
+    return sectors
+
+
+def _build_trading_calendar(spy: pd.DataFrame, snap_manifest) -> pd.DatetimeIndex:
+    """SPY-indexed trading days inside the snapshot's window."""
+    window_start = pd.Timestamp(snap_manifest.window_start)
+    window_end = pd.Timestamp(snap_manifest.window_end)
     spy_idx = spy.index
     calendar = spy_idx[(spy_idx >= window_start) & (spy_idx <= window_end)]
     if calendar.empty:
         raise SystemExit("snapshot has no SPY rows inside the backtest window")
+    return calendar
 
-    # Precompute trend state for the whole snapshot (uses full pre-window
-    # history so the 200-SMA is computable on day 1 of the window).
-    trend_state = trend_state_series(spy)
 
-    # Optional VIX-percentile gate. Aligned to the SPY trading calendar
-    # because rebalance days are SPY-indexed; missing VIX dates ffill so
-    # weekend / holiday gaps don't accidentally gate-out a Monday.
-    vix_state: pd.Series | None = None
-    if args.vix_gate:
-        vix_df = snap.vix_df
-        if vix_df is None or vix_df.empty:
-            logger.warning(
-                "--vix-gate requested but snapshot has no VIX frame; "
-                "the gate will be inert (every day reads as calm)."
-            )
+def _build_vix_state(args: argparse.Namespace, snap, spy: pd.DataFrame) -> pd.Series | None:
+    """Aligned VIX-percentile series for the gate. ffill onto SPY calendar
+    so weekend / holiday gaps don't accidentally gate-out a Monday.
+    Returns None when the gate is off or VIX data is missing."""
+    if not args.vix_gate:
+        return None
+    vix_df = snap.vix_df
+    if vix_df is None or vix_df.empty:
+        logger.warning(
+            "--vix-gate requested but snapshot has no VIX frame; "
+            "the gate will be inert (every day reads as calm)."
+        )
+        return None
+    pct_series = vix_percentile_series(vix_df, window=args.vix_window)
+    return pct_series.reindex(spy.index, method="ffill")
+
+
+def _record_exposure(
+    holdings: dict[str, int], cash: float,
+    prices: dict, d: pd.Timestamp,
+) -> dict:
+    """One row of the per-day exposure log: gross long, gross short, net,
+    cash. Used by long-short runs for diagnostic plots."""
+    gross_long = 0.0
+    gross_short = 0.0
+    for t, sh in holdings.items():
+        px = _close_on(prices, t, d)
+        if px is None:
+            continue
+        if sh > 0:
+            gross_long += sh * px
         else:
-            pct_series = vix_percentile_series(vix_df, window=args.vix_window)
-            # Align to SPY trading calendar with ffill so trade days that
-            # land on a VIX-missing date inherit the prior reading.
-            vix_state = pct_series.reindex(
-                spy.index, method="ffill"
-            )
+            gross_short += abs(sh) * px
+    return {
+        "date": d.date().isoformat(),
+        "gross_long": round(gross_long, 2),
+        "gross_short": round(gross_short, 2),
+        "net": round(gross_long - gross_short, 2),
+        "cash": round(cash, 2),
+    }
 
-    cash = float(args.starting_cash)
-    holdings: dict[str, int] = {}
-    trades: list[dict] = []
-    equity_history: list[tuple[str, float]] = []
-    rebalance_log: list[dict] = []
-    exposure_history: list[dict] = []
 
-    cost_rate = args.cost_bps / 10_000.0
-    rebal_every = max(1, int(args.rebalance_days))
-    # Annual borrow rate → per-trading-day fraction. 252 td/year is the
-    # convention; calendar-day basis would be 365 and a touch cheaper.
-    borrow_per_day = (args.borrow_bps / 10_000.0) / 252.0
-    short_decile = (
-        args.short_decile if args.short_decile is not None else args.top_decile
+def _gate_blocks_entries(
+    args: argparse.Namespace,
+    trend_state: pd.Series, vix_state: pd.Series | None,
+    d: pd.Timestamp,
+) -> tuple[bool, bool]:
+    """Return ``(blocked, vix_blocked)``. Two-channel gate: either the
+    200-SMA trend filter is off or the VIX percentile is at-or-above the
+    cutoff. Both can fire independently on the same day."""
+    risk_on = (not args.no_regime_filter) and (
+        bool(trend_state.loc[d]) if d in trend_state.index else False
     )
+    vix_blocked = False
+    if args.vix_gate and vix_state is not None:
+        pct = vix_state.loc[d] if d in vix_state.index else None
+        if pct is not None and not pd.isna(pct) and pct >= args.vix_cutoff:
+            vix_blocked = True
+    blocked = (not args.no_regime_filter and not risk_on) or vix_blocked
+    return blocked, vix_blocked
 
-    # Step through every trading day.
-    prev_day: pd.Timestamp | None = None
-    for i, d in enumerate(calendar):
-        # Daily borrow charge on short notional. Applied BEFORE the
-        # mark-to-market so the equity series reflects realized cost.
-        if args.long_short and prev_day is not None:
-            short_notional = 0.0
-            for t, sh in holdings.items():
-                if sh >= 0:
-                    continue
-                px = _close_on(prices, t, d)
-                if px is not None:
-                    short_notional += abs(sh) * px
-            if short_notional > 0:
-                cash -= short_notional * borrow_per_day
-        prev_day = d
 
-        eq = _mark_to_market(holdings, cash, prices, d)
-        equity_history.append((d.date().isoformat(), eq))
-
-        # Track gross + net exposure for diagnostics.
-        if args.long_short:
-            gross_long = 0.0
-            gross_short = 0.0
-            for t, sh in holdings.items():
-                px = _close_on(prices, t, d)
-                if px is None:
-                    continue
-                if sh > 0:
-                    gross_long += sh * px
-                else:
-                    gross_short += abs(sh) * px
-            exposure_history.append({
-                "date": d.date().isoformat(),
-                "gross_long": round(gross_long, 2),
-                "gross_short": round(gross_short, 2),
-                "net": round(gross_long - gross_short, 2),
-                "cash": round(cash, 2),
-            })
-
-        # Rebalance on day 0 and every rebal_every days thereafter.
-        if i % rebal_every != 0:
+def _liquidate_all_to_cash(
+    holdings: dict[str, int], cash: float,
+    trades: list[dict], rebalance_log: list[dict],
+    prices: dict, d: pd.Timestamp,
+    cost_rate: float, vix_blocked: bool,
+) -> float:
+    """Sell every position to cash. Used when the regime trend filter is
+    off OR the VIX gate fires. Returns the updated cash balance."""
+    for t, sh in list(holdings.items()):
+        px = _close_on(prices, t, d)
+        if px is None or sh == 0:
+            holdings.pop(t, None)
             continue
+        proceeds = sh * px
+        cost = abs(proceeds) * cost_rate
+        cash += proceeds - cost
+        side_tag = "sell_vix_gate" if vix_blocked else "sell_regime_off"
+        trades.append({
+            "date": d.date().isoformat(),
+            "ticker": t, "side": side_tag,
+            "shares": int(sh), "price": round(px, 4),
+            "cost": round(cost, 4),
+        })
+        holdings.pop(t)
+    rebalance_log.append({
+        "date": d.date().isoformat(),
+        "action": "vix_off" if vix_blocked else "risk_off",
+        "n_positions": 0,
+    })
+    return cash
 
-        risk_on = (not args.no_regime_filter) and (
-            bool(trend_state.loc[d]) if d in trend_state.index else False
+
+def _apply_hysteresis_to_ranking(
+    args: argparse.Namespace, ranking: pd.DataFrame,
+    holdings: dict[str, int], n_long: int,
+) -> pd.DataFrame:
+    """Held-name rank bonus: longs get rank reduced (lower = better),
+    shorts get rank increased (higher = stays short). Names that drop
+    past the envelope still get evicted."""
+    if args.hysteresis_bonus <= 0 or not holdings:
+        return ranking
+    held_longs = {t for t, sh in holdings.items() if sh > 0}
+    held_shorts = {t for t, sh in holdings.items() if sh < 0}
+    bonus_slots = max(1, int(round(args.hysteresis_bonus * n_long)))
+    ranking = ranking.copy()
+
+    def _adjust(row):
+        r = int(row["rank"])
+        t = row["ticker"]
+        if t in held_longs:
+            return max(1, r - bonus_slots)
+        if t in held_shorts:
+            return r + bonus_slots
+        return r
+
+    ranking["_eff_rank"] = ranking.apply(_adjust, axis=1)
+    return ranking.sort_values("_eff_rank").reset_index(drop=True)
+
+
+def _select_long_short_targets(
+    args: argparse.Namespace, ranking: pd.DataFrame,
+    prices: dict, d: pd.Timestamp,
+    n_long: int, short_decile: float,
+) -> tuple[set[str], set[str]]:
+    """Top-N longs + bottom-N shorts after low-vol filter. Shorts can't
+    overlap with longs (defensive — d05_r63 on a 480-name universe
+    wouldn't produce overlap, but the slice math doesn't enforce it)."""
+    long_target = ranking.iloc[:n_long]["ticker"].tolist()
+    if 0 < args.low_vol_keep_pct < 1.0:
+        long_target = low_vol_filter(
+            prices, long_target, d,
+            window=args.low_vol_window,
+            keep_pct=args.low_vol_keep_pct,
         )
-
-        # VIX gate: block entries when the trailing VIX percentile is
-        # at-or-above cutoff. Independent of the trend filter — both can
-        # fire on the same day. Defaults to permissive when VIX data
-        # isn't loaded.
-        vix_blocked = False
-        if args.vix_gate and vix_state is not None:
-            pct = vix_state.loc[d] if d in vix_state.index else None
-            if pct is not None and not pd.isna(pct) and pct >= args.vix_cutoff:
-                vix_blocked = True
-
-        # If regime is off-and-required OR VIX gate blocks, liquidate
-        # everything to cash.
-        if (not args.no_regime_filter and not risk_on) or vix_blocked:
-            for t, sh in list(holdings.items()):
-                px = _close_on(prices, t, d)
-                if px is None or sh == 0:
-                    holdings.pop(t, None)
-                    continue
-                proceeds = sh * px
-                cost = abs(proceeds) * cost_rate
-                cash += proceeds - cost
-                side_tag = "sell_vix_gate" if vix_blocked else "sell_regime_off"
-                trades.append({
-                    "date": d.date().isoformat(),
-                    "ticker": t, "side": side_tag,
-                    "shares": int(sh), "price": round(px, 4),
-                    "cost": round(cost, 4),
-                })
-                holdings.pop(t)
-            rebalance_log.append({
-                "date": d.date().isoformat(),
-                "action": "vix_off" if vix_blocked else "risk_off",
-                "n_positions": 0,
-            })
-            continue
-
-        # Compute factor; pick top decile.
-        ranking, regime_label = _resolve_ranking(
-            args.factor, prices, fund_loader, d, universe_tickers,
-            regime_profile=args.regime_weights,
-            composite_factors=args.composite_factors,
-            sector_neutral_quality=args.sector_neutral_quality,
-            sectors=sectors,
-            vix_df=snap.vix_df if args.regime_weights != "equal" else None,
-            spy_df=spy,
-            momentum_flavor=args.momentum_flavor,
-            include_insider=args.include_insider,
-            insider_window_days=args.insider_window_days,
-            insider_min_cluster=args.insider_min_cluster,
-            include_pead=args.include_pead,
-            earnings_histories=earnings_histories,
-            pead_drift_window=args.pead_drift_window,
-        )
-        if ranking.empty:
-            continue
-        n_long = max(1, int(round(len(ranking) * args.top_decile)))
-
-        # Hysteresis: held names get their rank reduced before selection.
-        # The bonus is expressed as a fraction of n_long (e.g. 0.5 = 12
-        # slots when n_long=24). A held name ranked 30 with bonus=0.5*24
-        # = 12 → effective rank 18 → stays. A name ranked 50 → effective
-        # rank 38 → still out. This reduces churn but won't keep a name
-        # that's genuinely cratered.
-        if args.hysteresis_bonus > 0 and holdings:
-            held_longs = {t for t, sh in holdings.items() if sh > 0}
-            held_shorts = {t for t, sh in holdings.items() if sh < 0}
-            bonus_slots = max(1, int(round(args.hysteresis_bonus * n_long)))
-            ranking = ranking.copy()
-            # Effective rank for selection. Longs get rank reduced (lower
-            # number = better). Shorts get rank INCREASED (higher = worse
-            # = stays as a short) — symmetrical stickiness.
-            def _adjust(row):
-                r = int(row["rank"])
-                t = row["ticker"]
-                if t in held_longs:
-                    return max(1, r - bonus_slots)
-                if t in held_shorts:
-                    return r + bonus_slots
-                return r
-            ranking["_eff_rank"] = ranking.apply(_adjust, axis=1)
-            ranking = (
-                ranking.sort_values("_eff_rank").reset_index(drop=True)
-            )
-
-        long_target = ranking.iloc[:n_long]["ticker"].tolist()
-        # Optional post-composite low-vol filter: drop the top-vol
-        # names from the picks. Computed on the full snapshot universe
-        # so a factor-skewed top decile doesn't shift the vol cutoff.
+    long_set = set(long_target)
+    short_set: set[str] = set()
+    if args.long_short:
+        n_short = max(1, int(round(len(ranking) * short_decile)))
+        short_target = ranking.iloc[-n_short:]["ticker"].tolist()
         if 0 < args.low_vol_keep_pct < 1.0:
-            long_target = low_vol_filter(
-                prices, long_target, d,
+            short_target = low_vol_filter(
+                prices, short_target, d,
                 window=args.low_vol_window,
                 keep_pct=args.low_vol_keep_pct,
             )
-        long_set = set(long_target)
+        short_set = set(short_target) - long_set
+    return long_set, short_set
 
-        short_set: set[str] = set()
-        if args.long_short:
-            n_short = max(1, int(round(len(ranking) * short_decile)))
-            # Bottom-N by rank (highest rank numbers = worst composite).
-            short_target = ranking.iloc[-n_short:]["ticker"].tolist()
-            # Apply the same low-vol filter to shorts so we don't accumulate
-            # the worst-of-vol on the short side either.
-            if 0 < args.low_vol_keep_pct < 1.0:
-                short_target = low_vol_filter(
-                    prices, short_target, d,
-                    window=args.low_vol_window,
-                    keep_pct=args.low_vol_keep_pct,
-                )
-            short_set = set(short_target)
-            # A ticker that ranks in both decile sets (shouldn't happen
-            # for d05_r63 on a 480-name universe, but defensive) is
-            # treated as a long. Shorts should never overlap with longs.
-            short_set -= long_set
 
-        target_set = long_set | short_set
-
-        # Sell names not in either target set (close out positions).
-        for t in list(holdings.keys()):
-            if t in target_set:
-                continue
-            sh = holdings.pop(t)
-            px = _close_on(prices, t, d)
-            if px is None or sh == 0:
-                continue
-            proceeds = sh * px  # negative shares produce negative proceeds
-            cost = abs(proceeds) * cost_rate
-            cash += proceeds - cost
-            trades.append({
-                "date": d.date().isoformat(), "ticker": t,
-                "side": "close_rebalance",
-                "shares": int(sh), "price": round(px, 4),
-                "cost": round(cost, 4),
-            })
-
-        # Sizing: equal-weight within each side. Long-short splits
-        # equity in half; long-only puts it all on the long side.
-        current_eq = _mark_to_market(holdings, cash, prices, d)
-        long_capital = (
-            current_eq * 0.5 if args.long_short else current_eq
-        )
-        short_capital = current_eq * 0.5 if args.long_short else 0.0
-        per_long = (
-            long_capital / max(1, len(long_set)) if long_set else 0.0
-        )
-        per_short = (
-            short_capital / max(1, len(short_set)) if short_set else 0.0
-        )
-
-        # Resize longs.
-        for t in long_set:
-            px = _close_on(prices, t, d)
-            if px is None or px <= 0:
-                continue
-            target_shares = int(per_long // px)
-            current_shares = holdings.get(t, 0)
-            delta = target_shares - current_shares
-            if delta == 0:
-                continue
-            notional = abs(delta) * px
-            cost = notional * cost_rate
-            cash -= delta * px
-            cash -= cost
-            holdings[t] = current_shares + delta
-            if holdings[t] == 0:
-                del holdings[t]
-            trades.append({
-                "date": d.date().isoformat(), "ticker": t,
-                "side": "buy" if delta > 0 else "sell_rebalance",
-                "shares": int(abs(delta)), "price": round(px, 4),
-                "cost": round(cost, 4),
-            })
-
-        # Resize shorts (negative target_shares).
-        for t in short_set:
-            px = _close_on(prices, t, d)
-            if px is None or px <= 0:
-                continue
-            target_shares = -int(per_short // px)  # negative = short
-            current_shares = holdings.get(t, 0)
-            delta = target_shares - current_shares
-            if delta == 0:
-                continue
-            notional = abs(delta) * px
-            cost = notional * cost_rate
-            cash -= delta * px  # negative delta on a short ADDs cash (short sale)
-            cash -= cost
-            holdings[t] = current_shares + delta
-            if holdings[t] == 0:
-                del holdings[t]
-            trades.append({
-                "date": d.date().isoformat(), "ticker": t,
-                "side": "short" if delta < 0 else "cover",
-                "shares": int(abs(delta)), "price": round(px, 4),
-                "cost": round(cost, 4),
-            })
-
-        rebalance_log.append({
-            "date": d.date().isoformat(),
-            "action": "rebalance",
-            "n_positions": len(holdings),
-            "n_long": sum(1 for v in holdings.values() if v > 0),
-            "n_short": sum(1 for v in holdings.values() if v < 0),
-            "regime": regime_label,
+def _close_off_target_positions(
+    target_set: set[str], holdings: dict[str, int], cash: float,
+    trades: list[dict], prices: dict, d: pd.Timestamp, cost_rate: float,
+) -> float:
+    """Sell every currently-held name that's NOT in the new target set.
+    Negative-share positions produce negative proceeds (cover the short).
+    Returns the updated cash balance."""
+    for t in list(holdings.keys()):
+        if t in target_set:
+            continue
+        sh = holdings.pop(t)
+        px = _close_on(prices, t, d)
+        if px is None or sh == 0:
+            continue
+        proceeds = sh * px
+        cost = abs(proceeds) * cost_rate
+        cash += proceeds - cost
+        trades.append({
+            "date": d.date().isoformat(), "ticker": t,
+            "side": "close_rebalance",
+            "shares": int(sh), "price": round(px, 4),
+            "cost": round(cost, 4),
         })
+    return cash
 
-    # ----- metrics -----
+
+def _resize_one_side(
+    target_set: set[str], holdings: dict[str, int], cash: float,
+    trades: list[dict], prices: dict, d: pd.Timestamp,
+    per_position: float, cost_rate: float,
+    *, is_long: bool,
+) -> float:
+    """Buy / sell to bring each target to its sized share count. Long
+    side: target_shares > 0; short side: target_shares < 0. A negative
+    delta on a short ADDs cash (the short sale itself). Returns the
+    updated cash balance."""
+    for t in target_set:
+        px = _close_on(prices, t, d)
+        if px is None or px <= 0:
+            continue
+        magnitude = int(per_position // px)
+        target_shares = magnitude if is_long else -magnitude
+        current_shares = holdings.get(t, 0)
+        delta = target_shares - current_shares
+        if delta == 0:
+            continue
+        notional = abs(delta) * px
+        cost = notional * cost_rate
+        cash -= delta * px
+        cash -= cost
+        holdings[t] = current_shares + delta
+        if holdings[t] == 0:
+            del holdings[t]
+        if is_long:
+            side_tag = "buy" if delta > 0 else "sell_rebalance"
+        else:
+            side_tag = "short" if delta < 0 else "cover"
+        trades.append({
+            "date": d.date().isoformat(), "ticker": t,
+            "side": side_tag,
+            "shares": int(abs(delta)), "price": round(px, 4),
+            "cost": round(cost, 4),
+        })
+    return cash
+
+
+def _compute_metrics_and_assemble(
+    args: argparse.Namespace, snap,
+    calendar: pd.DatetimeIndex, spy: pd.DataFrame,
+    equity_history: list[tuple[str, float]],
+    trades: list[dict], rebalance_log: list[dict],
+    exposure_history: list[dict],
+) -> dict:
+    """Compute every metric + benchmark comparison + walk-forward gate
+    and assemble the final result dict that callers persist as JSON."""
     eq_series = pd.Series(
         [v for _, v in equity_history],
         index=pd.to_datetime([d for d, _ in equity_history]),
@@ -769,20 +708,17 @@ def run(args: argparse.Namespace) -> dict:
     total_return = float(eq_series.iloc[-1] / args.starting_cash - 1.0)
     max_dd = _max_drawdown(eq_series)
 
-    # SPY benchmark over the same window.
     spy_win = spy[(spy.index >= calendar[0]) & (spy.index <= calendar[-1])]
     spy_total = float(spy_win["Close"].iloc[-1] / spy_win["Close"].iloc[0] - 1.0)
     spy_daily = spy_win["Close"].pct_change().dropna()
     spy_sharpe = _annualize_sharpe(spy_daily)
     spy_dd = _max_drawdown(spy_win["Close"])
 
-    # CAGR
     years = max(1e-6, (calendar[-1] - calendar[0]).days / 365.25)
     cagr = (1 + total_return) ** (1 / years) - 1
-
     wf = _walk_forward_folds(daily_rets, n_folds=5)
 
-    out = {
+    return {
         "strategy": args.strategy_label,
         "snapshot_id": args.snapshot_id,
         "snapshot_manifest": {
@@ -822,7 +758,130 @@ def run(args: argparse.Namespace) -> dict:
         "long_short_enabled": bool(args.long_short),
         "exposure_history_sample": exposure_history[::21] if exposure_history else [],
     }
-    return out
+
+
+def run(args: argparse.Namespace) -> dict:
+    snap = load_snapshot(args.snapshot_id)
+    prices = snap.price_data
+    spy = snap.spy_df
+    if spy is None or spy.empty:
+        raise SystemExit(f"snapshot {args.snapshot_id} has no SPY frame")
+
+    universe_tickers = sorted(prices.keys())
+    earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers)
+    fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
+    sectors = _load_sectors_if_sn_quality(args, universe_tickers)
+    calendar = _build_trading_calendar(spy, snap.manifest)
+    trend_state = trend_state_series(spy)
+    vix_state = _build_vix_state(args, snap, spy)
+
+    cash = float(args.starting_cash)
+    holdings: dict[str, int] = {}
+    trades: list[dict] = []
+    equity_history: list[tuple[str, float]] = []
+    rebalance_log: list[dict] = []
+    exposure_history: list[dict] = []
+
+    cost_rate = args.cost_bps / 10_000.0
+    rebal_every = max(1, int(args.rebalance_days))
+    # Annual borrow rate → per-trading-day fraction. 252 td/year is the
+    # convention; calendar-day basis would be 365 and a touch cheaper.
+    borrow_per_day = (args.borrow_bps / 10_000.0) / 252.0
+    short_decile = (
+        args.short_decile if args.short_decile is not None else args.top_decile
+    )
+
+    # Step through every trading day.
+    prev_day: pd.Timestamp | None = None
+    for i, d in enumerate(calendar):
+        # Daily borrow charge on short notional, applied BEFORE
+        # mark-to-market so the equity series reflects realized cost.
+        if args.long_short and prev_day is not None:
+            short_notional = sum(
+                abs(sh) * (_close_on(prices, t, d) or 0)
+                for t, sh in holdings.items() if sh < 0
+            )
+            if short_notional > 0:
+                cash -= short_notional * borrow_per_day
+        prev_day = d
+
+        eq = _mark_to_market(holdings, cash, prices, d)
+        equity_history.append((d.date().isoformat(), eq))
+        if args.long_short:
+            exposure_history.append(_record_exposure(holdings, cash, prices, d))
+
+        if i % rebal_every != 0:
+            continue
+
+        blocked, vix_blocked = _gate_blocks_entries(
+            args, trend_state, vix_state, d,
+        )
+        if blocked:
+            cash = _liquidate_all_to_cash(
+                holdings, cash, trades, rebalance_log,
+                prices, d, cost_rate, vix_blocked,
+            )
+            continue
+
+        ranking, regime_label = _resolve_ranking(
+            args.factor, prices, fund_loader, d, universe_tickers,
+            regime_profile=args.regime_weights,
+            composite_factors=args.composite_factors,
+            sector_neutral_quality=args.sector_neutral_quality,
+            sectors=sectors,
+            vix_df=snap.vix_df if args.regime_weights != "equal" else None,
+            spy_df=spy,
+            momentum_flavor=args.momentum_flavor,
+            include_insider=args.include_insider,
+            insider_window_days=args.insider_window_days,
+            insider_min_cluster=args.insider_min_cluster,
+            include_pead=args.include_pead,
+            earnings_histories=earnings_histories,
+            pead_drift_window=args.pead_drift_window,
+        )
+        if ranking.empty:
+            continue
+        n_long = max(1, int(round(len(ranking) * args.top_decile)))
+        ranking = _apply_hysteresis_to_ranking(args, ranking, holdings, n_long)
+        long_set, short_set = _select_long_short_targets(
+            args, ranking, prices, d, n_long, short_decile,
+        )
+        target_set = long_set | short_set
+
+        cash = _close_off_target_positions(
+            target_set, holdings, cash, trades, prices, d, cost_rate,
+        )
+
+        # Sizing: equal-weight within each side. Long-short splits
+        # equity in half; long-only puts it all on the long side.
+        current_eq = _mark_to_market(holdings, cash, prices, d)
+        long_capital = current_eq * 0.5 if args.long_short else current_eq
+        short_capital = current_eq * 0.5 if args.long_short else 0.0
+        per_long = long_capital / max(1, len(long_set)) if long_set else 0.0
+        per_short = short_capital / max(1, len(short_set)) if short_set else 0.0
+
+        cash = _resize_one_side(
+            long_set, holdings, cash, trades, prices, d,
+            per_long, cost_rate, is_long=True,
+        )
+        cash = _resize_one_side(
+            short_set, holdings, cash, trades, prices, d,
+            per_short, cost_rate, is_long=False,
+        )
+
+        rebalance_log.append({
+            "date": d.date().isoformat(),
+            "action": "rebalance",
+            "n_positions": len(holdings),
+            "n_long": sum(1 for v in holdings.values() if v > 0),
+            "n_short": sum(1 for v in holdings.values() if v < 0),
+            "regime": regime_label,
+        })
+
+    return _compute_metrics_and_assemble(
+        args, snap, calendar, spy,
+        equity_history, trades, rebalance_log, exposure_history,
+    )
 
 
 def main() -> int:
