@@ -1,0 +1,23 @@
+{
+  "as_of": "2026-05-18",
+  "period": "1W",
+  "elapsed_days": 4,
+  "strategy_window": {
+    "start": "2026-05-12T00:00:00+00:00",
+    "end": "2026-05-16T00:00:00+00:00",
+    "start_equity": 42128.02,
+    "end_equity": 41042.6
+  },
+  "strategy_return_pct": -2.576,
+  "spy_return_pct": 0.134,
+  "realized_alpha_pct": -2.711,
+  "backtest_baseline": {
+    "path": "reports\\ab_raw_be2f46.json",
+    "strategy_label": "baseline_d05_r63_pead_raw",
+    "window_alpha_pct": 24.41,
+    "window_days": 730,
+    "scaled_alpha_for_period_pct": 0.134
+  },
+  "gap_vs_backtest_pct": -2.844,
+  "verdict": "behind_backtest"
+}

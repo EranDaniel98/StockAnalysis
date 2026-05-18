@@ -144,6 +144,12 @@ def _parse_args() -> argparse.Namespace:
                    choices=("momentum", "quality", "value", "composite"),
                    help="Which factor to rank by. composite = "
                         "equal-weight rank-blend of all three.")
+    p.add_argument("--composite-factors", default="mqv",
+                   help="Which factors to include in the composite. "
+                        "Subset of 'mqv' (e.g. 'mv' drops quality). Default "
+                        "'mqv' is the full three-factor blend. Used by "
+                        "ablation runs (which factor is the loser in a "
+                        "given window).")
     p.add_argument("--momentum-flavor",
                    default="raw",
                    choices=("raw", "residual"),
@@ -218,6 +224,7 @@ def _resolve_ranking(
     vix_df: pd.DataFrame | None = None,
     spy_df: pd.DataFrame | None = None,
     momentum_flavor: str = "raw",
+    composite_factors: str = "mqv",
     include_insider: bool = False,
     insider_window_days: int = 90,
     insider_min_cluster: int = 2,
@@ -247,14 +254,33 @@ def _resolve_ranking(
     if factor == "value":
         return value_factor(fund_loader, prices, universe_tickers, as_of), "low_vix"
     if factor == "composite":
-        m = _mom(prices, as_of)
-        q = quality_factor(fund_loader, universe_tickers, as_of)
-        v = value_factor(fund_loader, prices, universe_tickers, as_of)
-        weights, regime = weights_for(
+        # Ablation support: composite_factors='mqv' (default) uses all
+        # three; 'mv' drops quality; 'qv' drops momentum; etc.
+        wants_m = "m" in composite_factors
+        wants_q = "q" in composite_factors
+        wants_v = "v" in composite_factors
+        if not any([wants_m, wants_q, wants_v]):
+            raise ValueError(
+                f"--composite-factors={composite_factors!r} excludes "
+                "every base factor"
+            )
+        m = _mom(prices, as_of) if wants_m else pd.DataFrame()
+        q = quality_factor(fund_loader, universe_tickers, as_of) if wants_q else pd.DataFrame()
+        v = value_factor(fund_loader, prices, universe_tickers, as_of) if wants_v else pd.DataFrame()
+        weights_all, regime = weights_for(
             regime_profile, as_of=as_of, vix_df=vix_df,
         )
-        frames = [m, q, v]
-        weights = list(weights)
+        # Project the regime weights onto the surviving base factors.
+        # weights_all order matches [m, q, v]; reuse only the ones we
+        # asked for and re-normalize would happen inside combine().
+        frames = []
+        weights = []
+        for keep, w, frame in zip(
+            [wants_m, wants_q, wants_v], list(weights_all), [m, q, v],
+        ):
+            if keep:
+                frames.append(frame)
+                weights.append(float(w))
         if include_insider:
             ins = _fetch_insider_factor_sync(
                 universe_tickers, as_of,
@@ -532,6 +558,7 @@ def run(args: argparse.Namespace) -> dict:
         ranking, regime_label = _resolve_ranking(
             args.factor, prices, fund_loader, d, universe_tickers,
             regime_profile=args.regime_weights,
+            composite_factors=args.composite_factors,
             vix_df=snap.vix_df if args.regime_weights != "equal" else None,
             spy_df=spy,
             momentum_flavor=args.momentum_flavor,

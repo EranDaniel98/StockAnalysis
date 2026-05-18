@@ -290,13 +290,22 @@ async def check_buy_signal_auto(
     *,
     mode: str = "auto",
 ) -> SanityCheck:
-    """Dispatch helper: use the real checker when ANTHROPIC_API_KEY is
-    available, fall back to the mock otherwise.
+    """Dispatch helper.
 
-    ``mode='auto'`` honors the env. ``mode='mock'`` forces the mock.
-    ``mode='live'`` forces the real path and raises if the key is
-    missing — useful when you specifically want the failure to
-    surface rather than silently degrade.
+    Modes
+    -----
+    * ``mock``   — rule-based mock; no API call.
+    * ``live``   — real LLM; raises if ``ANTHROPIC_API_KEY`` is missing.
+    * ``auto``   — real LLM when the key is set; mock when it isn't.
+                   If the live path errors WHILE running (network / API
+                   failure), the exception propagates — we do NOT silently
+                   fall back to mock. That fallback existed pre-2026-05-18
+                   and masked a five-day silent failure of the gate after
+                   commit 411d288 (acomplete-vs-create API mismatch).
+
+    Callers that want the old behaviour can catch the exception and
+    invoke ``check_buy_signal_mock`` themselves — but doing so on the
+    real-money trade path is a footgun.
     """
     if mode == "mock":
         return check_buy_signal_mock(inputs)
@@ -304,11 +313,7 @@ async def check_buy_signal_auto(
         return await check_buy_signal(inputs)
     # auto
     if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            return await check_buy_signal(inputs)
-        except Exception:
-            logger.exception(
-                "Sanity check live path failed; falling back to mock",
-            )
-            return check_buy_signal_mock(inputs)
+        # Intentionally NO try/except: a live call that errors mid-flight
+        # is a real failure and the operator must decide what to do.
+        return await check_buy_signal(inputs)
     return check_buy_signal_mock(inputs)

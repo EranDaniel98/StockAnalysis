@@ -93,6 +93,20 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--short-cash-buffer-pct", type=float, default=2.0,
                    help="Held in cash on the SHORT side too (default 2%%). "
                         "Long and short halves each apply this buffer.")
+    p.add_argument("--override-drift", action="store_true",
+                   help="Proceed even when the drift detector returns FAIL. "
+                        "By default we refuse to trade on a FAIL because it "
+                        "means today's picks composition diverged from the "
+                        "trailing baseline (factor-coverage collapse, "
+                        "universe shrink, sector-cap break, etc.). Use this "
+                        "ONLY when you've manually verified the cause.")
+    p.add_argument("--override-sanity-errors", action="store_true",
+                   help="Proceed even when the sanity gate had transport / "
+                        "API errors (not LLM verdicts — actual call failures). "
+                        "Default refuses because the gate had its silent-mock "
+                        "fallback removed: a failure now means the call broke, "
+                        "not that the LLM is uncertain. Override ONLY for "
+                        "known-transient issues.")
     return p.parse_args()
 
 
@@ -181,6 +195,50 @@ def main() -> int:
         payload["as_of"], payload.get("strategy", "?"),
     )
 
+    # ─── Pre-trade drift gate ──────────────────────────────────────────
+    # Refuse to trade if today's picks composition has drifted from the
+    # trailing baseline (universe shrink, factor coverage collapse,
+    # sector cap break, top-z outlier, hysteresis carry rate anomaly).
+    # See reports/decision_logic_uplift_2026_05_18.md — the detector
+    # caught a real value-coverage drop on its first run.
+    from src.factors.drift_detector import (
+        compute_drift_report, format_markdown,
+    )
+    drift_report = compute_drift_report(
+        today_path=Path(args.picks_dir)
+        / f"{args.picks_date or datetime.now(timezone.utc).date().isoformat()}.json",
+        history_dir=Path(args.picks_dir),
+        days=30,
+    )
+    if drift_report.overall_status == "fail":
+        logger.error(
+            "Drift detector returned FAIL. Picks composition has shifted "
+            "vs trailing baseline. Refusing to trade.",
+        )
+        for c in drift_report.checks:
+            if c.status == "fail":
+                logger.error("  FAIL %s: %s", c.name, c.message)
+        if not args.override_drift:
+            print(format_markdown(drift_report))
+            raise SystemExit(
+                "\nRefusing to trade — drift detector failed. "
+                "Investigate the FAILs above. To override (NOT "
+                "recommended without manual verification), rerun with "
+                "--override-drift."
+            )
+        logger.warning(
+            "Proceeding despite drift FAIL because --override-drift was set."
+        )
+    elif drift_report.overall_status == "warn":
+        logger.warning(
+            "Drift detector returned WARN (proceeding):"
+        )
+        for c in drift_report.checks:
+            if c.status == "warn":
+                logger.warning("  WARN %s: %s", c.name, c.message)
+    else:
+        logger.info("Drift gate OK (%d checks)", len(drift_report.checks))
+
     # ─── Pre-trade LLM sanity gate ──────────────────────────────────────
     # Asymmetric trust: REJECT removes; CAUTION warns. SKIP (gate error)
     # is treated as REJECT — "when in doubt, don't trade". Run separately
@@ -242,6 +300,48 @@ def main() -> int:
             logger.warning(
                 "Sanity gate REJECTED %d shorts: %s",
                 len(short_result.rejected), ", ".join(short_result.rejected),
+            )
+
+        # Detect gate ERRORS (API / network failure) as distinct from LLM
+        # verdicts. ``_gate_one`` tags those reasons with "gate_error:".
+        # Any gate-error is a hard stop unless explicitly overridden —
+        # masking call failures with mock fallback is what hid the
+        # 5-day silent gate failure after commit 411d288.
+        def _gate_errors(res) -> list[str]:
+            if res is None:
+                return []
+            return [
+                t for t, o in res.outcomes.items()
+                if (o.reason or "").startswith("gate_error:")
+            ]
+        gate_errors = _gate_errors(long_result) + _gate_errors(short_result)
+        if gate_errors:
+            logger.error(
+                "Sanity gate had %d API/transport ERRORS (not LLM "
+                "verdicts): %s",
+                len(gate_errors), ", ".join(sorted(set(gate_errors))),
+            )
+            outcomes_long = long_result.outcomes if long_result else {}
+            outcomes_short = (
+                short_result.outcomes if short_result else {}
+            )
+            for t in sorted(set(gate_errors)):
+                o = outcomes_long.get(t) or outcomes_short.get(t)
+                if o:
+                    logger.error("  %s: %s", t, o.reason)
+            if not args.override_sanity_errors:
+                raise SystemExit(
+                    "\nRefusing to trade — sanity gate had transport "
+                    "errors on the calls above. The previous behaviour "
+                    "(silently fall back to mock) hid a five-day broken "
+                    "gate. Diagnose the underlying call failure, or "
+                    "rerun with --override-sanity-errors (NOT "
+                    "recommended)."
+                )
+            logger.warning(
+                "Proceeding despite %d sanity-gate errors because "
+                "--override-sanity-errors was set.",
+                len(gate_errors),
             )
 
         kept_longs = set(long_result.kept)
@@ -647,6 +747,13 @@ def main() -> int:
 
     today = datetime.now(timezone.utc).date()
 
+    # Track flip-close COIDs so we can poll them for fill before submitting
+    # the corresponding flip-entry bracket. Without this, Alpaca rejects
+    # the entry with "bracket orders must be entry orders" if the close
+    # hasn't filled yet (real risk in live trading; paper is near-instant
+    # but still race-prone if the market is closed).
+    flip_close_coids: dict[str, str] = {}
+
     # Closes first (free up margin/cash for new opens).
     for s in sells:
         cs = s["current_shares"]
@@ -668,9 +775,46 @@ def main() -> int:
             submitted.append({"side": "close_" + s["side"], **res})
             print(f"  CLOSE {s['ticker']:>6s} {s['side']:>5s} {qty} sh -> "
                   f"order {res['order_id']} ({res['status']})")
+            if s["side"].startswith("flip_"):
+                flip_close_coids[s["ticker"]] = coid
         except Exception as e:  # noqa: BLE001
             failed.append({"ticker": s["ticker"], "side": "close", "error": str(e)})
             print(f"  FAIL CLOSE {s['ticker']:>6s}: {e}")
+
+    # Poll each flip-close to fill (or terminal-fail) before submitting
+    # the matching bracket entry. Terminal statuses other than 'filled'
+    # block the entry — we don't want to short a name we couldn't
+    # successfully close out of long first.
+    flip_close_status: dict[str, str] = {}
+    if flip_close_coids:
+        import time
+        terminal_bad = {"canceled", "expired", "replaced", "stopped",
+                        "done_for_day", "rejected", "suspended"}
+        deadline = time.monotonic() + 60.0  # 60s budget; paper fills <1s
+        remaining = dict(flip_close_coids)
+        print(f"\n  Polling {len(remaining)} flip close(s) for fill...")
+        while remaining and time.monotonic() < deadline:
+            for t in list(remaining):
+                coid = remaining[t]
+                order = client.get_order_by_coid(coid)
+                if order is None:
+                    continue
+                status = (order.get("status") or "").lower().replace(
+                    "orderstatus.", "",
+                )
+                if status == "filled":
+                    flip_close_status[t] = "filled"
+                    del remaining[t]
+                    print(f"    {t:>6s}  flip close FILLED")
+                elif any(bad in status for bad in terminal_bad):
+                    flip_close_status[t] = status
+                    del remaining[t]
+                    print(f"    {t:>6s}  flip close TERMINAL: {status}")
+            if remaining:
+                time.sleep(1.5)
+        for t in remaining:
+            flip_close_status[t] = "timeout"
+            print(f"    {t:>6s}  flip close TIMEOUT (60s) — entry will SKIP")
 
     # Then opens / resizes. Side-aware: long opens via submit_bracket_order
     # side=buy; short opens via submit_bracket_order side=sell with
@@ -690,6 +834,27 @@ def main() -> int:
         delta = b.get("delta_shares") or 0
         if delta == 0:
             continue
+        # Block the flip entry if its prior close didn't fill. Submitting
+        # a bracket against an unflattened position is what Alpaca
+        # rejected with "bracket orders must be entry orders" before this
+        # polling step was added.
+        if b.get("flip_from_shares"):
+            status = flip_close_status.get(b["ticker"])
+            if status != "filled":
+                failed.append({
+                    "ticker": b["ticker"], "side": b["side"],
+                    "error": (
+                        f"flip_close_not_filled ({status or 'unknown'}); "
+                        "refusing flip entry to avoid bracket-on-non-flat "
+                        "rejection"
+                    ),
+                })
+                print(
+                    f"  FAIL {b['side'].upper():>5s} {b['ticker']:>6s}: "
+                    f"flip close did not fill (status={status}); "
+                    f"refusing entry"
+                )
+                continue
         is_long = b["side"] == "long"
         opening = (is_long and delta > 0) or ((not is_long) and delta < 0)
         bracket = b.get("bracket")
