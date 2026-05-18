@@ -47,6 +47,11 @@ from src.factors.momentum import momentum_12_1
 from src.factors.quality import quality_factor
 from src.factors.regime import is_risk_on, trend_state_series
 from src.factors.value import value_factor
+from src.factors.vix_regime import (
+    DEFAULT_CUTOFF as VIX_DEFAULT_CUTOFF,
+    DEFAULT_WINDOW as VIX_DEFAULT_WINDOW,
+    vix_percentile_series,
+)
 from src.storage.snapshot import load_snapshot
 
 logger = logging.getLogger("run_factor_backtest")
@@ -67,6 +72,20 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-regime-filter", action="store_true",
                    help="Disable the SPY 200d-SMA trend filter (run "
                         "always-on momentum). Use only for ablation.")
+    p.add_argument("--vix-gate", action="store_true",
+                   help="Block new entries when VIX is in the top "
+                        "(1 - vix_cutoff) of its trailing 252d distribution. "
+                        "Motivated by the 2026-05-18 regime IC report: "
+                        "fundamental's IC degrades 3.5x in high_vix. Mutually "
+                        "compatible with --no-regime-filter — both can fire "
+                        "independently.")
+    p.add_argument("--vix-cutoff", type=float, default=VIX_DEFAULT_CUTOFF,
+                   help=f"VIX-percentile cutoff for --vix-gate "
+                        f"(default {VIX_DEFAULT_CUTOFF:.2f}). Block when the "
+                        "trailing percentile is at or above this.")
+    p.add_argument("--vix-window", type=int, default=VIX_DEFAULT_WINDOW,
+                   help=f"Rolling window for --vix-gate (default "
+                        f"{VIX_DEFAULT_WINDOW} trading days).")
     p.add_argument("--factor",
                    default="momentum",
                    choices=("momentum", "quality", "value", "composite"),
@@ -235,6 +254,25 @@ def run(args: argparse.Namespace) -> dict:
     # history so the 200-SMA is computable on day 1 of the window).
     trend_state = trend_state_series(spy)
 
+    # Optional VIX-percentile gate. Aligned to the SPY trading calendar
+    # because rebalance days are SPY-indexed; missing VIX dates ffill so
+    # weekend / holiday gaps don't accidentally gate-out a Monday.
+    vix_state: pd.Series | None = None
+    if args.vix_gate:
+        vix_df = snap.vix_df
+        if vix_df is None or vix_df.empty:
+            logger.warning(
+                "--vix-gate requested but snapshot has no VIX frame; "
+                "the gate will be inert (every day reads as calm)."
+            )
+        else:
+            pct_series = vix_percentile_series(vix_df, window=args.vix_window)
+            # Align to SPY trading calendar with ffill so trade days that
+            # land on a VIX-missing date inherit the prior reading.
+            vix_state = pct_series.reindex(
+                spy.index, method="ffill"
+            )
+
     cash = float(args.starting_cash)
     holdings: dict[str, int] = {}
     trades: list[dict] = []
@@ -257,8 +295,19 @@ def run(args: argparse.Namespace) -> dict:
             bool(trend_state.loc[d]) if d in trend_state.index else False
         )
 
-        # If regime is off-and-required, liquidate everything to cash.
-        if not args.no_regime_filter and not risk_on:
+        # VIX gate: block entries when the trailing VIX percentile is
+        # at-or-above cutoff. Independent of the trend filter — both can
+        # fire on the same day. Defaults to permissive when VIX data
+        # isn't loaded.
+        vix_blocked = False
+        if args.vix_gate and vix_state is not None:
+            pct = vix_state.loc[d] if d in vix_state.index else None
+            if pct is not None and not pd.isna(pct) and pct >= args.vix_cutoff:
+                vix_blocked = True
+
+        # If regime is off-and-required OR VIX gate blocks, liquidate
+        # everything to cash.
+        if (not args.no_regime_filter and not risk_on) or vix_blocked:
             for t, sh in list(holdings.items()):
                 px = _close_on(prices, t, d)
                 if px is None or sh == 0:
@@ -267,15 +316,17 @@ def run(args: argparse.Namespace) -> dict:
                 proceeds = sh * px
                 cost = abs(proceeds) * cost_rate
                 cash += proceeds - cost
+                side_tag = "sell_vix_gate" if vix_blocked else "sell_regime_off"
                 trades.append({
                     "date": d.date().isoformat(),
-                    "ticker": t, "side": "sell_regime_off",
+                    "ticker": t, "side": side_tag,
                     "shares": int(sh), "price": round(px, 4),
                     "cost": round(cost, 4),
                 })
                 holdings.pop(t)
             rebalance_log.append({
-                "date": d.date().isoformat(), "action": "risk_off",
+                "date": d.date().isoformat(),
+                "action": "vix_off" if vix_blocked else "risk_off",
                 "n_positions": 0,
             })
             continue

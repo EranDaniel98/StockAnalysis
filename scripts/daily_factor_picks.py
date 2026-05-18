@@ -58,6 +58,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--max-sector-pct", type=float, default=30.0,
                    help="Per-sector cap as %% of top_n (default 30). 100 or "
                         "negative disables the cap (legacy naive top-N).")
+    p.add_argument("--vix-gate", action="store_true",
+                   help="When today's VIX trailing 252d percentile is at or "
+                        "above --vix-cutoff, return an empty picks list "
+                        "(skip the rebalance). Motivated by the 2026-05-18 "
+                        "regime IC report showing fundamental IC degrades "
+                        "3.5x in high_vix. Off by default until backtest-"
+                        "validated.")
+    p.add_argument("--vix-cutoff", type=float, default=0.80,
+                   help="VIX-percentile cutoff for --vix-gate (default 0.80).")
+    p.add_argument("--vix-window", type=int, default=252,
+                   help="Rolling window for --vix-gate (default 252 td).")
     return p.parse_args()
 
 
@@ -143,6 +154,64 @@ def main() -> int:
         else pd.Timestamp.utcnow().normalize().tz_localize(None)
     )
     logger.info("As-of: %s | top_n: %d", as_of.date(), args.top_n)
+
+    # VIX gate (opt-in) — pulled BEFORE the heavy factor pipeline so we
+    # short-circuit the expensive EDGAR load when the gate blocks us.
+    if args.vix_gate:
+        from src.config_loader import Config
+        from src.data.cache import DataCache
+        from src.data.fetcher import DataFetcher
+        from src.factors.vix_regime import is_calm
+
+        config = Config()
+        cache = DataCache(
+            expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+            market_hours_expiry_minutes=config.get(
+                "data", "market_hours_cache_minutes", default=5,
+            ),
+        )
+        fetcher = DataFetcher(config, cache)
+        vix_data = fetcher.fetch_batch(["^VIX"]).get("^VIX")
+        if vix_data is None or vix_data.empty:
+            logger.warning(
+                "--vix-gate requested but no VIX data available; "
+                "treating today as calm and proceeding."
+            )
+        else:
+            # tz-normalize so as_of compares cleanly with the index.
+            if getattr(vix_data.index, "tz", None) is not None:
+                vix_data = vix_data.copy()
+                vix_data.index = vix_data.index.tz_localize(None)
+            calm = is_calm(
+                vix_data, as_of, window=args.vix_window,
+                cutoff=args.vix_cutoff,
+            )
+            if not calm:
+                logger.warning(
+                    "VIX gate BLOCKING as_of=%s (cutoff=%.2f); "
+                    "returning empty picks. Skip the rebalance.",
+                    as_of.date(), args.vix_cutoff,
+                )
+                # Emit empty picks so downstream tooling sees the gate
+                # explicitly rather than yesterday's stale file.
+                output_dir = Path(args.output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                out_json = output_dir / f"{as_of.date().isoformat()}.json"
+                out_json.write_text(json.dumps({
+                    "as_of": as_of.date().isoformat(),
+                    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "strategy": "composite_d05_r63",
+                    "factors": [],
+                    "universe_size": 0,
+                    "top_n": 0,
+                    "picks": [],
+                    "snapshot_id": args.snapshot_id,
+                    "sector_cap_skipped": [],
+                    "gate": {"vix_blocked": True,
+                              "vix_cutoff": args.vix_cutoff,
+                              "vix_window": args.vix_window},
+                }, indent=2, default=str), encoding="utf-8")
+                return 0
 
     max_sector_pct: float | None = args.max_sector_pct
     if max_sector_pct is not None and (max_sector_pct >= 100 or max_sector_pct <= 0):
