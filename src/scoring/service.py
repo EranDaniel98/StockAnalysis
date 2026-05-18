@@ -214,6 +214,300 @@ class ScoringService:
         )
 
 
+def _compute_sector_stats_if_enabled(config, fundamentals_map: dict[str, dict]):
+    """Per-sector quantile stats for within-sector valuation scoring.
+
+    Returns None when sector-relative scoring is disabled in config (the
+    fundamental analyzer falls back to absolute percentiles).
+    """
+    sector_cfg = (
+        config.get_sector_relative_scoring()
+        if hasattr(config, "get_sector_relative_scoring")
+        else {}
+    )
+    if not sector_cfg.get("enabled", False):
+        return None
+    return compute_sector_stats(
+        fundamentals_map,
+        min_cohort=int(sector_cfg.get("min_cohort", 5)),
+    )
+
+
+def _resolve_benchmark(
+    explicit: pd.DataFrame | None,
+    price_data_map: dict[str, pd.DataFrame],
+) -> pd.DataFrame | None:
+    """Prefer the explicit kwarg; fall back to SPY if the price map has it."""
+    if explicit is not None:
+        return explicit
+    return price_data_map.get("SPY")
+
+
+def _prepass_insider_flow(
+    config,
+    tickers: list[str],
+    as_of: date | None,
+) -> dict[str, dict[str, Any]]:
+    """Bulk-load Postgres insider rows + run the cluster analyzer + (optionally)
+    enrich with the nearest 8-K excerpt. Empty dict when feature is off or
+    when Postgres/pgvector is unreachable — insider flow is an additive
+    signal; the rest of the pipeline still produces output."""
+    cfg = (
+        config.get_insider_flow() if hasattr(config, "get_insider_flow") else {}
+    )
+    if not cfg.get("enabled", False):
+        return {}
+    from src.scoring.insider_narrative import compute_insider_flow_results_sync
+    try:
+        return compute_insider_flow_results_sync(
+            tickers,
+            as_of=as_of or date.today(),
+            lookback_days=int(cfg.get("lookback_days", 60)),
+            flow_params=InsiderFlowParams(
+                window_days=int(cfg.get("window_days", 30)),
+                min_cluster_insiders=int(cfg.get("min_cluster_insiders", 2)),
+            ),
+            enrich_narrative=bool(cfg.get("enrich_narrative", False)),
+        )
+    except Exception as e:
+        logger.warning("insider_flow pre-pass failed: %s", e)
+        return {}
+
+
+def _prepass_catalyst(
+    config,
+    tickers: list[str],
+    as_of: date | None,
+) -> dict[str, dict[str, Any]]:
+    """Catalyst analyzer pre-pass — bulk-load most recent narrative snapshots,
+    label catalysts above the similarity threshold. Default off (the
+    day-5 ML A/B only yielded +0.0053 Pearson IC)."""
+    cfg = (
+        config.get_catalyst() if hasattr(config, "get_catalyst") else {}
+    )
+    if not cfg.get("enabled", False):
+        return {}
+    from src.scoring.insider_narrative import compute_catalyst_results_sync
+    try:
+        return compute_catalyst_results_sync(
+            tickers,
+            as_of=as_of or date.today(),
+            max_age_days=int(cfg.get("max_age_days", 60)),
+            min_sim=float(cfg.get("min_sim", 0.30)),
+        )
+    except Exception as e:
+        logger.warning("catalyst pre-pass failed: %s", e)
+        return {}
+
+
+def _prepass_analyst_revisions(
+    analyst_revisions_data: dict[str, list] | None,
+    as_of: date | None,
+) -> dict[str, dict[str, Any]]:
+    """LIVE-ONLY analyzer pre-pass — caller supplies analyst revision rows
+    (typically from yfinance recommendations + upgrades_downgrades).
+    Backtest path doesn't call this (no historical free data).
+
+    Logs a WARN with the failure rate so a transient yfinance outage that
+    silently degrades the sub-score for many tickers is visible per-scan.
+    """
+    if not analyst_revisions_data:
+        return {}
+    from src.scoring.analyzers import analyst_revisions as _ar
+    ar_as_of = as_of or date.today()
+    out: dict[str, dict[str, Any]] = {}
+    failures = 0
+    for ticker, rows in analyst_revisions_data.items():
+        if not rows:
+            continue
+        try:
+            res = _ar.analyze(rows, as_of=ar_as_of)
+        except Exception as e:
+            logger.debug("analyst_revisions failed for %s: %s", ticker, e)
+            failures += 1
+            continue
+        if res is not None:
+            out[ticker.upper()] = res
+    if failures > 0:
+        n_attempted = sum(1 for r in analyst_revisions_data.values() if r)
+        logger.warning(
+            "analyst_revisions: %d / %d tickers failed (%.0f%%); "
+            "sub-score missing for those names",
+            failures, n_attempted,
+            100.0 * failures / max(1, n_attempted),
+        )
+    return out
+
+
+def _prepass_options_skew(
+    options_chains: dict[str, Any] | None,
+    price_data_map: dict[str, pd.DataFrame],
+) -> dict[str, dict[str, Any]]:
+    """LIVE-ONLY analyzer pre-pass — caller supplies option chains. Per-
+    ticker current_price is read from the latest close of the matching
+    price-data row. Skipped silently when chain or price is unavailable."""
+    if not options_chains:
+        return {}
+    from src.scoring.analyzers import options_skew as _os
+    out: dict[str, dict[str, Any]] = {}
+    failures = 0
+    for ticker, chain in options_chains.items():
+        df = price_data_map.get(ticker)
+        if df is None or df.empty or chain is None:
+            continue
+        try:
+            current_price = float(df["Close"].iloc[-1])
+            res = _os.analyze(chain, current_price=current_price)
+        except Exception as e:
+            logger.debug("options_skew failed for %s: %s", ticker, e)
+            failures += 1
+            continue
+        if res is not None:
+            out[ticker.upper()] = res
+    if failures > 0:
+        n_attempted = sum(
+            1 for t, c in options_chains.items()
+            if c is not None and price_data_map.get(t) is not None
+            and not price_data_map[t].empty
+        )
+        logger.warning(
+            "options_skew: %d / %d tickers failed (%.0f%%); "
+            "sub-score missing for those names",
+            failures, n_attempted,
+            100.0 * failures / max(1, n_attempted),
+        )
+    return out
+
+
+def _prepass_sector_flows(
+    sector_etfs: dict[str, pd.DataFrame] | None,
+    fundamentals_map: dict[str, dict],
+    as_of: date | None,
+) -> dict[str, dict[str, Any]]:
+    """Sector ETF momentum pre-pass. Caller passes the 11 SPDR sector ETFs;
+    each ticker's fundamentals.sector field maps to one ETF via SECTOR_TO_ETF.
+    Returns ticker -> sector_flows_score dict."""
+    if not sector_etfs:
+        return {}
+    from src.scoring.analyzers import sector_flows as _sf
+    from src.scoring.analyzers.sector_flows import SECTOR_TO_ETF as _SECTOR_TO_ETF
+    as_of_ts = pd.Timestamp(as_of) if as_of else pd.Timestamp.now().normalize()
+    out: dict[str, dict[str, Any]] = {}
+    failures = 0
+    attempted = 0
+    for ticker, fund in fundamentals_map.items():
+        sec = (fund.get("sector") or "").strip()
+        if not sec or sec not in _SECTOR_TO_ETF:
+            continue
+        etf_symbol = _SECTOR_TO_ETF[sec]
+        etf_df = sector_etfs.get(etf_symbol)
+        if etf_df is None or etf_df.empty:
+            continue
+        attempted += 1
+        try:
+            res = _sf.analyze(etf_df, as_of=as_of_ts, etf_symbol=etf_symbol)
+        except Exception as e:
+            logger.debug("sector_flows analyze failed for %s: %s", ticker, e)
+            failures += 1
+            continue
+        if res is not None:
+            out[ticker.upper()] = res
+    if failures > 0:
+        logger.warning(
+            "sector_flows: %d / %d tickers failed (%.0f%%); "
+            "sub-score missing for those names",
+            failures, attempted,
+            100.0 * failures / max(1, attempted),
+        )
+    return out
+
+
+def _build_analyzer_error_result(error_msg: str) -> dict[str, Any]:
+    """Sentinel analyzer-result dict for a ticker whose analyzer chain
+    crashed. Every REQUIRED analyzer is marked as error so the composite
+    engine sets score_valid=False, the recommender forces HOLD/Low, and
+    the FE renders a Data-Quality warning instead of a 404."""
+    return {
+        "technical": {"score": None, "error": error_msg},
+        "alpha158": None,
+        "fundamental": {"score": None, "error": error_msg},
+        "pattern": {"score": None, "error": error_msg},
+        "statistical": {"score": None, "error": error_msg},
+        "trend": {"score": None, "error": error_msg},
+    }
+
+
+def _analyze_one_ticker(
+    ticker: str,
+    df: pd.DataFrame,
+    fund: dict[str, Any],
+    config,
+    *,
+    sector_stats,
+    bench_df: pd.DataFrame | None,
+    insider_results: dict[str, dict[str, Any]],
+    catalyst_results: dict[str, dict[str, Any]],
+    sector_flows_results: dict[str, dict[str, Any]],
+    analyst_revisions_results: dict[str, dict[str, Any]],
+    options_skew_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Run every per-ticker analyzer + stitch in the bulk pre-pass results.
+
+    Pre-pass results (insider/catalyst/sector_flows/analyst_revisions/
+    options_skew) are looked up by ticker, not re-computed.
+    """
+    upper = ticker.upper()
+    return {
+        "technical": technical.analyze(df, config),
+        "alpha158": alpha158.analyze(df, config),
+        "fundamental": fundamental.analyze(
+            fund, config, sector_stats=sector_stats,
+        ),
+        "pattern": patterns.analyze(df, config),
+        "statistical": statistical.analyze(df, config),
+        "trend": analyze_stock_trend(df, fund, config),
+        "rel_strength": (
+            relative_strength.analyze(df, bench_df, config)
+            if bench_df is not None else None
+        ),
+        "insider_flow": insider_results.get(upper),
+        "catalyst": catalyst_results.get(upper),
+        "sector_flows": sector_flows_results.get(upper),
+        "analyst_revisions": analyst_revisions_results.get(upper),
+        "options_skew": options_skew_results.get(upper),
+    }
+
+
+def _score_and_recommend(
+    analysis_results: dict[str, dict[str, Any]],
+    price_data_map: dict[str, pd.DataFrame],
+    fundamentals_map: dict[str, dict],
+    config,
+    strategy: dict,
+    *,
+    emit: AnalyzeEventCallback,
+) -> list[dict[str, Any]]:
+    """Composite-score the analysis results, then run the recommender on
+    each scored ticker. Emits ``score_start`` and ``recommend_start``
+    pipeline events for the SSE progress endpoint."""
+    emit({"stage": "score_start", "n_analyzed": len(analysis_results)})
+    scored = batch_score(analysis_results, strategy)
+
+    emit({"stage": "recommend_start", "n_scored": len(scored)})
+    recommendations: list[dict[str, Any]] = []
+    for ticker, score_result in scored:
+        rec = generate_recommendation(
+            ticker,
+            score_result,
+            price_data_map.get(ticker),
+            fundamentals_map.get(ticker),
+            config,
+            strategy=strategy,
+        )
+        recommendations.append(rec)
+    return recommendations
+
+
 def analyze_and_score(
     price_data_map: dict[str, pd.DataFrame],
     fundamentals_map: dict[str, dict],
@@ -248,248 +542,51 @@ def analyze_and_score(
     """
     emit = on_event or (lambda _event: None)
 
-    # Pre-compute per-sector quantile stats once for the whole batch
-    # so each fundamental.analyze call can score valuation metrics on
-    # within-sector percentile when the cohort is large enough.
-    sector_cfg = config.get_sector_relative_scoring() if hasattr(config, "get_sector_relative_scoring") else {}
-    sector_stats = None
-    if sector_cfg.get("enabled", False):
-        sector_stats = compute_sector_stats(
-            fundamentals_map,
-            min_cohort=int(sector_cfg.get("min_cohort", 5)),
-        )
+    sector_stats = _compute_sector_stats_if_enabled(config, fundamentals_map)
+    bench_df = _resolve_benchmark(benchmark_df, price_data_map)
 
-    # Relative-strength benchmark: prefer the explicit arg, fall back
-    # to SPY in the price_data_map if the caller happened to fetch it.
-    bench_df = benchmark_df
-    if bench_df is None:
-        bench_df = price_data_map.get("SPY")
-
-    # Insider-flow pre-pass: if enabled, bulk-load Postgres rows + run
-    # the cluster analyzer + optionally enrich with the nearest 8-K
-    # excerpt from filings_corpus. Done once for the whole universe
-    # before the per-ticker analyzer loop so each ticker just looks up
-    # its result. Empty dict when the feature is off (default) — the
-    # composite engine treats absent insider_flow_result as "no
-    # sub-score," same as alpha158/PEAD/rel_strength.
-    flow_cfg = config.get_insider_flow() if hasattr(config, "get_insider_flow") else {}
-    insider_results: dict[str, dict[str, Any]] = {}
-    if flow_cfg.get("enabled", False):
-        from src.scoring.insider_narrative import compute_insider_flow_results_sync
-        try:
-            insider_results = compute_insider_flow_results_sync(
-                list(price_data_map.keys()),
-                as_of=as_of or date.today(),
-                lookback_days=int(flow_cfg.get("lookback_days", 60)),
-                flow_params=InsiderFlowParams(
-                    window_days=int(flow_cfg.get("window_days", 30)),
-                    min_cluster_insiders=int(flow_cfg.get("min_cluster_insiders", 2)),
-                ),
-                enrich_narrative=bool(flow_cfg.get("enrich_narrative", False)),
-            )
-        except Exception as e:
-            # Don't fail the whole scan if Postgres/pgvector is offline.
-            # Insider flow is an additive signal; the rest of the
-            # pipeline should still produce output.
-            logger.warning("insider_flow pre-pass failed: %s", e)
-            insider_results = {}
-
-    # Catalyst pre-pass: bulk-load the most recent narrative snapshot
-    # per ticker and run the catalyst analyzer. Same opt-in posture as
-    # insider_flow — default off (the day-5 ML A/B only yielded
-    # +0.0053 Pearson IC). When enabled, the analyzer's signal is the
-    # human-readable catalyst label that the recommender can carry into
-    # its rationale.
-    catalyst_cfg = (
-        config.get_catalyst() if hasattr(config, "get_catalyst") else {}
+    universe = list(price_data_map.keys())
+    insider_results = _prepass_insider_flow(config, universe, as_of)
+    catalyst_results = _prepass_catalyst(config, universe, as_of)
+    analyst_revisions_results = _prepass_analyst_revisions(
+        analyst_revisions_data, as_of,
     )
-    catalyst_results: dict[str, dict[str, Any]] = {}
-    if catalyst_cfg.get("enabled", False):
-        from src.scoring.insider_narrative import compute_catalyst_results_sync
-        try:
-            catalyst_results = compute_catalyst_results_sync(
-                list(price_data_map.keys()),
-                as_of=as_of or date.today(),
-                max_age_days=int(catalyst_cfg.get("max_age_days", 60)),
-                min_sim=float(catalyst_cfg.get("min_sim", 0.30)),
-            )
-        except Exception as e:
-            logger.warning("catalyst pre-pass failed: %s", e)
-            catalyst_results = {}
-
-    # analyst_revisions pre-pass: LIVE-ONLY analyzer. Caller supplies
-    # dict[ticker, list[RevisionRow]] (typically from yfinance
-    # recommendations + upgrades_downgrades). When absent, analyzer
-    # doesn't fire — same opt-in posture as the other ancillaries.
-    # Backtest engine intentionally does NOT call this analyzer because
-    # historical analyst revisions aren't available without paid feeds.
-    analyst_revisions_results: dict[str, dict[str, Any]] = {}
-    if analyst_revisions_data:
-        from src.scoring.analyzers import analyst_revisions as _ar
-        ar_as_of = as_of or date.today()
-        ar_failures = 0
-        for ticker, rows in analyst_revisions_data.items():
-            if not rows:
-                continue
-            try:
-                res = _ar.analyze(rows, as_of=ar_as_of)
-            except Exception as e:
-                logger.debug("analyst_revisions failed for %s: %s", ticker, e)
-                ar_failures += 1
-                continue
-            if res is not None:
-                analyst_revisions_results[ticker.upper()] = res
-        # Batch-level visibility: a transient yfinance outage degrades the
-        # sub-score for many tickers silently if we only debug-log per
-        # ticker. Surface the rate so the operator can spot it in scan logs.
-        if ar_failures > 0:
-            n_attempted = sum(1 for r in analyst_revisions_data.values() if r)
-            logger.warning(
-                "analyst_revisions: %d / %d tickers failed (%.0f%%); "
-                "sub-score missing for those names",
-                ar_failures, n_attempted,
-                100.0 * ar_failures / max(1, n_attempted),
-            )
-
-    # options_skew pre-pass: LIVE-ONLY analyzer. Caller supplies
-    # dict[ticker, OptionsChain] (from yfinance Ticker.option_chain).
-    # Per-ticker current_price is read from the latest close of the
-    # corresponding price_data row. Skipped silently when chain or
-    # price is unavailable.
-    options_skew_results: dict[str, dict[str, Any]] = {}
-    if options_chains:
-        from src.scoring.analyzers import options_skew as _os
-        os_failures = 0
-        for ticker, chain in options_chains.items():
-            df = price_data_map.get(ticker)
-            if df is None or df.empty or chain is None:
-                continue
-            try:
-                current_price = float(df["Close"].iloc[-1])
-                res = _os.analyze(chain, current_price=current_price)
-            except Exception as e:
-                logger.debug("options_skew failed for %s: %s", ticker, e)
-                os_failures += 1
-                continue
-            if res is not None:
-                options_skew_results[ticker.upper()] = res
-        if os_failures > 0:
-            n_attempted = sum(
-                1 for t, c in options_chains.items()
-                if c is not None and price_data_map.get(t) is not None
-                and not price_data_map[t].empty
-            )
-            logger.warning(
-                "options_skew: %d / %d tickers failed (%.0f%%); "
-                "sub-score missing for those names",
-                os_failures, n_attempted,
-                100.0 * os_failures / max(1, n_attempted),
-            )
-
-    # Sector-flows pre-pass: caller can pass sector_etfs explicitly (live
-    # scan path fetches the 11 SPDR sector ETFs once per run and threads
-    # them in via the kwarg). When absent, sector_flows simply doesn't
-    # fire — same opt-in posture as the other ancillary analyzers.
-    sector_flows_results: dict[str, dict[str, Any]] = {}
-    if sector_etfs:
-        from src.scoring.analyzers import sector_flows as _sf
-        from src.scoring.analyzers.sector_flows import SECTOR_TO_ETF as _SECTOR_TO_ETF
-        as_of_ts = pd.Timestamp(as_of) if as_of else pd.Timestamp.now().normalize()
-        sf_failures = 0
-        sf_attempted = 0
-        for ticker, fund in fundamentals_map.items():
-            sec = (fund.get("sector") or "").strip()
-            if not sec or sec not in _SECTOR_TO_ETF:
-                continue
-            etf_symbol = _SECTOR_TO_ETF[sec]
-            etf_df = sector_etfs.get(etf_symbol)
-            if etf_df is None or etf_df.empty:
-                continue
-            sf_attempted += 1
-            try:
-                res = _sf.analyze(etf_df, as_of=as_of_ts, etf_symbol=etf_symbol)
-            except Exception as e:
-                logger.debug("sector_flows analyze failed for %s: %s", ticker, e)
-                sf_failures += 1
-                continue
-            if res is not None:
-                sector_flows_results[ticker.upper()] = res
-        if sf_failures > 0:
-            logger.warning(
-                "sector_flows: %d / %d tickers failed (%.0f%%); "
-                "sub-score missing for those names",
-                sf_failures, sf_attempted,
-                100.0 * sf_failures / max(1, sf_attempted),
-            )
+    options_skew_results = _prepass_options_skew(
+        options_chains, price_data_map,
+    )
+    sector_flows_results = _prepass_sector_flows(
+        sector_etfs, fundamentals_map, as_of,
+    )
 
     analysis_results: dict[str, dict[str, Any]] = {}
     total = len(price_data_map)
-
     for i, (ticker, df) in enumerate(price_data_map.items(), 1):
         emit({"stage": "analyze_ticker_start", "ticker": ticker, "i": i, "n": total})
         fund = fundamentals_map.get(ticker, {})
-
         try:
-            analysis_results[ticker] = {
-                "technical": technical.analyze(df, config),
-                "alpha158": alpha158.analyze(df, config),
-                "fundamental": fundamental.analyze(fund, config, sector_stats=sector_stats),
-                "pattern": patterns.analyze(df, config),
-                "statistical": statistical.analyze(df, config),
-                "trend": analyze_stock_trend(df, fund, config),
-                "rel_strength": (
-                    relative_strength.analyze(df, bench_df, config)
-                    if bench_df is not None else None
-                ),
-                "insider_flow": insider_results.get(ticker.upper()),
-                "catalyst": catalyst_results.get(ticker.upper()),
-                "sector_flows": sector_flows_results.get(ticker.upper()),
-                "analyst_revisions": analyst_revisions_results.get(ticker.upper()),
-                "options_skew": options_skew_results.get(ticker.upper()),
-            }
-            emit(
-                {"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total}
+            analysis_results[ticker] = _analyze_one_ticker(
+                ticker, df, fund, config,
+                sector_stats=sector_stats,
+                bench_df=bench_df,
+                insider_results=insider_results,
+                catalyst_results=catalyst_results,
+                sector_flows_results=sector_flows_results,
+                analyst_revisions_results=analyst_revisions_results,
+                options_skew_results=options_skew_results,
             )
+            emit({"stage": "analyze_ticker_done", "ticker": ticker, "i": i, "n": total})
         except Exception as e:
-            # Don't drop the ticker silently — that turns into a
-            # confusing 404 at the API. Emit a sentinel result with
-            # every required analyzer marked as error so the engine
-            # produces score_valid=False, the recommender forces
-            # HOLD/Low, and the FE renders a Data-Quality warning
-            # instead of "no data found".
             logger.error("Error analyzing %s: %s", ticker, e)
-            analysis_results[ticker] = {
-                "technical": {"score": None, "error": f"analyzer crashed: {e}"},
-                "alpha158": None,
-                "fundamental": {"score": None, "error": f"analyzer crashed: {e}"},
-                "pattern": {"score": None, "error": f"analyzer crashed: {e}"},
-                "statistical": {"score": None, "error": f"analyzer crashed: {e}"},
-                "trend": {"score": None, "error": f"analyzer crashed: {e}"},
-            }
-            emit(
-                {
-                    "stage": "analyze_ticker_failed",
-                    "ticker": ticker,
-                    "i": i,
-                    "n": total,
-                    "error": str(e),
-                }
+            analysis_results[ticker] = _build_analyzer_error_result(
+                f"analyzer crashed: {e}"
             )
+            emit({
+                "stage": "analyze_ticker_failed",
+                "ticker": ticker, "i": i, "n": total,
+                "error": str(e),
+            })
 
-    emit({"stage": "score_start", "n_analyzed": len(analysis_results)})
-    scored = batch_score(analysis_results, strategy)
-
-    emit({"stage": "recommend_start", "n_scored": len(scored)})
-    recommendations: list[dict[str, Any]] = []
-    for ticker, score_result in scored:
-        rec = generate_recommendation(
-            ticker,
-            score_result,
-            price_data_map.get(ticker),
-            fundamentals_map.get(ticker),
-            config,
-            strategy=strategy,
-        )
-        recommendations.append(rec)
-
-    return recommendations
+    return _score_and_recommend(
+        analysis_results, price_data_map, fundamentals_map,
+        config, strategy, emit=emit,
+    )
