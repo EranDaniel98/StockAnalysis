@@ -123,6 +123,21 @@ def _parse_args() -> argparse.Namespace:
                    help="Per-ticker earnings parquet cache for PEAD.")
     p.add_argument("--pead-drift-window", type=int, default=60,
                    help="PEAD drift envelope in calendar days (default 60).")
+    p.add_argument("--long-short", action="store_true",
+                   help="Run the strategy as long-short: top decile by "
+                        "composite (longs) PLUS bottom decile (shorts), "
+                        "half-capital each. Net exposure ~0; gross ~1x. "
+                        "Authorized by user 2026-05-18. Backtest only; "
+                        "live execution NOT wired (margin/locate/borrow on "
+                        "Alpaca is a separate project).")
+    p.add_argument("--short-decile", type=float, default=None,
+                   help="Bottom-decile size for shorts. Defaults to "
+                        "--top-decile so longs and shorts have equal count.")
+    p.add_argument("--borrow-bps", type=float, default=50.0,
+                   help="Annualized borrow cost in bps charged on short "
+                        "notional (default 50 = 0.5%%/yr, typical for liquid "
+                        "SP500 names). Hard-to-borrow names cost much more "
+                        "in reality; raise this for stress scenarios.")
     p.add_argument("--factor",
                    default="momentum",
                    choices=("momentum", "quality", "value", "composite"),
@@ -389,14 +404,56 @@ def run(args: argparse.Namespace) -> dict:
     trades: list[dict] = []
     equity_history: list[tuple[str, float]] = []
     rebalance_log: list[dict] = []
+    exposure_history: list[dict] = []
 
     cost_rate = args.cost_bps / 10_000.0
     rebal_every = max(1, int(args.rebalance_days))
+    # Annual borrow rate → per-trading-day fraction. 252 td/year is the
+    # convention; calendar-day basis would be 365 and a touch cheaper.
+    borrow_per_day = (args.borrow_bps / 10_000.0) / 252.0
+    short_decile = (
+        args.short_decile if args.short_decile is not None else args.top_decile
+    )
 
     # Step through every trading day.
+    prev_day: pd.Timestamp | None = None
     for i, d in enumerate(calendar):
+        # Daily borrow charge on short notional. Applied BEFORE the
+        # mark-to-market so the equity series reflects realized cost.
+        if args.long_short and prev_day is not None:
+            short_notional = 0.0
+            for t, sh in holdings.items():
+                if sh >= 0:
+                    continue
+                px = _close_on(prices, t, d)
+                if px is not None:
+                    short_notional += abs(sh) * px
+            if short_notional > 0:
+                cash -= short_notional * borrow_per_day
+        prev_day = d
+
         eq = _mark_to_market(holdings, cash, prices, d)
         equity_history.append((d.date().isoformat(), eq))
+
+        # Track gross + net exposure for diagnostics.
+        if args.long_short:
+            gross_long = 0.0
+            gross_short = 0.0
+            for t, sh in holdings.items():
+                px = _close_on(prices, t, d)
+                if px is None:
+                    continue
+                if sh > 0:
+                    gross_long += sh * px
+                else:
+                    gross_short += abs(sh) * px
+            exposure_history.append({
+                "date": d.date().isoformat(),
+                "gross_long": round(gross_long, 2),
+                "gross_short": round(gross_short, 2),
+                "net": round(gross_long - gross_short, 2),
+                "cash": round(cash, 2),
+            })
 
         # Rebalance on day 0 and every rebal_every days thereafter.
         if i % rebal_every != 0:
@@ -456,22 +513,41 @@ def run(args: argparse.Namespace) -> dict:
         )
         if ranking.empty:
             continue
-        n_pick = max(1, int(round(len(ranking) * args.top_decile)))
-        top = ranking.iloc[:n_pick]
-        target_list = top["ticker"].tolist()
+        n_long = max(1, int(round(len(ranking) * args.top_decile)))
+        long_target = ranking.iloc[:n_long]["ticker"].tolist()
         # Optional post-composite low-vol filter: drop the top-vol
         # names from the picks. Computed on the full snapshot universe
         # so a factor-skewed top decile doesn't shift the vol cutoff.
         if 0 < args.low_vol_keep_pct < 1.0:
-            kept = low_vol_filter(
-                prices, target_list, d,
+            long_target = low_vol_filter(
+                prices, long_target, d,
                 window=args.low_vol_window,
                 keep_pct=args.low_vol_keep_pct,
             )
-            target_list = kept
-        target_set = set(target_list)
+        long_set = set(long_target)
 
-        # Sell names not in target.
+        short_set: set[str] = set()
+        if args.long_short:
+            n_short = max(1, int(round(len(ranking) * short_decile)))
+            # Bottom-N by rank (highest rank numbers = worst composite).
+            short_target = ranking.iloc[-n_short:]["ticker"].tolist()
+            # Apply the same low-vol filter to shorts so we don't accumulate
+            # the worst-of-vol on the short side either.
+            if 0 < args.low_vol_keep_pct < 1.0:
+                short_target = low_vol_filter(
+                    prices, short_target, d,
+                    window=args.low_vol_window,
+                    keep_pct=args.low_vol_keep_pct,
+                )
+            short_set = set(short_target)
+            # A ticker that ranks in both decile sets (shouldn't happen
+            # for d05_r63 on a 480-name universe, but defensive) is
+            # treated as a long. Shorts should never overlap with longs.
+            short_set -= long_set
+
+        target_set = long_set | short_set
+
+        # Sell names not in either target set (close out positions).
         for t in list(holdings.keys()):
             if t in target_set:
                 continue
@@ -479,24 +555,36 @@ def run(args: argparse.Namespace) -> dict:
             px = _close_on(prices, t, d)
             if px is None or sh == 0:
                 continue
-            proceeds = sh * px
+            proceeds = sh * px  # negative shares produce negative proceeds
             cost = abs(proceeds) * cost_rate
             cash += proceeds - cost
             trades.append({
                 "date": d.date().isoformat(), "ticker": t,
-                "side": "sell_rebalance", "shares": int(sh),
-                "price": round(px, 4), "cost": round(cost, 4),
+                "side": "close_rebalance",
+                "shares": int(sh), "price": round(px, 4),
+                "cost": round(cost, 4),
             })
 
-        # Equal-weight allocation across target set.
+        # Sizing: equal-weight within each side. Long-short splits
+        # equity in half; long-only puts it all on the long side.
         current_eq = _mark_to_market(holdings, cash, prices, d)
-        per_position = current_eq / max(1, len(target_set))
+        long_capital = (
+            current_eq * 0.5 if args.long_short else current_eq
+        )
+        short_capital = current_eq * 0.5 if args.long_short else 0.0
+        per_long = (
+            long_capital / max(1, len(long_set)) if long_set else 0.0
+        )
+        per_short = (
+            short_capital / max(1, len(short_set)) if short_set else 0.0
+        )
 
-        for t in target_set:
+        # Resize longs.
+        for t in long_set:
             px = _close_on(prices, t, d)
             if px is None or px <= 0:
                 continue
-            target_shares = int(per_position // px)
+            target_shares = int(per_long // px)
             current_shares = holdings.get(t, 0)
             delta = target_shares - current_shares
             if delta == 0:
@@ -515,10 +603,36 @@ def run(args: argparse.Namespace) -> dict:
                 "cost": round(cost, 4),
             })
 
+        # Resize shorts (negative target_shares).
+        for t in short_set:
+            px = _close_on(prices, t, d)
+            if px is None or px <= 0:
+                continue
+            target_shares = -int(per_short // px)  # negative = short
+            current_shares = holdings.get(t, 0)
+            delta = target_shares - current_shares
+            if delta == 0:
+                continue
+            notional = abs(delta) * px
+            cost = notional * cost_rate
+            cash -= delta * px  # negative delta on a short ADDs cash (short sale)
+            cash -= cost
+            holdings[t] = current_shares + delta
+            if holdings[t] == 0:
+                del holdings[t]
+            trades.append({
+                "date": d.date().isoformat(), "ticker": t,
+                "side": "short" if delta < 0 else "cover",
+                "shares": int(abs(delta)), "price": round(px, 4),
+                "cost": round(cost, 4),
+            })
+
         rebalance_log.append({
             "date": d.date().isoformat(),
             "action": "rebalance",
             "n_positions": len(holdings),
+            "n_long": sum(1 for v in holdings.values() if v > 0),
+            "n_short": sum(1 for v in holdings.values() if v < 0),
             "regime": regime_label,
         })
 
@@ -582,6 +696,8 @@ def run(args: argparse.Namespace) -> dict:
         "trades_sample": trades[:200],
         "rebalance_log": rebalance_log,
         "equity_curve": equity_history,
+        "long_short_enabled": bool(args.long_short),
+        "exposure_history_sample": exposure_history[::21] if exposure_history else [],
     }
     return out
 
