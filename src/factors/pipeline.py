@@ -156,6 +156,7 @@ def run_factor_picks(
     hysteresis_bonus: float = 0.0,
     previous_longs: Optional[list[str]] = None,
     previous_shorts: Optional[list[str]] = None,
+    sector_neutral_quality: bool = True,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -225,13 +226,27 @@ def run_factor_picks(
         100.0 * n_covered / max(1, len(universe)),
     )
 
+    # Sectors: pulled once for the universe up front. yfinance cache
+    # serves repeat reads; only first run pays the network. Needed by
+    # sector-neutral quality (computed before the composite blend) AND
+    # by the sector cap selector (post-composite).
+    universe_sectors = get_sectors(universe) if sector_neutral_quality else {}
+
     mom = momentum_12_1(prices, as_of)
     qual = quality_factor(loader, universe, as_of)
+    if sector_neutral_quality and not qual.empty:
+        from src.factors.sector_neutralize import sector_neutralize
+        qual = sector_neutralize(qual, universe_sectors)
+        logger.info(
+            "Sector-neutralized quality: ranks computed WITHIN sector"
+        )
     val = value_factor(loader, prices, universe, as_of)
 
     factor_frames = [mom, qual, val]
     pead = pd.DataFrame()
     factors_used = ["momentum", "quality", "value"]
+    if sector_neutral_quality:
+        factors_used.append("sector_neutral")
     if include_pead:
         logger.info("Loading earnings histories for PEAD (--include-pead)...")
         earnings = load_earnings_histories(universe, earnings_cache_dir)
@@ -295,7 +310,9 @@ def run_factor_picks(
     # analyzer pipeline reads from; we cache to disk to amortize the
     # cost across runs.
     composite_tickers = composite["ticker"].tolist()
-    yf_sectors = get_sectors(composite_tickers)
+    # Reuse the universe-wide map fetched earlier when available;
+    # otherwise pull just the composite tickers.
+    yf_sectors = universe_sectors or get_sectors(composite_tickers)
     sectors: dict[str, str] = {}
     for t in composite_tickers:
         sector = yf_sectors.get(t)

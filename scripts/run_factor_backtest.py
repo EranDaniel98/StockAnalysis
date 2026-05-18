@@ -150,6 +150,14 @@ def _parse_args() -> argparse.Namespace:
                         "'mqv' is the full three-factor blend. Used by "
                         "ablation runs (which factor is the loser in a "
                         "given window).")
+    p.add_argument("--sector-neutral-quality", action="store_true",
+                   help="Rank quality WITHIN sector instead of "
+                        "cross-sectional. Picks the best names INSIDE "
+                        "each sector instead of overweighting whichever "
+                        "sectors happen to have the highest absolute "
+                        "quality scores. Motivated by the 2026-05-18 "
+                        "ablation: quality cross-sectional picks defensive "
+                        "sectors that get killed in rotation regimes.")
     p.add_argument("--momentum-flavor",
                    default="raw",
                    choices=("raw", "residual"),
@@ -225,6 +233,8 @@ def _resolve_ranking(
     spy_df: pd.DataFrame | None = None,
     momentum_flavor: str = "raw",
     composite_factors: str = "mqv",
+    sector_neutral_quality: bool = False,
+    sectors: dict[str, str] | None = None,
     include_insider: bool = False,
     insider_window_days: int = 90,
     insider_min_cluster: int = 2,
@@ -267,6 +277,14 @@ def _resolve_ranking(
         m = _mom(prices, as_of) if wants_m else pd.DataFrame()
         q = quality_factor(fund_loader, universe_tickers, as_of) if wants_q else pd.DataFrame()
         v = value_factor(fund_loader, prices, universe_tickers, as_of) if wants_v else pd.DataFrame()
+        if sector_neutral_quality and wants_q and not q.empty:
+            from src.factors.sector_neutralize import sector_neutralize
+            if not sectors:
+                raise ValueError(
+                    "sector_neutral_quality=True requires a non-empty "
+                    "sectors map; pass via the backtest harness."
+                )
+            q = sector_neutralize(q, sectors)
         weights_all, regime = weights_for(
             regime_profile, as_of=as_of, vix_df=vix_df,
         )
@@ -422,6 +440,23 @@ def run(args: argparse.Namespace) -> dict:
             100.0 * n_covered / max(1, len(universe_tickers)),
         )
 
+    # Sectors: needed when --sector-neutral-quality is on. yfinance
+    # cache is shared with daily_factor_picks, so this is a hot read
+    # after the first fetch.
+    sectors: dict[str, str] = {}
+    if args.sector_neutral_quality and args.factor == "composite":
+        from src.data.sector_cache import get_sectors
+        logger.info(
+            "Loading sectors (yfinance cache) for sector-neutral quality..."
+        )
+        sectors = get_sectors(universe_tickers)
+        n_sector = sum(1 for s in sectors.values() if s)
+        logger.info(
+            "Sector classification: %d/%d names (%.1f%%)",
+            n_sector, len(universe_tickers),
+            100.0 * n_sector / max(1, len(universe_tickers)),
+        )
+
     window_start = pd.Timestamp(snap.manifest.window_start)
     window_end = pd.Timestamp(snap.manifest.window_end)
 
@@ -559,6 +594,8 @@ def run(args: argparse.Namespace) -> dict:
             args.factor, prices, fund_loader, d, universe_tickers,
             regime_profile=args.regime_weights,
             composite_factors=args.composite_factors,
+            sector_neutral_quality=args.sector_neutral_quality,
+            sectors=sectors,
             vix_df=snap.vix_df if args.regime_weights != "equal" else None,
             spy_df=spy,
             momentum_flavor=args.momentum_flavor,

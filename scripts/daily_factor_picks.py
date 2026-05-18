@@ -90,6 +90,14 @@ def _parse_args() -> argparse.Namespace:
                         "stress-window DD improves -15.41%% -> -8.24%%. "
                         "Picks from yesterday's `--output-dir` are loaded "
                         "automatically.")
+    p.add_argument("--sector-neutral-quality",
+                   action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Rank quality WITHIN sector instead of "
+                        "cross-sectional. On by default since 2026-05-18; "
+                        "validated +4.93pp avg α cross-window stacked with "
+                        "hysteresis. Pass --no-sector-neutral-quality to "
+                        "revert to cross-sectional quality.")
     return p.parse_args()
 
 
@@ -294,6 +302,7 @@ def main() -> int:
         hysteresis_bonus=args.hysteresis_bonus,
         previous_longs=prev_longs,
         previous_shorts=prev_shorts,
+        sector_neutral_quality=args.sector_neutral_quality,
     )
     if result.composite.empty:
         return 2
