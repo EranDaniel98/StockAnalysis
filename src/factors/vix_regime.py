@@ -34,6 +34,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_WINDOW = 252  # trading days = 1 year of history
 DEFAULT_CUTOFF = 0.80  # block when VIX is in the top 20% of the window
 
+# Absolute-VIX gate defaults. The percentile gate above self-normalizes
+# (a year of sustained 25-35 VIX reads as median); these knobs trade
+# normalization for an absolute level + smoothing window. Threshold 28
+# on a 21-day rolling mean catches deep stress (e.g., May 2022, VIX
+# 21d-MA peaked at 28.3) while ignoring transient spikes (Aug 2024
+# Japan-carry blew raw VIX to 52 for two days but the 21d-MA never
+# exceeded 19.4 by the next rebalance date). See the 2026-05-18
+# regime-gating battery for the calibration table.
+DEFAULT_ABSOLUTE_THRESHOLD = 28.0
+DEFAULT_SMOOTHING_WINDOW = 21
+
 
 def vix_percentile_series(
     vix_df: pd.DataFrame | pd.Series,
@@ -98,9 +109,75 @@ def is_calm(
     return calm
 
 
+def vix_smoothed_series(
+    vix_df: pd.DataFrame | pd.Series,
+    *,
+    window: int = DEFAULT_SMOOTHING_WINDOW,
+) -> pd.Series:
+    """Rolling-mean of VIX close. Lower-pass filter so the gate reads
+    SUSTAINED elevation, not single-day spikes.
+
+    Designed for absolute-threshold use: the raw VIX hit 52 on
+    2024-08-05 (Japan-carry unwind) but the 21d-MA peaked at 19.4 days
+    later -- so a 28-threshold gate doesn't fire on transient panic.
+    """
+    if isinstance(vix_df, pd.DataFrame):
+        if "Close" not in vix_df.columns:
+            raise ValueError("vix_df needs a 'Close' column")
+        close = vix_df["Close"].astype(float)
+    else:
+        close = vix_df.astype(float)
+    if close.empty:
+        return pd.Series(dtype="float64")
+    return close.rolling(window=window, min_periods=window).mean()
+
+
+def is_stress_absolute(
+    vix_df: pd.DataFrame | pd.Series,
+    as_of: pd.Timestamp | str,
+    *,
+    threshold: float = DEFAULT_ABSOLUTE_THRESHOLD,
+    window: int = DEFAULT_SMOOTHING_WINDOW,
+) -> bool:
+    """True iff the smoothed VIX at-or-before ``as_of`` is >= threshold.
+
+    Complement to ``is_calm``: that one normalizes against a trailing
+    year (so sustained 2022 stress reads as median); this one uses an
+    absolute level (so 2022 actually fires). Smoothing the input is
+    what protects against single-day false positives.
+
+    Returns False (permissive default) when smoothing hasn't warmed up
+    yet OR no VIX data is present -- same default-to-calm semantic as
+    ``is_calm``, so a missing data feed never gates the strategy out
+    by mistake.
+    """
+    as_of_ts = pd.Timestamp(as_of)
+    series = vix_smoothed_series(vix_df, window=window)
+    eligible = series[series.index <= as_of_ts].dropna()
+    if eligible.empty:
+        logger.warning(
+            "is_stress_absolute: no smoothed-VIX data on or before %s "
+            "(window=%d) -- defaulting to calm.",
+            as_of_ts.date(), window,
+        )
+        return False
+    latest = float(eligible.iloc[-1])
+    stressed = latest >= threshold
+    if stressed:
+        logger.info(
+            "is_stress_absolute: VIX %dd-MA %.1f >= %.1f at %s -- gate firing.",
+            window, latest, threshold, as_of_ts.date(),
+        )
+    return stressed
+
+
 __all__ = [
     "vix_percentile_series",
+    "vix_smoothed_series",
     "is_calm",
+    "is_stress_absolute",
     "DEFAULT_WINDOW",
     "DEFAULT_CUTOFF",
+    "DEFAULT_ABSOLUTE_THRESHOLD",
+    "DEFAULT_SMOOTHING_WINDOW",
 ]

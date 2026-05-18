@@ -52,9 +52,12 @@ from src.factors.regime_weights import list_profiles, weights_for
 from src.factors.residual_momentum import residual_momentum_12_1
 from src.factors.value import value_factor
 from src.factors.vix_regime import (
+    DEFAULT_ABSOLUTE_THRESHOLD as VIX_DEFAULT_ABSOLUTE_THRESHOLD,
     DEFAULT_CUTOFF as VIX_DEFAULT_CUTOFF,
+    DEFAULT_SMOOTHING_WINDOW as VIX_DEFAULT_SMOOTHING_WINDOW,
     DEFAULT_WINDOW as VIX_DEFAULT_WINDOW,
     vix_percentile_series,
+    vix_smoothed_series,
 )
 from src.factors.volatility import low_vol_filter
 from src.storage.snapshot import load_snapshot
@@ -91,6 +94,24 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--vix-window", type=int, default=VIX_DEFAULT_WINDOW,
                    help=f"Rolling window for --vix-gate (default "
                         f"{VIX_DEFAULT_WINDOW} trading days).")
+    p.add_argument("--vix-abs-gate", action="store_true",
+                   help="Block new entries when the smoothed-VIX absolute "
+                        "level >= --vix-abs-threshold. Complement to "
+                        "--vix-gate: percentile self-normalizes (sustained "
+                        "stress reads as median); this one uses an absolute "
+                        "level so 2022 actually triggers. Both gates can "
+                        "fire independently; either firing blocks.")
+    p.add_argument("--vix-abs-threshold", type=float,
+                   default=VIX_DEFAULT_ABSOLUTE_THRESHOLD,
+                   help=f"Absolute VIX threshold for --vix-abs-gate "
+                        f"(default {VIX_DEFAULT_ABSOLUTE_THRESHOLD:.0f}). "
+                        f"28 catches May 2022 (21d-MA 28.3) without "
+                        f"firing on the Aug 2024 single-day spike (21d-MA "
+                        f"never crossed 20).")
+    p.add_argument("--vix-abs-smoothing", type=int,
+                   default=VIX_DEFAULT_SMOOTHING_WINDOW,
+                   help=f"Rolling-mean window for --vix-abs-gate (default "
+                        f"{VIX_DEFAULT_SMOOTHING_WINDOW} td).")
     p.add_argument("--regime-weights",
                    default="equal",
                    choices=tuple(list_profiles()),
@@ -490,6 +511,22 @@ def _build_vix_state(args: argparse.Namespace, snap, spy: pd.DataFrame) -> pd.Se
     return pct_series.reindex(spy.index, method="ffill")
 
 
+def _build_vix_abs_state(args: argparse.Namespace, snap, spy: pd.DataFrame) -> pd.Series | None:
+    """Smoothed-VIX absolute level on the SPY calendar. None when the
+    --vix-abs-gate is off or VIX data missing."""
+    if not args.vix_abs_gate:
+        return None
+    vix_df = snap.vix_df
+    if vix_df is None or vix_df.empty:
+        logger.warning(
+            "--vix-abs-gate requested but snapshot has no VIX frame; "
+            "the abs-gate will be inert (no day reads as stress)."
+        )
+        return None
+    smoothed = vix_smoothed_series(vix_df, window=args.vix_abs_smoothing)
+    return smoothed.reindex(spy.index, method="ffill")
+
+
 def _record_exposure(
     holdings: dict[str, int], cash: float,
     prices: dict, d: pd.Timestamp,
@@ -517,12 +554,15 @@ def _record_exposure(
 
 def _gate_blocks_entries(
     args: argparse.Namespace,
-    trend_state: pd.Series, vix_state: pd.Series | None,
+    trend_state: pd.Series,
+    vix_state: pd.Series | None,
+    vix_abs_state: pd.Series | None,
     d: pd.Timestamp,
 ) -> tuple[bool, bool]:
-    """Return ``(blocked, vix_blocked)``. Two-channel gate: either the
-    200-SMA trend filter is off or the VIX percentile is at-or-above the
-    cutoff. Both can fire independently on the same day."""
+    """Return ``(blocked, vix_blocked)``. Three-channel gate: any one of
+    (200-SMA trend off, VIX percentile >= cutoff, smoothed-VIX >=
+    abs threshold) blocks new entries. vix_blocked is True iff either
+    of the VIX channels fired."""
     risk_on = (not args.no_regime_filter) and (
         bool(trend_state.loc[d]) if d in trend_state.index else False
     )
@@ -530,6 +570,10 @@ def _gate_blocks_entries(
     if args.vix_gate and vix_state is not None:
         pct = vix_state.loc[d] if d in vix_state.index else None
         if pct is not None and not pd.isna(pct) and pct >= args.vix_cutoff:
+            vix_blocked = True
+    if args.vix_abs_gate and vix_abs_state is not None:
+        lvl = vix_abs_state.loc[d] if d in vix_abs_state.index else None
+        if lvl is not None and not pd.isna(lvl) and lvl >= args.vix_abs_threshold:
             vix_blocked = True
     blocked = (not args.no_regime_filter and not risk_on) or vix_blocked
     return blocked, vix_blocked
@@ -774,6 +818,7 @@ def run(args: argparse.Namespace) -> dict:
     calendar = _build_trading_calendar(spy, snap.manifest)
     trend_state = trend_state_series(spy)
     vix_state = _build_vix_state(args, snap, spy)
+    vix_abs_state = _build_vix_abs_state(args, snap, spy)
 
     cash = float(args.starting_cash)
     holdings: dict[str, int] = {}
@@ -814,7 +859,7 @@ def run(args: argparse.Namespace) -> dict:
             continue
 
         blocked, vix_blocked = _gate_blocks_entries(
-            args, trend_state, vix_state, d,
+            args, trend_state, vix_state, vix_abs_state, d,
         )
         if blocked:
             cash = _liquidate_all_to_cash(
