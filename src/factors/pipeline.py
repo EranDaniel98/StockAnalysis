@@ -204,6 +204,7 @@ def run_factor_picks(
     sector_neutral_quality: bool = True,
     min_z: float | None = None,
     require_pead: bool = False,
+    min_history_days: int | None = None,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -261,6 +262,33 @@ def run_factor_picks(
         "Loaded %d tickers with prices (out of %d in PIT universe)",
         len(prices), len(tickers),
     )
+
+    # Minimum-history filter -- excludes recent IPOs / spin-offs whose
+    # factor signals would be computed on partial history. SNDK 2025
+    # WDC-spin-off case (project_ai_sanity_check 2026-05-19): 315 days
+    # of pre-as_of history is enough to pass the momentum_12_1 252-day
+    # floor BUT the fundamentals/quality/value frames silently rely on
+    # quarterly EDGAR rows, of which a spin-off has very few. Set this
+    # to 504 (2 years) at the daily-picks layer to keep the universe
+    # clean. Backtests starting near a snapshot's left edge may need
+    # to pass None to disable.
+    if min_history_days is not None and min_history_days > 0:
+        before = len(prices)
+        kept: dict[str, pd.DataFrame] = {}
+        excluded: list[tuple[str, int]] = []
+        for t, p in prices.items():
+            n_pre = int((p.index <= as_of).sum()) if p is not None else 0
+            if n_pre >= min_history_days:
+                kept[t] = p
+            else:
+                excluded.append((t, n_pre))
+        prices = kept
+        logger.info(
+            "Min-history filter (%d days pre-as_of): kept %d / %d names; "
+            "dropped %d (first 5: %s)",
+            min_history_days, len(prices), before, len(excluded),
+            [f"{t}({n}d)" for t, n in excluded[:5]],
+        )
 
     universe = sorted(prices.keys())
     logger.info("Loading EDGAR PIT fundamentals for %d names...", len(universe))

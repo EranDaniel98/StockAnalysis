@@ -141,6 +141,16 @@ def _parse_args() -> argparse.Namespace:
                         "to names where all four factors have signal. "
                         "Shrinks the candidate pool; ~half of universe "
                         "lacks active PEAD on any given day.")
+    p.add_argument("--min-history-days", type=int, default=504,
+                   help="Minimum trading days of pre-as_of price history "
+                        "required for a ticker to enter the eligible "
+                        "universe. Default 504 (~2 years) excludes recent "
+                        "IPOs and spin-offs whose factor signals are "
+                        "computed on incomplete history. AI sanity check "
+                        "caught the SNDK 2025 WDC-spin-off case on "
+                        "2026-05-19 -- 315d of history was enough to pass "
+                        "the momentum 252d floor but too thin for "
+                        "fundamentals. Pass 0 to disable.")
     return p.parse_args()
 
 
@@ -420,6 +430,7 @@ def main() -> int:
         sector_neutral_quality=args.sector_neutral_quality,
         min_z=args.min_z,
         require_pead=args.require_pead,
+        min_history_days=args.min_history_days if args.min_history_days > 0 else None,
     )
     if result.composite.empty:
         return 2
