@@ -43,6 +43,13 @@ import numpy as np
 import pandas as pd
 
 from src.factors.composite import combine as combine_factors
+from src.factors.exposure_scaling import (
+    DEFAULT_FLOOR as EXPOSURE_DEFAULT_FLOOR,
+    DEFAULT_HIGH_THRESHOLD as EXPOSURE_DEFAULT_HIGH,
+    DEFAULT_LOW_THRESHOLD as EXPOSURE_DEFAULT_LOW,
+    DEFAULT_SMOOTHING_WINDOW as EXPOSURE_DEFAULT_SMOOTHING,
+    exposure_at,
+)
 from src.factors.insider_cluster import insider_cluster_factor
 from src.factors.momentum import momentum_12_1
 from src.factors.pead import pead_factor
@@ -137,6 +144,40 @@ def _parse_args() -> argparse.Namespace:
                    default=VIX_DEFAULT_SMOOTHING_WINDOW,
                    help=f"Rolling-mean window for --vix-abs-gate (default "
                         f"{VIX_DEFAULT_SMOOTHING_WINDOW} td).")
+    p.add_argument("--vix-exposure-scaling", action="store_true",
+                   help="Continuous VIX-based exposure scaling. Replaces "
+                        "the binary --vix-abs-gate / --vix-gate with a "
+                        "piecewise-linear ramp from 1.0 (at smoothed-VIX <= "
+                        "--vix-exposure-low) to --vix-exposure-floor (at "
+                        ">= --vix-exposure-high). Motivated by the "
+                        "2026-05-19 bull-DD diagnostic: 70%% of the d03 "
+                        "wider DD is mechanical (concentration -> higher "
+                        "beta -> more market exposure in corrections); "
+                        "continuous derisking targets that mechanical "
+                        "portion without the V-shape failure mode of "
+                        "binary gates. Off by default; validate before "
+                        "promoting.")
+    p.add_argument("--vix-exposure-low", type=float,
+                   default=EXPOSURE_DEFAULT_LOW,
+                   help=f"Smoothed-VIX level at and below which exposure "
+                        f"stays at 1.0 (default {EXPOSURE_DEFAULT_LOW:.1f}).")
+    p.add_argument("--vix-exposure-high", type=float,
+                   default=EXPOSURE_DEFAULT_HIGH,
+                   help=f"Smoothed-VIX level at and above which exposure "
+                        f"clamps to --vix-exposure-floor (default "
+                        f"{EXPOSURE_DEFAULT_HIGH:.1f}). Calibrated to fire "
+                        f"on May 2022 sustained stress without firing on "
+                        f"Aug 2024 single-day spikes.")
+    p.add_argument("--vix-exposure-floor", type=float,
+                   default=EXPOSURE_DEFAULT_FLOOR,
+                   help=f"Minimum exposure multiplier at extreme stress "
+                        f"(default {EXPOSURE_DEFAULT_FLOOR:.2f}). Never "
+                        f"goes to zero -- keeps factor exposure live so "
+                        f"V-shape recoveries can still earn.")
+    p.add_argument("--vix-exposure-smoothing", type=int,
+                   default=EXPOSURE_DEFAULT_SMOOTHING,
+                   help=f"Rolling-mean window for --vix-exposure-scaling "
+                        f"(default {EXPOSURE_DEFAULT_SMOOTHING} td).")
     p.add_argument("--regime-weights",
                    default="equal",
                    choices=tuple(list_profiles()),
@@ -815,6 +856,11 @@ def _compute_metrics_and_assemble(
             "factor": args.factor,
             "composite_factors": args.composite_factors,
             "momentum_flavor": args.momentum_flavor,
+            "vix_exposure_scaling": bool(args.vix_exposure_scaling),
+            "vix_exposure_low": args.vix_exposure_low,
+            "vix_exposure_high": args.vix_exposure_high,
+            "vix_exposure_floor": args.vix_exposure_floor,
+            "vix_exposure_smoothing": args.vix_exposure_smoothing,
         },
         "metrics": {
             "total_return_pct": round(total_return * 100, 2),
@@ -941,9 +987,22 @@ def run(args: argparse.Namespace) -> dict:
 
         # Sizing: equal-weight within each side. Long-short splits
         # equity in half; long-only puts it all on the long side.
+        # VIX exposure scaling (optional) applies a multiplier in
+        # [floor, 1.0] to the capital deployed; the rest stays in cash
+        # so V-shape recoveries can re-enter on the next rebalance.
         current_eq = _mark_to_market(holdings, cash, prices, d)
-        long_capital = current_eq * 0.5 if args.long_short else current_eq
-        short_capital = current_eq * 0.5 if args.long_short else 0.0
+        if args.vix_exposure_scaling and snap.vix_df is not None and not snap.vix_df.empty:
+            exposure_mult = exposure_at(
+                snap.vix_df, d,
+                smoothing_window=args.vix_exposure_smoothing,
+                low_threshold=args.vix_exposure_low,
+                high_threshold=args.vix_exposure_high,
+                floor=args.vix_exposure_floor,
+            )
+        else:
+            exposure_mult = 1.0
+        long_capital = (current_eq * 0.5 if args.long_short else current_eq) * exposure_mult
+        short_capital = (current_eq * 0.5 if args.long_short else 0.0) * exposure_mult
         per_long = long_capital / max(1, len(long_set)) if long_set else 0.0
         per_short = short_capital / max(1, len(short_set)) if short_set else 0.0
 
@@ -963,6 +1022,7 @@ def run(args: argparse.Namespace) -> dict:
             "n_long": sum(1 for v in holdings.values() if v > 0),
             "n_short": sum(1 for v in holdings.values() if v < 0),
             "regime": regime_label,
+            "exposure_mult": round(exposure_mult, 4),
         })
 
     return _compute_metrics_and_assemble(
