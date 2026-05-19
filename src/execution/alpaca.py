@@ -278,7 +278,17 @@ class AlpacaClient:
     # -- Positions -------------------------------------------------------
 
     def get_positions(self):
-        """Return list of dicts mirroring portfolio.yaml holdings format."""
+        """Return list of dicts mirroring portfolio.yaml holdings format.
+
+        When ``STOCKNEW_USE_REAL_COST_BASIS=1`` is set, ``avg_price`` and
+        the derived ``unrealized_pnl`` / ``unrealized_pnl_pct`` are
+        overridden from ``config/real_holdings.yaml`` for any ticker
+        present in that file. Overridden rows gain
+        ``cost_basis_source="real_holdings"`` so consumers can flag the
+        provenance. See ``src.portfolio.cost_basis`` for details.
+        """
+        from src.portfolio.cost_basis import apply_if_enabled
+
         positions = self._client.get_all_positions()
         out = []
         for p in positions:
@@ -291,7 +301,7 @@ class AlpacaClient:
                 "unrealized_pnl": float(p.unrealized_pl) if p.unrealized_pl else 0.0,
                 "unrealized_pnl_pct": float(p.unrealized_plpc) * 100 if p.unrealized_plpc else 0.0,
             })
-        return out
+        return apply_if_enabled(out)
 
     # -- Orders ----------------------------------------------------------
 
