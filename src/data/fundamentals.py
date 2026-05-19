@@ -6,6 +6,7 @@ network) and has no timeout, so every call is wrapped in
 src.data.fetch_outcome.call_with_timeout. Tier-1 audit #8.
 """
 
+import sys
 import yfinance as yf
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,14 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 
 from src.data.fetch_outcome import call_with_timeout
 from src.data.numeric import coerce_numeric as _coerce_numeric
+
+# Rich Progress drives a Live thread that writes to stdout. Under
+# uvicorn worker threads on Windows the LegacyWindowsTerm flush raises
+# OSError [Errno 22] on exit (stdout isn't a real console there), and
+# the exception propagates out of fetch_batch — crashing every API
+# route that fetches fundamentals. Disable progress whenever stdout
+# isn't a TTY so server contexts are unaffected.
+_RICH_PROGRESS_DISABLED = not sys.stdout.isatty()
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +207,7 @@ class FundamentalsFetcher:
             TaskProgressColumn(),
             TextColumn("{task.fields[ticker]}"),
             transient=True,
+            disable=_RICH_PROGRESS_DISABLED,
         ) as progress:
             task = progress.add_task("fetching", total=total, ticker="")
             with ThreadPoolExecutor(max_workers=workers) as ex:

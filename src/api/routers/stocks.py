@@ -205,6 +205,13 @@ async def analyze_ticker(
         )
     except KeyError:
         raise HTTPException(status_code=400, detail=f"unknown strategy {strategy!r}")
+    except Exception:
+        # Surface analyzer-chain crashes in the structured log instead of
+        # letting them bubble as bare "Internal Server Error" — the prior
+        # Rich-Progress-on-Windows bug went undiagnosed precisely because
+        # the traceback never reached logs/stocknew.jsonl.
+        logger.exception("analyze_ticker failed for %s strategy=%s", tu, strategy)
+        raise
     if rec is None:
         raise HTTPException(
             status_code=404,

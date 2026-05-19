@@ -5,6 +5,7 @@ yfinance does not expose a per-call timeout, so every fetch is wrapped
 in src.data.fetch_outcome.call_with_timeout. Tier-1 audit #8.
 """
 
+import sys
 import yfinance as yf
 import pandas as pd
 import logging
@@ -16,6 +17,11 @@ from src.data.fetch_outcome import call_with_timeout
 from src.data.numeric import coerce_numeric
 
 logger = logging.getLogger(__name__)
+
+# Rich Progress crashes on exit when stdout isn't a TTY (Windows uvicorn
+# workers → OSError [Errno 22] in legacy_windows_render). Disable in
+# non-interactive contexts; CLI users still get the bar.
+_RICH_PROGRESS_DISABLED = not sys.stdout.isatty()
 
 # Wall-clock budget per yfinance call. History is the slowest endpoint
 # (10y of daily bars ~ 2500 rows), so it gets the longest leash. Snapshot
@@ -95,6 +101,7 @@ class DataFetcher:
             TaskProgressColumn(),
             TextColumn("{task.fields[ticker]}"),
             transient=True,
+            disable=_RICH_PROGRESS_DISABLED,
         ) as progress:
             task = progress.add_task("fetching", total=total, ticker="")
             with ThreadPoolExecutor(max_workers=workers) as ex:
