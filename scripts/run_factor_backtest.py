@@ -514,14 +514,44 @@ def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers:
 
 def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: list[str]):
     """Quality / value / composite all need the EDGAR PIT panel. Momentum-
-    only runs skip this load entirely."""
+    only runs skip this load entirely.
+
+    Reproducibility caching: if the snapshot dir has a frozen EDGAR PIT
+    panel (``fundamentals_pit.json``), load from there instead of from
+    Postgres. First run on a snapshot pulls from Postgres AND writes the
+    cache; subsequent runs read from the cache. This eliminates the
+    cross-session drift observed on 2026-05-19 where the same backtest
+    config produced different alpha (+39.5% vs +29.9%) hours apart
+    because Postgres EDGAR rows had been re-ingested between runs.
+    """
     if args.factor not in ("quality", "value", "composite"):
         return None
-    logger.info(
-        "Pre-loading EDGAR PIT fundamentals for %d tickers...",
-        len(universe_tickers),
-    )
-    loader = _load_pit_fundamentals(universe_tickers)
+    from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+
+    cache_path = Path("data/snapshots") / args.snapshot_id / "fundamentals_pit.json"
+    if cache_path.exists():
+        logger.info(
+            "Loading EDGAR PIT panel from snapshot cache: %s", cache_path,
+        )
+        loader = FundamentalsPITLoader.from_json(cache_path)
+    else:
+        logger.info(
+            "Pre-loading EDGAR PIT fundamentals for %d tickers from Postgres...",
+            len(universe_tickers),
+        )
+        loader = _load_pit_fundamentals(universe_tickers)
+        try:
+            loader.to_json(cache_path)
+            logger.info(
+                "Cached EDGAR PIT panel to %s for reproducible future runs",
+                cache_path,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to write EDGAR PIT cache to %s: %s "
+                "(backtest continues; next run will re-query Postgres)",
+                cache_path, e,
+            )
     cov = loader.coverage()
     n_covered = sum(1 for c in cov.values() if c > 0)
     logger.info(

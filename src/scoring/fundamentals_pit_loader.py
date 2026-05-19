@@ -10,11 +10,19 @@ Usage:
     loader = await FundamentalsPITLoader.from_repository(repo, tickers)
     fund_dict = loader.lookup_dict("AAPL", as_of, price=187.0, overlay=current_snap)
     # fund_dict is now an analyzer-shaped dict for AAPL at that historical Monday
+
+Snapshot caching: ``from_json`` + ``to_json`` serialize the entire EDGAR PIT
+panel to a single JSON file. Backtests use this to FREEZE the fundamentals
+input alongside the snapshot's prices.parquet so a backtest run today and
+tomorrow produce bit-identical results even if Postgres EDGAR rows have
+been re-ingested or updated. See ``project_backtest_reproducibility`` memory.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from src.contracts.entities.fundamentals import FundamentalSnapshot
@@ -178,6 +186,66 @@ class FundamentalsPITLoader:
     @property
     def tickers(self) -> set[str]:
         return set(self._by_ticker.keys())
+
+    # ---------------------------------------------------------------
+    # JSON serialization (snapshot caching for reproducible backtests)
+    # ---------------------------------------------------------------
+    # The EDGAR PIT panel is the only backtest input that isn't already
+    # frozen with the snapshot. Without these methods, two backtests of
+    # the same snapshot drift because Postgres EDGAR rows can be re-
+    # ingested between runs. See project_backtest_reproducibility.
+    #
+    # Schema: list[dict] -- one row per FundamentalSnapshot. Dates
+    # serialize as ISO-8601 strings; everything else passes through.
+
+    _FIELDS: tuple[str, ...] = (
+        "ticker", "source", "pe_ratio", "pb_ratio", "ps_ratio",
+        "ev_to_ebitda", "revenue", "revenue_growth_yoy",
+        "earnings_growth_yoy", "eps_diluted", "gross_margin",
+        "operating_margin", "profit_margin", "roe", "roa",
+        "debt_to_equity", "current_ratio", "free_cash_flow",
+        "total_cash", "total_debt", "dividend_yield", "payout_ratio",
+        "sector", "industry", "market_cap", "name",
+    )
+
+    def to_json(self, path: str | Path) -> None:
+        """Serialize the full PIT panel to JSON. Used as a snapshot cache
+        so future runs of the same snapshot can re-load instead of
+        re-querying Postgres."""
+        rows: list[dict[str, Any]] = []
+        for snaps in self._by_ticker.values():
+            for s in snaps:
+                row: dict[str, Any] = {
+                    "valid_from": s.valid_from.isoformat() if s.valid_from else None,
+                    "valid_to": s.valid_to.isoformat() if s.valid_to else None,
+                }
+                for f in self._FIELDS:
+                    row[f] = getattr(s, f, None)
+                rows.append(row)
+        Path(path).write_text(
+            json.dumps(rows, default=str), encoding="utf-8",
+        )
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "FundamentalsPITLoader":
+        """Inverse of ``to_json``. Reads the cached panel back into a
+        loader. Raises FileNotFoundError if the cache doesn't exist."""
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        snapshots: list[FundamentalSnapshot] = []
+        for r in raw:
+            vf_str = r.get("valid_from")
+            vt_str = r.get("valid_to")
+            kwargs: dict[str, Any] = {
+                f: r.get(f) for f in cls._FIELDS
+            }
+            kwargs["valid_from"] = (
+                datetime.fromisoformat(vf_str) if vf_str else None
+            )
+            kwargs["valid_to"] = (
+                datetime.fromisoformat(vt_str) if vt_str else None
+            )
+            snapshots.append(FundamentalSnapshot(**kwargs))
+        return cls(snapshots)
 
 
 def _row_to_snapshot(row: Any) -> FundamentalSnapshot:
