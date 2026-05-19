@@ -46,23 +46,31 @@ class AlpacaDuplicateOrderError(AlpacaClientError):
     submitted' rather than re-attempting with a new id."""
 
 
-def make_client_order_id(strategy: str, ticker: str, as_of: date | None = None) -> str:
+def make_client_order_id(
+    strategy: str, ticker: str, as_of: date | None = None,
+    *, retry_suffix: str = "",
+) -> str:
     """Build the deterministic client_order_id used for idempotent submits.
 
     Same (strategy, ticker, date) -> same id, so a sweep re-run or RPC
     retry within the day collides on Alpaca's duplicate-id check and is
     rejected rather than double-filling. If we ever need to allow same-day
-    re-entry (e.g. after a stop-out), add an explicit retry suffix at the
-    caller; do not loosen the default.
+    re-entry (e.g. after a stop-out OR after flatten+rebuild), pass an
+    explicit ``retry_suffix`` to make the coid unique.
+
+    Alpaca remembers client_order_ids forever (even across cancelled
+    orders), so after a flatten_paper run the same-day re-submission
+    MUST pass a retry_suffix or all entries are rejected as dupes.
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc).date()
-    coid = f"sn-{strategy}-{ticker}-{as_of.isoformat()}"
+    suffix = f"-{retry_suffix}" if retry_suffix else ""
+    coid = f"sn-{strategy}-{ticker}-{as_of.isoformat()}{suffix}"
     if len(coid) > _COID_MAX_LEN:
         # Truncate strategy first to preserve ticker + date which carry the
         # uniqueness signal we care about.
-        budget = _COID_MAX_LEN - len(f"sn--{ticker}-{as_of.isoformat()}")
-        coid = f"sn-{strategy[:budget]}-{ticker}-{as_of.isoformat()}"
+        budget = _COID_MAX_LEN - len(f"sn--{ticker}-{as_of.isoformat()}{suffix}")
+        coid = f"sn-{strategy[:budget]}-{ticker}-{as_of.isoformat()}{suffix}"
     return coid
 
 

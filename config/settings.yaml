@@ -221,7 +221,14 @@ trading:
     # operability — fewer positions == easier to babysit. The cap is
     # checked AFTER the strategy emits recommendations, so it can
     # silently truncate a top-N list.
-    max_open_positions: 30
+    #
+    # Raised 30 → 60 on 2026-05-19: paper account had accumulated 52
+    # positions from prior runs and the 30-cap was short-circuiting
+    # the entire rebalance (including closes). 60 gives headroom for
+    # mid-rebalance overlap (existing 52 + new 15 = 67 transient peak)
+    # plus a buffer. A truly anomalous picks list would still hit 60
+    # and refuse, preserving the cap's value as a safety backstop.
+    max_open_positions: 60
 
     # Maximum notional value per single order submission, in USD. A
     # bracket entry of qty * limit_price exceeding this is refused.

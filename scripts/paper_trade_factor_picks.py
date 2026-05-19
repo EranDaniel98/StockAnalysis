@@ -110,6 +110,13 @@ def _parse_args() -> argparse.Namespace:
                         "fallback removed: a failure now means the call broke, "
                         "not that the LLM is uncertain. Override ONLY for "
                         "known-transient issues.")
+    p.add_argument("--retry-suffix", default="",
+                   help="Appended to every client_order_id (e.g., 'v2') to "
+                        "make today's IDs unique when re-running after a "
+                        "flatten. Alpaca remembers cancelled order IDs "
+                        "forever and rejects same-day re-submissions as "
+                        "dupes; this suffix breaks the collision. Leave "
+                        "blank for the normal idempotent path.")
     return p.parse_args()
 
 
@@ -752,7 +759,7 @@ def _confirm_execution(args, sells: list, buys: list) -> bool:
 
 
 def _submit_closes(
-    client, sells: list, today,
+    client, sells: list, today, *, retry_suffix: str = "",
 ) -> tuple[list[dict], list[dict], dict[str, str]]:
     """Submit close-out market orders. Returns (submitted, failed,
     flip_close_coids) -- flip COIDs are returned so the caller can poll
@@ -771,6 +778,7 @@ def _submit_closes(
         qty = abs(cs)
         coid = make_client_order_id(
             STRATEGY_LABEL + "-close", s["ticker"], today,
+            retry_suffix=retry_suffix,
         )
         try:
             res = client.submit_market_order(
@@ -886,7 +894,9 @@ def _submit_opens(
         # COID namespace per side so a same-day re-run never collides a
         # long entry with a short entry on the same ticker.
         coid_ns = STRATEGY_LABEL + ("-long" if is_long else "-short")
-        coid = make_client_order_id(coid_ns, b["ticker"], today)
+        coid = make_client_order_id(
+            coid_ns, b["ticker"], today, retry_suffix=args.retry_suffix,
+        )
 
         try:
             if opening and args.order_style == "bracket":
@@ -1057,7 +1067,7 @@ def main() -> int:
     today = datetime.now(timezone.utc).date()
 
     submitted_closes, failed_closes, flip_close_coids = _submit_closes(
-        client, sells, today,
+        client, sells, today, retry_suffix=args.retry_suffix,
     )
     flip_close_status = _poll_flip_close_fills(client, flip_close_coids)
     submitted_opens, skipped, failed_opens = _submit_opens(
