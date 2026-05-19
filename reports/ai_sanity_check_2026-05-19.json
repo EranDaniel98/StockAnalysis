@@ -1,0 +1,313 @@
+{
+  "as_of": "2026-05-19",
+  "generated_at_utc": "2026-05-19T10:17:49.972499+00:00",
+  "model": "claude-sonnet-4-6",
+  "usage": {
+    "input_tokens": 2623,
+    "output_tokens": 2027,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0
+  },
+  "input_picks": [
+    {
+      "ticker": "NEM",
+      "mean_normalized_rank": 0.06757360668822479,
+      "raw": -0.06757360668822479,
+      "rank": 1,
+      "z_score": 2.8598846524955492,
+      "_eff_rank": 1,
+      "sector": "Basic Materials",
+      "mom_rank": 18,
+      "qual_rank": 20,
+      "val_rank": 65,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "APA",
+      "mean_normalized_rank": 0.14053921016423876,
+      "raw": -0.14053921016423876,
+      "rank": 2,
+      "z_score": 2.375962558467728,
+      "_eff_rank": 1,
+      "sector": "Energy",
+      "mom_rank": 26,
+      "qual_rank": 159,
+      "val_rank": 20,
+      "pead_rank": 38.0
+    },
+    {
+      "ticker": "INCY",
+      "mean_normalized_rank": 0.1535167460974675,
+      "raw": -0.1535167460974675,
+      "rank": 3,
+      "z_score": 2.2898930124768726,
+      "_eff_rank": 1,
+      "sector": "Healthcare",
+      "mom_rank": 63,
+      "qual_rank": 97,
+      "val_rank": 91,
+      "pead_rank": 28.0
+    },
+    {
+      "ticker": "MTB",
+      "mean_normalized_rank": 0.17294982130785894,
+      "raw": -0.17294982130785894,
+      "rank": 4,
+      "z_score": 2.1610090726311038,
+      "_eff_rank": 1,
+      "sector": "Financial Services",
+      "mom_rank": 199,
+      "qual_rank": 8,
+      "val_rank": 54,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "TPR",
+      "mean_normalized_rank": 0.1737572581819136,
+      "raw": -0.1737572581819136,
+      "rank": 5,
+      "z_score": 2.155653994014969,
+      "_eff_rank": 1,
+      "sector": "Consumer Cyclical",
+      "mom_rank": 31,
+      "qual_rank": 58,
+      "val_rank": 171,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "WDC",
+      "mean_normalized_rank": 0.18717985047027239,
+      "raw": -0.18717985047027239,
+      "rank": 6,
+      "z_score": 2.0666327475916515,
+      "_eff_rank": 1,
+      "sector": "Technology",
+      "mom_rank": 3,
+      "qual_rank": 26,
+      "val_rank": 250,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "NTRS",
+      "mean_normalized_rank": 0.18751692663297823,
+      "raw": -0.18751692663297823,
+      "rank": 7,
+      "z_score": 2.0643971928270415,
+      "_eff_rank": 1,
+      "sector": "Financial Services",
+      "mom_rank": 71,
+      "qual_rank": 67,
+      "val_rank": 143,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "CF",
+      "mean_normalized_rank": 0.2097408776590175,
+      "raw": -0.2097408776590175,
+      "rank": 8,
+      "z_score": 1.9170036209829047,
+      "_eff_rank": 1,
+      "sector": "Basic Materials",
+      "mom_rank": 123,
+      "qual_rank": 45,
+      "val_rank": 48,
+      "pead_rank": 99.0
+    },
+    {
+      "ticker": "BMY",
+      "mean_normalized_rank": 0.2106941579341478,
+      "raw": -0.2106941579341478,
+      "rank": 9,
+      "z_score": 1.910681280524388,
+      "_eff_rank": 1,
+      "sector": "Healthcare",
+      "mom_rank": 101,
+      "qual_rank": 113,
+      "val_rank": 72,
+      "pead_rank": 66.0
+    },
+    {
+      "ticker": "USB",
+      "mean_normalized_rank": 0.21284706921233573,
+      "raw": -0.21284706921233573,
+      "rank": 10,
+      "z_score": 1.8964027535971173,
+      "_eff_rank": 10,
+      "sector": "Financial Services",
+      "mom_rank": 121,
+      "qual_rank": 155,
+      "val_rank": 44,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "HST",
+      "mean_normalized_rank": 0.21899935564142425,
+      "raw": -0.21899935564142425,
+      "rank": 11,
+      "z_score": 1.8555995916962889,
+      "_eff_rank": 1,
+      "sector": "Real Estate",
+      "mom_rank": 84,
+      "qual_rank": 276,
+      "val_rank": 69,
+      "pead_rank": 5.0
+    },
+    {
+      "ticker": "GOOG",
+      "mean_normalized_rank": 0.21927037047188971,
+      "raw": -0.21927037047188971,
+      "rank": 12,
+      "z_score": 1.853802168554102,
+      "_eff_rank": 1,
+      "sector": "Communication Services",
+      "mom_rank": 27,
+      "qual_rank": 81,
+      "val_rank": 294,
+      "pead_rank": 17.0
+    },
+    {
+      "ticker": "RL",
+      "mean_normalized_rank": 0.23188611087668187,
+      "raw": -0.23188611087668187,
+      "rank": 15,
+      "z_score": 1.7701321209760628,
+      "_eff_rank": 4,
+      "sector": "Consumer Cyclical",
+      "mom_rank": 81,
+      "qual_rank": 115,
+      "val_rank": 151,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "MO",
+      "mean_normalized_rank": 0.23303481511344085,
+      "raw": -0.23303481511344085,
+      "rank": 16,
+      "z_score": 1.7625136907405923,
+      "_eff_rank": 5,
+      "sector": "Consumer Defensive",
+      "mom_rank": 211,
+      "qual_rank": 38,
+      "val_rank": 101,
+      "pead_rank": NaN
+    },
+    {
+      "ticker": "MU",
+      "mean_normalized_rank": 0.24493064485627628,
+      "raw": -0.24493064485627628,
+      "rank": 18,
+      "z_score": 1.6836182308922578,
+      "_eff_rank": 7,
+      "sector": "Technology",
+      "mom_rank": 7,
+      "qual_rank": 13,
+      "val_rank": 344,
+      "pead_rank": NaN
+    }
+  ],
+  "verdict": {
+    "overall_verdict": "REVIEW",
+    "confidence": 72,
+    "key_concerns": [
+      "Sector overconcentration: Financial Services has 3 picks (MTB, NTRS, USB) representing 20% of portfolio; combined with quality concerns on USB this cluster warrants scrutiny",
+      "Multiple borderline z-scores below 1.90 (HST 1.856, GOOG 1.854, RL 1.770, MO 1.763, MU 1.684) \u2014 thin signal band for bottom half of list",
+      "PEAD rank NaN for 8 of 15 picks (NEM, MTB, TPR, WDC, NTRS, MO, RL, MU) \u2014 PEAD factor effectively absent, composite may be over-relying on momentum/quality/value for these names",
+      "HST pead_rank=5 flags likely imminent earnings catalyst; hotel REIT also carries bottom-quartile quality (qual_rank 276/497)",
+      "WDC val_rank=250 and GOOG val_rank=294 indicate value factor near bottom half of universe \u2014 both riding momentum/PEAD with negligible value support",
+      "APA qual_rank=159 is below median in a universe of 497; energy sector fundamentals remain volatile with commodity price sensitivity",
+      "MU val_rank=344 is bottom-quartile on value; semiconductor cycle exposure adds earnings-revision risk despite strong momentum and quality"
+    ],
+    "per_pick": [
+      {
+        "ticker": "NEM",
+        "verdict": "FLAG",
+        "reason": "no_data / pead_missing",
+        "evidence": "pead_rank is NaN, removing one of four composite pillars. Val_rank=65 is reasonable but the absence of PEAD data means the z-score of 2.86 is inflated relative to a complete-factor peer; gold-miner beta also introduces macro commodity noise."
+      },
+      {
+        "ticker": "APA",
+        "verdict": "FLAG",
+        "reason": "weak_quality",
+        "evidence": "qual_rank=159 sits below the universe median (248.5 midpoint for 497 names), a meaningful quality drag for an energy E&P with high leverage sensitivity to oil prices. Strong val_rank=20 and mom_rank=26 partially offset, but quality deterioration in commodity names historically precedes impairment risk."
+      },
+      {
+        "ticker": "INCY",
+        "verdict": "KEEP",
+        "reason": "balanced_factors",
+        "evidence": "No single factor is outstanding but none is egregiously weak; z-score 2.29 is solid. PEAD rank 28 is supportive. No immediate earnings concern flagged."
+      },
+      {
+        "ticker": "MTB",
+        "verdict": "FLAG",
+        "reason": "weak_momentum / pead_missing",
+        "evidence": "mom_rank=199 is below-median momentum in a momentum-inclusive composite, making this pick quality+value-driven with PEAD also missing (NaN). Regional bank exposure carries ongoing macro rate sensitivity; momentum absence suggests price action is not confirming fundamental thesis."
+      },
+      {
+        "ticker": "TPR",
+        "verdict": "FLAG",
+        "reason": "weak_value / pead_missing",
+        "evidence": "val_rank=171 is below median and PEAD is NaN; the pick is primarily a momentum story (mom_rank=31) for a discretionary retailer. Consumer spending headwinds and missing PEAD signal reduce conviction; borderline composite given factor gaps."
+      },
+      {
+        "ticker": "WDC",
+        "verdict": "FLAG",
+        "reason": "weak_value / pead_missing",
+        "evidence": "val_rank=250 is bottom half of universe and PEAD is NaN; the composite is almost entirely driven by very strong momentum (rank=3) and quality (rank=26). WDC is a cyclical storage hardware name where momentum can reverse sharply; single-factor dependency with no PEAD confirmation is a risk."
+      },
+      {
+        "ticker": "NTRS",
+        "verdict": "FLAG",
+        "reason": "sector_cluster / weak_value / pead_missing",
+        "evidence": "Third Financial Services name in the portfolio (alongside MTB and USB), pushing sector weight toward the 30% cap. Val_rank=143 and PEAD NaN mean the composite is carried by moderate momentum and quality scores only; incremental sector concentration risk."
+      },
+      {
+        "ticker": "CF",
+        "verdict": "FLAG",
+        "reason": "sector_cluster / borderline_zscore",
+        "evidence": "Second Basic Materials pick alongside NEM; z-score 1.92 is borderline. pead_rank=99 is near the median, providing weak post-earnings drift support. Fertilizer prices are cyclically volatile, and the sector double-up with NEM should be reviewed against the 30% sector cap logic."
+      },
+      {
+        "ticker": "BMY",
+        "verdict": "FLAG",
+        "reason": "fundamental_concern / weak_quality",
+        "evidence": "qual_rank=113 is below median for a large-cap pharma; Bristol-Myers faces known pipeline and patent-cliff pressures (Revlimid erosion, Opdivo competition) that represent fundamental deterioration risk. Borderline z-score of 1.91 provides thin signal buffer."
+      },
+      {
+        "ticker": "USB",
+        "verdict": "FLAG",
+        "reason": "weak_quality / sector_cluster",
+        "evidence": "qual_rank=155 is the weakest quality score among the three Financial Services picks; USB has faced deposit-cost pressure and commercial real estate exposure concerns. Combined with MTB and NTRS this creates a concentrated regional/trust-bank cluster that amplifies sector-specific macro risk."
+      },
+      {
+        "ticker": "HST",
+        "verdict": "VETO",
+        "reason": "earnings_imminent / weak_quality",
+        "evidence": "pead_rank=5 strongly suggests earnings are imminent (within ~5 trading days), adding significant binary event noise to the position. qual_rank=276 is bottom-quartile, making this a low-quality name entering a known uncertainty window; risk/reward is asymmetrically poor for a paper-trade rebalance."
+      },
+      {
+        "ticker": "GOOG",
+        "verdict": "FLAG",
+        "reason": "weak_value / borderline_zscore",
+        "evidence": "val_rank=294 is bottom-third of universe; z-score 1.854 is borderline. PEAD rank=17 is a genuine positive, but the pick is essentially a momentum+PEAD story with near-zero value support. Antitrust and AI-competition overhangs represent fundamental risk not captured in quantitative factors."
+      },
+      {
+        "ticker": "RL",
+        "verdict": "FLAG",
+        "reason": "weak_value / borderline_zscore / pead_missing",
+        "evidence": "z-score 1.770 is the second-weakest in the list; val_rank=151 is below median; PEAD is NaN. Three simultaneous weaknesses produce a borderline, factor-incomplete pick in a discretionary sector facing consumer spending pressure."
+      },
+      {
+        "ticker": "MO",
+        "verdict": "FLAG",
+        "reason": "weak_momentum / borderline_zscore / pead_missing",
+        "evidence": "mom_rank=211 is well below median; z-score 1.763 is near the bottom of the list. The pick is almost entirely a quality+value story for a secular-decline tobacco company. PEAD NaN removes a key confirmation signal; lowest-conviction name in the batch."
+      },
+      {
+        "ticker": "MU",
+        "verdict": "FLAG",
+        "reason": "weak_value / borderline_zscore / pead_missing",
+        "evidence": "val_rank=344 is bottom-quartile; z-score 1.684 is the weakest in the list. Strong momentum (rank=7) and quality (rank=13) are real positives, but the semiconductor cycle is highly mean-reverting and PEAD NaN means no earnings-drift confirmation. Thin composite signal for a high-beta cyclical."
+      }
+    ]
+  }
+}

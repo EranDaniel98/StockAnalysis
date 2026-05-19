@@ -38,6 +38,7 @@ STEPS = [
     "position_monitor",
     "stress_test",
     "generate_watchlist",
+    "ai_sanity_check",
     "morning_briefing",
     "paper_vs_spy_snapshot",
 ]
@@ -131,7 +132,16 @@ def main() -> int:
         "generate_watchlist",
     )
 
-    # 7. Morning briefing (reads picks JSON + analysis JSON)
+    # 7. AI sanity check (advisory only, runs before morning briefing so
+    #    the briefing can pull from it if extended later).
+    results["ai_sanity_check"] = _run(
+        ["scripts.ai_sanity_check",
+         "--picks-date", date_str,
+         "--output-dir", "reports"],
+        "ai_sanity_check",
+    )
+
+    # 8. Morning briefing (reads picks JSON + analysis JSON)
     results["morning_briefing"] = _run(
         ["scripts.morning_briefing",
          "--picks-date", date_str,
