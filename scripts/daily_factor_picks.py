@@ -127,6 +127,20 @@ def _parse_args() -> argparse.Namespace:
                         "validated +4.93pp avg α cross-window stacked with "
                         "hysteresis. Pass --no-sector-neutral-quality to "
                         "revert to cross-sectional quality.")
+    p.add_argument("--min-z", type=float, default=None,
+                   help="Minimum composite z-score for inclusion. Filters "
+                        "out borderline picks below this threshold. Off by "
+                        "default. Common values: 2.0 (strict signal), 1.8 "
+                        "(moderate). NOTE: tightening can regress strategy "
+                        "alpha; see project_d03_concentration for context.")
+    p.add_argument("--require-pead",
+                   action=argparse.BooleanOptionalAction,
+                   default=False,
+                   help="Drop tickers without PEAD data (drift-active "
+                        "earnings) from the eligible universe. Tightens "
+                        "to names where all four factors have signal. "
+                        "Shrinks the candidate pool; ~half of universe "
+                        "lacks active PEAD on any given day.")
     return p.parse_args()
 
 
@@ -404,6 +418,8 @@ def main() -> int:
         previous_longs=prev_longs,
         previous_shorts=prev_shorts,
         sector_neutral_quality=args.sector_neutral_quality,
+        min_z=args.min_z,
+        require_pead=args.require_pead,
     )
     if result.composite.empty:
         return 2

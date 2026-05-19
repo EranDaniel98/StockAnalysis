@@ -202,6 +202,8 @@ def run_factor_picks(
     previous_longs: Optional[list[str]] = None,
     previous_shorts: Optional[list[str]] = None,
     sector_neutral_quality: bool = True,
+    min_z: float | None = None,
+    require_pead: bool = False,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -380,6 +382,24 @@ def run_factor_picks(
         100.0 * n_classified / max(1, len(sectors)),
         sum(1 for t in composite_tickers if yf_sectors.get(t)),
     )
+
+    # Pre-selection filters (opt-in). Applied to selection_frame BEFORE
+    # sector cap so the cap operates on the post-filter universe.
+    pre_filter_n = len(selection_frame)
+    if min_z is not None:
+        selection_frame = selection_frame[selection_frame["z_score"] >= min_z]
+        logger.info(
+            "min_z=%.2f kept %d / %d names",
+            min_z, len(selection_frame), pre_filter_n,
+        )
+    if require_pead and not pead.empty:
+        pead_tickers = set(pead["ticker"])
+        before = len(selection_frame)
+        selection_frame = selection_frame[selection_frame["ticker"].isin(pead_tickers)]
+        logger.info(
+            "require_pead kept %d / %d names",
+            len(selection_frame), before,
+        )
 
     sector_cap_skipped: list[dict] = []
     if max_sector_pct is None or max_sector_pct >= 100:

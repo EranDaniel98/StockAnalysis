@@ -1,41 +1,35 @@
 # AI Sanity Check — 2026-05-19
 
 **Model:** `claude-sonnet-4-6`
-**Tokens:** in=2623 out=2027 (cache_read=0 cache_write=0)
+**Tokens:** in=3226 out=1489 (cache_read=0 cache_write=0)
 
 ## Overall verdict
 
-**REVIEW** (confidence 72/100)
+**HOLD** (confidence 82/100)
 
 **Key concerns:**
 
-- Sector overconcentration: Financial Services has 3 picks (MTB, NTRS, USB) representing 20% of portfolio; combined with quality concerns on USB this cluster warrants scrutiny
-- Multiple borderline z-scores below 1.90 (HST 1.856, GOOG 1.854, RL 1.770, MO 1.763, MU 1.684) — thin signal band for bottom half of list
-- PEAD rank NaN for 8 of 15 picks (NEM, MTB, TPR, WDC, NTRS, MO, RL, MU) — PEAD factor effectively absent, composite may be over-relying on momentum/quality/value for these names
-- HST pead_rank=5 flags likely imminent earnings catalyst; hotel REIT also carries bottom-quartile quality (qual_rank 276/497)
-- WDC val_rank=250 and GOOG val_rank=294 indicate value factor near bottom half of universe — both riding momentum/PEAD with negligible value support
-- APA qual_rank=159 is below median in a universe of 497; energy sector fundamentals remain volatile with commodity price sensitivity
-- MU val_rank=344 is bottom-quartile on value; semiconductor cycle exposure adds earnings-revision risk despite strong momentum and quality
+- SNDK: SanDisk was acquired by Western Digital in 2016 and the ticker was delisted; a 'SNDK' ticker in 2026 may represent a newly re-listed entity (WDC spun out its flash business as SanDisk in early 2025) -- continuity of PIT factor history needs verification to rule out a data/lookahead issue, especially given WDC is also in the basket.
 
 ## Per-pick
 
 | Ticker | Verdict | z | Sector | Reason | Evidence |
 |---|---|---|---|---|---|
-| NEM | **FLAG** | +2.86 | Basic Materials | no_data / pead_missing | pead_rank is NaN, removing one of four composite pillars. Val_rank=65 is reasonable but the absence of PEAD data means the z-score of 2.86 is inflated relative to a complete-factor peer; gold-miner beta also introduces macro commodity noise. |
-| APA | **FLAG** | +2.38 | Energy | weak_quality | qual_rank=159 sits below the universe median (248.5 midpoint for 497 names), a meaningful quality drag for an energy E&P with high leverage sensitivity to oil prices. Strong val_rank=20 and mom_rank=26 partially offset, but quality deterioration in commodity names historically precedes impairment risk. |
-| INCY | **KEEP** | +2.29 | Healthcare | balanced_factors | No single factor is outstanding but none is egregiously weak; z-score 2.29 is solid. PEAD rank 28 is supportive. No immediate earnings concern flagged. |
-| MTB | **FLAG** | +2.16 | Financial Services | weak_momentum / pead_missing | mom_rank=199 is below-median momentum in a momentum-inclusive composite, making this pick quality+value-driven with PEAD also missing (NaN). Regional bank exposure carries ongoing macro rate sensitivity; momentum absence suggests price action is not confirming fundamental thesis. |
-| TPR | **FLAG** | +2.16 | Consumer Cyclical | weak_value / pead_missing | val_rank=171 is below median and PEAD is NaN; the pick is primarily a momentum story (mom_rank=31) for a discretionary retailer. Consumer spending headwinds and missing PEAD signal reduce conviction; borderline composite given factor gaps. |
-| WDC | **FLAG** | +2.07 | Technology | weak_value / pead_missing | val_rank=250 is bottom half of universe and PEAD is NaN; the composite is almost entirely driven by very strong momentum (rank=3) and quality (rank=26). WDC is a cyclical storage hardware name where momentum can reverse sharply; single-factor dependency with no PEAD confirmation is a risk. |
-| NTRS | **FLAG** | +2.06 | Financial Services | sector_cluster / weak_value / pead_missing | Third Financial Services name in the portfolio (alongside MTB and USB), pushing sector weight toward the 30% cap. Val_rank=143 and PEAD NaN mean the composite is carried by moderate momentum and quality scores only; incremental sector concentration risk. |
-| CF | **FLAG** | +1.92 | Basic Materials | sector_cluster / borderline_zscore | Second Basic Materials pick alongside NEM; z-score 1.92 is borderline. pead_rank=99 is near the median, providing weak post-earnings drift support. Fertilizer prices are cyclically volatile, and the sector double-up with NEM should be reviewed against the 30% sector cap logic. |
-| BMY | **FLAG** | +1.91 | Healthcare | fundamental_concern / weak_quality | qual_rank=113 is below median for a large-cap pharma; Bristol-Myers faces known pipeline and patent-cliff pressures (Revlimid erosion, Opdivo competition) that represent fundamental deterioration risk. Borderline z-score of 1.91 provides thin signal buffer. |
-| USB | **FLAG** | +1.90 | Financial Services | weak_quality / sector_cluster | qual_rank=155 is the weakest quality score among the three Financial Services picks; USB has faced deposit-cost pressure and commercial real estate exposure concerns. Combined with MTB and NTRS this creates a concentrated regional/trust-bank cluster that amplifies sector-specific macro risk. |
-| HST | **VETO** | +1.86 | Real Estate | earnings_imminent / weak_quality | pead_rank=5 strongly suggests earnings are imminent (within ~5 trading days), adding significant binary event noise to the position. qual_rank=276 is bottom-quartile, making this a low-quality name entering a known uncertainty window; risk/reward is asymmetrically poor for a paper-trade rebalance. |
-| GOOG | **FLAG** | +1.85 | Communication Services | weak_value / borderline_zscore | val_rank=294 is bottom-third of universe; z-score 1.854 is borderline. PEAD rank=17 is a genuine positive, but the pick is essentially a momentum+PEAD story with near-zero value support. Antitrust and AI-competition overhangs represent fundamental risk not captured in quantitative factors. |
-| RL | **FLAG** | +1.77 | Consumer Cyclical | weak_value / borderline_zscore / pead_missing | z-score 1.770 is the second-weakest in the list; val_rank=151 is below median; PEAD is NaN. Three simultaneous weaknesses produce a borderline, factor-incomplete pick in a discretionary sector facing consumer spending pressure. |
-| MO | **FLAG** | +1.76 | Consumer Defensive | weak_momentum / borderline_zscore / pead_missing | mom_rank=211 is well below median; z-score 1.763 is near the bottom of the list. The pick is almost entirely a quality+value story for a secular-decline tobacco company. PEAD NaN removes a key confirmation signal; lowest-conviction name in the batch. |
-| MU | **FLAG** | +1.68 | Technology | weak_value / borderline_zscore / pead_missing | val_rank=344 is bottom-quartile; z-score 1.684 is the weakest in the list. Strong momentum (rank=7) and quality (rank=13) are real positives, but the semiconductor cycle is highly mean-reverting and PEAD NaN means no earnings-drift confirmation. Thin composite signal for a high-beta cyclical. |
+| NEM | **KEEP** | +2.78 | Basic Materials | implementation_ok | Z-score 2.78 well above 1.7 threshold; mom_rank 18 and qual_rank 20 both strongly above-median, supporting composite. No implementation issue. |
+| TPR | **KEEP** | +2.52 | Consumer Cyclical | implementation_ok | Z-score 2.52; pead_rank 4 and mom_rank 31 carry the composite. Hysteresis _eff_rank=1 consistent with held name. No implementation issue. |
+| APA | **KEEP** | +2.48 | Energy | implementation_ok | Z-score 2.48; mom_rank 26 and val_rank 20 strongly support composite. Energy sector, one of two Energy picks so no cap issue. |
+| WDC | **KEEP** | +2.39 | Technology | implementation_ok | Z-score 2.39; mom_rank 3 and qual_rank 26 are exceptional. Technology sector, one of three Tech picks (3/15=20%, under 30% cap). |
+| INCY | **KEEP** | +2.37 | Healthcare | implementation_ok | Z-score 2.37; mom_rank 63 and val_rank 91 are above median, PEAD 52 near median -- composite blend supports inclusion. Healthcare, one of two HC picks. |
+| OXY | **KEEP** | +2.04 | Energy | implementation_ok | Z-score 2.04; val_rank 52 and pead_rank 10 drive the composite despite weaker momentum and quality. Two Energy picks total (2/15=13%), well under cap. |
+| BMY | **KEEP** | +2.03 | Healthcare | implementation_ok | Z-score 2.03; val_rank 72 is the primary driver; other factors mid-range. Two Healthcare picks (2/15=13%), under cap. No implementation issue. |
+| CF | **KEEP** | +2.02 | Basic Materials | implementation_ok | Z-score 2.02; qual_rank 45 and val_rank 48 both above median support the composite. Two Basic Materials picks (2/15=13%), under cap. |
+| NTRS | **KEEP** | +1.96 | Financial Services | implementation_ok | Z-score 1.96; mom_rank 71 and qual_rank 67 both above median. Single Financial Services pick, no sector cap concern. |
+| HST | **KEEP** | +1.93 | Real Estate | implementation_ok | Z-score 1.93; pead_rank 7 and val_rank 69 carry the composite despite weak qual_rank. One of two Real Estate picks (2/15=13%). No implementation issue. |
+| GOOG | **KEEP** | +1.93 | Communication Services | implementation_ok | Z-score 1.93; mom_rank 27 and pead_rank 30 both above median support composite. Single Communication Services pick. No implementation issue. |
+| RL | **KEEP** | +1.84 | Consumer Cyclical | implementation_ok | Z-score 1.84; _eff_rank=3 indicates hysteresis retention (raw rank 14 with 0.75 bonus applied). Two Consumer Cyclical picks (2/15=13%), under cap. Borderline z is expected at cutoff. |
+| SNDK | **FLAG** | +1.81 | Technology | data_error | SNDK was delisted after WDC acquisition in 2016; if this represents the 2025 WDC flash spin-off re-listing as SanDisk, continuous PIT factor history (especially quality/value) may not be available or may contain lookahead contamination. WDC also appears in the basket, raising potential double-count of the same underlying business. |
+| MU | **KEEP** | +1.75 | Technology | implementation_ok | Z-score 1.75 borderline but valid at top-3% cutoff; mom_rank 7 and qual_rank 13 are exceptional, supporting composite despite weak value. Third Technology pick (3/15=20%), under 30% cap. |
+| FRT | **KEEP** | +1.70 | Real Estate | implementation_ok | Z-score 1.70 borderline; qual_rank 61 and pead_rank 39 above median. _eff_rank=7 reflects hysteresis retention at rank 18. Two Real Estate picks (2/15=13%), under cap. |
 
 ---
 

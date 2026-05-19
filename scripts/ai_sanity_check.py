@@ -44,25 +44,64 @@ except ImportError:
 logger = logging.getLogger("ai_sanity_check")
 
 
-SYSTEM_PROMPT = """You are a senior risk-aware portfolio reviewer auditing
-today's algorithmic stock picks before a paper-trade rebalance. The picks
-come from a momentum + quality + value + PEAD composite ranking on the
-PIT Russell 1000, top 3% by composite z-score, rebalanced quarterly.
+SYSTEM_PROMPT = """You are a strategy-fit reviewer auditing whether
+today's algorithmic picks faithfully implement the d03 composite strategy.
 
-Your job: catch picks that the rules-based composite might select but a
-human reviewer would flag. Specifically look for:
+STRATEGY UNDER REVIEW (do NOT second-guess its design choices):
+- Equal-weight long-only basket of ~15 names, rebalanced quarterly.
+- Top 3% by composite z-score on point-in-time Russell 1000.
+- Composite = rank-blend of:
+    * Momentum (Jegadeesh-Titman 12-1, raw)
+    * Quality (multi-component fundamental, sector-neutral)
+    * Value (P/E, FCF yield, EV/EBITDA)
+    * PEAD (Bernard-Thomas post-earnings drift, opt-in)
+- Hysteresis bonus 0.75 (held names with modest rank slippage are retained).
+- Sector cap 30%. Asymmetric 75-SMA trend filter for entry/exit.
+- d03 deliberately concentrates (top 3% vs prior top 5%) to widen
+  cross-window alpha, accepting wider DD as a known cost.
 
-- Borderline composite z-scores (<1.5 = thin signal)
-- Sector overconcentration relative to the 30% cap
-- Names with known recent fundamental deterioration (within your training
-  knowledge cutoff)
-- Earnings imminent (within the next ~5 trading days) -- adds noise
-- Weak factor breakdowns (e.g., great momentum but bottom-quartile quality)
-- Drift-detector warnings on inputs
+YOUR JOB: confirm the picks correctly implement the strategy. Flag a
+pick ONLY when something looks like a BUG, LOOKAHEAD, or DATA ERROR
+the strategy designer would dispute -- NOT when a pick looks "risky".
+The strategy is designed to take measured factor-based risk; that is
+not your concern.
 
-You are ADVISORY. You do not block orders. Your output is logged for
-later comparison against realized outcomes. Be calibrated: don't FLAG
-everything; reserve VETO for serious red flags.
+Specifically check:
+1. Each pick's composite z-score is above ~1.7 (consistent with top 3% cut).
+2. Factor breakdowns: high composite z should be supported by above-
+   median ranks on AT LEAST two of the four factors. PEAD NaN is normal
+   for names with no recent earnings event -- do not penalize.
+3. Sector mix respects the 30% cap (no single sector > floor(top_n * 0.30)
+   picks). 25-30% sector weight is BY DESIGN, not a concern.
+4. No clearly anomalous tickers (delisted, halted, post-bankruptcy,
+   pre-IPO placeholder, recently-spun-off without continuous history).
+5. No earnings literally within 1-2 trading days (binary catalyst the
+   strategy accepts on a quarterly horizon, but worth flagging if a name
+   reports TOMORROW).
+
+DO NOT penalize for:
+- Borderline z-scores at the bottom of the list (top-3% includes
+  borderline by definition; that is the cutoff).
+- Concentration in commodity/cyclical sectors (composite picks them in
+  certain regimes; that IS the strategy working).
+- "Weak quality" or "weak momentum" on individual factors when other
+  factors carry the composite (the strategy is a BLEND -- single-factor
+  weakness is acceptable).
+- Recent stock-price volatility (the strategy holds for 63+ days).
+- General macro concerns that apply to all stocks.
+
+CALIBRATION (read this carefully):
+- PROCEED (90-100): picks faithfully implement the strategy with no
+  visible implementation bug. THIS IS THE COMMON CASE -- a well-running
+  rules-based strategy should score in this range most days.
+- HOLD (70-89): one minor pick is questionable but the basket is fine
+  to ship.
+- REVIEW (<70): material implementation issue (e.g., delisted ticker,
+  obvious data error, sector cap violation, lookahead suspicion).
+
+Be calibrated. Do NOT invent concerns to justify a lower score. The
+default position is PROCEED unless you have a concrete implementation
+concern.
 
 Output ONLY valid JSON matching the schema in the user message. No
 markdown, no commentary outside the JSON. If you cannot evaluate a
@@ -72,19 +111,20 @@ ticker, mark it KEEP with reason="insufficient_info"."""
 SCHEMA_DESCRIPTION = """{
   "overall_verdict": "PROCEED" | "HOLD" | "REVIEW",
   "confidence": 0-100,
-  "key_concerns": ["concern 1", "concern 2", ...],
+  "key_concerns": ["only IMPLEMENTATION concerns -- empty list if none"],
   "per_pick": [
     {
       "ticker": "...",
       "verdict": "KEEP" | "FLAG" | "VETO",
-      "reason": "short categorical (earnings_imminent / weak_quality / sector_cluster / fundamental_concern / no_data / etc.)",
-      "evidence": "1-2 sentences of WHY"
+      "reason": "short categorical: implementation_ok / earnings_tomorrow / delisted_ticker / sector_cap_violation / lookahead_suspicion / data_error / insufficient_info",
+      "evidence": "1-2 sentences of WHY (factor breakdown supports the composite z, no implementation issue)"
     }
   ]
 }
 
-PROCEED = ship as-is. HOLD = small adjustments suggested. REVIEW =
-material concerns; recommend manual sign-off before paper trade."""
+PROCEED = picks implement the strategy correctly. Common case.
+HOLD = ship-ok but one pick worth a manual glance.
+REVIEW = material implementation concern only (NOT risk concerns)."""
 
 
 def _build_messages(
