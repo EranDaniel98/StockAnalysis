@@ -73,10 +73,16 @@ logger = logging.getLogger("run_factor_backtest")
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--snapshot-id", required=True)
-    p.add_argument("--top-decile", type=float, default=0.10,
-                   help="Fraction of universe to hold (default 0.10 = top 10%).")
-    p.add_argument("--rebalance-days", type=int, default=21,
-                   help="Trading-day cadence for rebalance (default 21 = monthly).")
+    p.add_argument("--top-decile", type=float, default=0.03,
+                   help="Fraction of universe to hold (default 0.03 = top 3%%). "
+                        "Calibrated 2026-05-19: d03 doubles cross-window α vs "
+                        "d05 (+5.70%% → +10.80%%) and flips bull-window from "
+                        "-6.60%% to +2.37%%. Cost: bull-window DD widens from "
+                        "-14.5%% to -19.2%%. Matches live daily_factor_picks.")
+    p.add_argument("--rebalance-days", type=int, default=63,
+                   help="Trading-day cadence for rebalance (default 63 = "
+                        "quarterly, matches d05/d03 production since 2026-05-19. "
+                        "Pass 21 for monthly, 252 for annual.)")
     p.add_argument("--cost-bps", type=float, default=5.0,
                    help="One-way transaction cost in basis points (default 5).")
     p.add_argument("--starting-cash", type=float, default=10_000.0)
@@ -85,14 +91,16 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-regime-filter", action="store_true",
                    help="Disable the SPY 200d-SMA trend filter (run "
                         "always-on momentum). Use only for ablation.")
-    p.add_argument("--asymmetric-trend", action="store_true",
-                   help="Use the asymmetric trend filter (slow exit on "
-                        "200-SMA, fast re-entry on --entry-sma). Defaults "
-                        "off = today's symmetric 200-SMA in both "
-                        "directions. The 2026-05-18 diagnosis showed the "
-                        "200-SMA is too lagging for re-entry: post-Oct-2022 "
-                        "the strategy missed +16% of recovery waiting for "
-                        "the slow signal.")
+    p.add_argument("--asymmetric-trend", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Use the asymmetric trend filter (fast entry-SMA "
+                        "level check both ways). Default ON since "
+                        "2026-05-19 to match live daily picks. Pass "
+                        "--no-asymmetric-trend to revert to the symmetric "
+                        "200-SMA filter (used only for ablation). The "
+                        "2026-05-18 diagnosis showed the 200-SMA is too "
+                        "lagging for re-entry: post-Oct-2022 the strategy "
+                        "missed +16%% of recovery waiting for the slow signal.")
     p.add_argument("--entry-sma", type=int, default=REGIME_DEFAULT_ENTRY_SMA,
                    help=f"Re-entry SMA for --asymmetric-trend (default "
                         f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
@@ -154,10 +162,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--insider-min-cluster", type=int, default=2,
                    help="Minimum distinct insiders required to count as a "
                         "cluster (default 2).")
-    p.add_argument("--include-pead", action="store_true",
+    p.add_argument("--include-pead", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="Add the Bernard-Thomas PEAD factor as a 4th "
-                        "(or 5th) rank frame. Loads earnings histories "
-                        "from --earnings-cache-dir.")
+                        "(or 5th) rank frame. Default ON since 2026-05-19 "
+                        "to match live daily picks (+2.53pp avg α validated "
+                        "2026-05-18). Pass --no-include-pead for ablation. "
+                        "Loads earnings histories from --earnings-cache-dir.")
     p.add_argument("--earnings-cache-dir", default="data/earnings_history",
                    help="Per-ticker earnings parquet cache for PEAD.")
     p.add_argument("--pead-drift-window", type=int, default=60,
@@ -188,14 +199,16 @@ def _parse_args() -> argparse.Namespace:
                         "'mqv' is the full three-factor blend. Used by "
                         "ablation runs (which factor is the loser in a "
                         "given window).")
-    p.add_argument("--sector-neutral-quality", action="store_true",
+    p.add_argument("--sector-neutral-quality",
+                   action=argparse.BooleanOptionalAction, default=True,
                    help="Rank quality WITHIN sector instead of "
-                        "cross-sectional. Picks the best names INSIDE "
-                        "each sector instead of overweighting whichever "
-                        "sectors happen to have the highest absolute "
-                        "quality scores. Motivated by the 2026-05-18 "
-                        "ablation: quality cross-sectional picks defensive "
-                        "sectors that get killed in rotation regimes.")
+                        "cross-sectional. Default ON since 2026-05-19 to "
+                        "match live daily picks (+4.93pp avg α stacked "
+                        "with hysteresis, 2026-05-18). Pass "
+                        "--no-sector-neutral-quality for ablation. "
+                        "Motivated by 2026-05-18: cross-sectional quality "
+                        "picks defensive sectors that get killed in "
+                        "rotation regimes.")
     p.add_argument("--momentum-flavor",
                    default="raw",
                    choices=("raw", "residual"),
@@ -205,14 +218,13 @@ def _parse_args() -> argparse.Namespace:
                         "strips SPY beta before cumulating. Applies to the "
                         "'momentum' single factor and to the momentum sleeve "
                         "inside 'composite'.")
-    p.add_argument("--hysteresis-bonus", type=float, default=0.0,
+    p.add_argument("--hysteresis-bonus", type=float, default=0.75,
                    help="Hysteresis (stickiness) bonus for currently-held "
                         "names, expressed as a fraction of the target N. "
-                        "0.0 (default) disables — pure rank-based selection. "
-                        "0.5 = held names get their rank reduced by 0.5*N "
-                        "slots before re-selection, so a top-24 portfolio "
-                        "keeps any held name still in the top-36. Reduces "
-                        "turnover and the cost drag that comes with it.")
+                        "Default 0.75 since 2026-05-19 to match live daily "
+                        "picks (+4.31pp avg α validated 2026-05-18; stress-"
+                        "window DD improves -15.4%% → -8.2%%). Pass 0.0 "
+                        "for ablation (pure rank-based selection).")
     p.add_argument("--output", required=True,
                    help="Output JSON path.")
     return p.parse_args()
@@ -795,6 +807,14 @@ def _compute_metrics_and_assemble(
             "cost_bps": args.cost_bps,
             "starting_cash": args.starting_cash,
             "regime_filter_enabled": not args.no_regime_filter,
+            "asymmetric_trend": bool(args.asymmetric_trend),
+            "entry_sma": args.entry_sma,
+            "include_pead": bool(args.include_pead),
+            "sector_neutral_quality": bool(args.sector_neutral_quality),
+            "hysteresis_bonus": args.hysteresis_bonus,
+            "factor": args.factor,
+            "composite_factors": args.composite_factors,
+            "momentum_flavor": args.momentum_flavor,
         },
         "metrics": {
             "total_return_pct": round(total_return * 100, 2),

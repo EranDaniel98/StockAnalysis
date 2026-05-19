@@ -68,7 +68,9 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--picks-date", default=None,
                    help="YYYY-MM-DD. Defaults to today.")
-    p.add_argument("--top-n", type=int, default=24)
+    p.add_argument("--top-n", type=int, default=15,
+                   help="Number of picks (default 15 = top 3%%, matches "
+                        "daily_factor_picks default since 2026-05-19 d03 ship).")
     args = p.parse_args()
 
     logging.basicConfig(
