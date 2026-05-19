@@ -35,3 +35,6 @@ env/
 .playwright-mcp/
 # Editor / migration backups
 *.bak
+# Vendored third-party source (cloned ad-hoc for spikes / experiments).
+# Reproducible via the clone command in scripts/spike_*.py headers.
+vendor/
