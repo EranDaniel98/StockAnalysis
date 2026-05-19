@@ -225,9 +225,13 @@ trading:
 
     # Maximum notional value per single order submission, in USD. A
     # bracket entry of qty * limit_price exceeding this is refused.
-    # 1000 = matches the paper-trade default; raise deliberately for
-    # later capital ladder rungs.
-    max_order_value_usd: 3000
+    # Raised from 3000 → 5000 on 2026-05-19 to fit the d03 concentration
+    # config: 15 picks × ~$4,200 each (= equity / 15 with 2% cash buffer)
+    # means individual orders for high-priced names (SNDK, MU, RL, BMY,
+    # TPR, GM) routinely exceed $3k. 5000 is the smallest cap that
+    # admits the planned d03 portfolio without removing the cap's value
+    # as a sanity backstop (a $10k order would still get refused).
+    max_order_value_usd: 5000
 
 # --- Alerts ---
 alerts:
