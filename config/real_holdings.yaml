@@ -1,0 +1,50 @@
+# User's real-life brokerage holdings — source-of-truth for the Alpaca
+# paper sync (scripts/sync_real_holdings.py).
+#
+# avg_price here is the user's REAL cost basis. Alpaca paper will record
+# its own cost basis as the market-open fill price when the sync runs;
+# the avg_price below is preserved for reporting / P&L reconciliation
+# only, not used by the sync itself.
+#
+# Last updated: 2026-05-19 (manual paste by user)
+
+holdings:
+  - ticker: SNDK
+    shares: 10.4316
+    avg_price: 1362.85
+  - ticker: WDCX            # Tradr 2X Long WDC Daily ETF (BATS)
+    shares: 127
+    avg_price: 75.91
+  - ticker: AVGO
+    shares: 17.9706
+    avg_price: 423.83
+  - ticker: SPY
+    shares: 7.9772
+    avg_price: 700.66
+  - ticker: APH
+    shares: 19
+    avg_price: 125.47
+  - ticker: SNXX            # Tradr 2X Long SNDK Daily ETF (BATS)
+    shares: 10
+    avg_price: 143.93
+  - ticker: INTC
+    shares: 12.2729
+    avg_price: 122.22
+  - ticker: ALAB
+    shares: 3.417
+    avg_price: 208.42
+  - ticker: CCJ
+    shares: 5
+    avg_price: 116.54
+  - ticker: VTRS
+    shares: 30.3121
+    avg_price: 16.50
+
+# Tel Aviv 125 (TA125): real holding 300 sh @ 231.83. NOT replicated on
+# Alpaca paper — Tel Aviv exchange listings are not supported by Alpaca.
+# Tracked here for completeness only.
+skipped:
+  - ticker: TA125
+    shares: 300
+    avg_price: 231.83
+    reason: "Israeli listing, not supported by Alpaca"
