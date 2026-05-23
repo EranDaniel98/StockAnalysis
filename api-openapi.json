@@ -1749,6 +1749,99 @@
           }
         }
       }
+    },
+    "/api/ic-reports": {
+      "get": {
+        "tags": [
+          "ic-reports"
+        ],
+        "summary": "List Ic Reports",
+        "description": "Compact list of every analyzer_ic_*.json on disk, newest first.\n\nEach row tells the FE which dimensions a report covers \u2014 factors,\nhorizons, regime split \u2014 so the list view can group/filter without\nloading the full payload.",
+        "operationId": "list_ic_reports_api_ic_reports_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IcReportSummary"
+                  },
+                  "title": "Response List Ic Reports Api Ic Reports Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ic-reports/{slug}": {
+      "get": {
+        "tags": [
+          "ic-reports"
+        ],
+        "summary": "Get Ic Report",
+        "description": "Full per-factor (and per-regime, when present) breakdown.",
+        "operationId": "get_ic_report_api_ic_reports__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IcReportDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3124,7 +3217,7 @@
             },
             "type": "array",
             "title": "Spy Equity Curve",
-            "description": "Synthetic SPY equity over the same dates, normalized to the strategy's starting cash so the FE can overlay on one axis."
+            "description": "Real SPY daily closes over the backtest window, normalized so the first point equals the strategy's starting cash. Fetched from yfinance per-request; empty list when yfinance fetch fails."
           },
           "rebalance_log": {
             "items": {
@@ -3483,6 +3576,316 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "IcCellMetrics": {
+        "properties": {
+          "ic_mean": {
+            "type": "number",
+            "title": "Ic Mean"
+          },
+          "ic_std": {
+            "type": "number",
+            "title": "Ic Std"
+          },
+          "ic_ir": {
+            "type": "number",
+            "title": "Ic Ir"
+          },
+          "t_stat": {
+            "type": "number",
+            "title": "T Stat"
+          },
+          "p_value": {
+            "type": "number",
+            "title": "P Value"
+          },
+          "n_periods": {
+            "type": "integer",
+            "title": "N Periods"
+          },
+          "top_minus_bottom_pct": {
+            "type": "number",
+            "title": "Top Minus Bottom Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ic_mean",
+          "ic_std",
+          "ic_ir",
+          "t_stat",
+          "p_value",
+          "n_periods",
+          "top_minus_bottom_pct"
+        ],
+        "title": "IcCellMetrics",
+        "description": "One (factor, horizon) cell \u2014 the alphalens raw stats."
+      },
+      "IcFactorRow": {
+        "properties": {
+          "factor": {
+            "type": "string",
+            "title": "Factor"
+          },
+          "n_observations": {
+            "type": "integer",
+            "title": "N Observations"
+          },
+          "by_horizon": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/IcCellMetrics"
+            },
+            "type": "object",
+            "title": "By Horizon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "factor",
+          "n_observations"
+        ],
+        "title": "IcFactorRow"
+      },
+      "IcReportDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "description": "Filename minus .json \u2014 URL slug."
+          },
+          "universe": {
+            "type": "string",
+            "title": "Universe"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "periods": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Periods"
+          },
+          "quantiles": {
+            "type": "integer",
+            "title": "Quantiles"
+          },
+          "bonferroni_k": {
+            "type": "integer",
+            "title": "Bonferroni K",
+            "description": "Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k."
+          },
+          "panel_rows": {
+            "type": "integer",
+            "title": "Panel Rows",
+            "description": "Rows in the (date, ticker) panel underlying this report."
+          },
+          "n_factors": {
+            "type": "integer",
+            "title": "N Factors"
+          },
+          "horizons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Horizons",
+            "description": "Per-horizon labels actually present in the report."
+          },
+          "regime_split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regime Split",
+            "description": "Split key when this is a regime-conditional report (e.g. 'vix')."
+          },
+          "regimes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Regimes",
+            "description": "Regime bucket names when regime_split is set."
+          },
+          "ran_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ran At"
+          },
+          "per_factor": {
+            "items": {
+              "$ref": "#/components/schemas/IcFactorRow"
+            },
+            "type": "array",
+            "title": "Per Factor",
+            "description": "Unconditional per-factor rows. Empty on regime reports."
+          },
+          "per_regime": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/IcFactorRow"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Per Regime",
+            "description": "factor rows keyed by regime bucket; empty on unconditional reports."
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "universe",
+          "strategy",
+          "quantiles",
+          "bonferroni_k",
+          "panel_rows",
+          "n_factors",
+          "ran_at"
+        ],
+        "title": "IcReportDetail"
+      },
+      "IcReportSummary": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "description": "Filename minus .json \u2014 URL slug."
+          },
+          "universe": {
+            "type": "string",
+            "title": "Universe"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "periods": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Periods"
+          },
+          "quantiles": {
+            "type": "integer",
+            "title": "Quantiles"
+          },
+          "bonferroni_k": {
+            "type": "integer",
+            "title": "Bonferroni K",
+            "description": "Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k."
+          },
+          "panel_rows": {
+            "type": "integer",
+            "title": "Panel Rows",
+            "description": "Rows in the (date, ticker) panel underlying this report."
+          },
+          "n_factors": {
+            "type": "integer",
+            "title": "N Factors"
+          },
+          "horizons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Horizons",
+            "description": "Per-horizon labels actually present in the report."
+          },
+          "regime_split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regime Split",
+            "description": "Split key when this is a regime-conditional report (e.g. 'vix')."
+          },
+          "regimes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Regimes",
+            "description": "Regime bucket names when regime_split is set."
+          },
+          "ran_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ran At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "universe",
+          "strategy",
+          "quantiles",
+          "bonferroni_k",
+          "panel_rows",
+          "n_factors",
+          "ran_at"
+        ],
+        "title": "IcReportSummary"
       },
       "MarketRegime": {
         "properties": {

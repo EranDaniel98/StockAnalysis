@@ -93,6 +93,10 @@ export type TodayActionItem = Schemas["TodayActionItem"];
 export type FactorBacktestSummary = Schemas["FactorBacktestSummary"];
 export type FactorBacktestDetail = Schemas["FactorBacktestDetail"];
 export type WalkForwardFold = Schemas["WalkForwardFold"];
+export type IcReportSummary = Schemas["IcReportSummary"];
+export type IcReportDetail = Schemas["IcReportDetail"];
+export type IcFactorRow = Schemas["IcFactorRow"];
+export type IcCellMetrics = Schemas["IcCellMetrics"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -195,6 +199,19 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  icReports: {
+    list: (limit?: number) => {
+      const q = new URLSearchParams();
+      if (limit) q.set("limit", String(limit));
+      const qs = q.toString();
+      return request<IcReportSummary[]>(
+        `/api/ic-reports${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (slug: string) =>
+      request<IcReportDetail>(`/api/ic-reports/${encodeURIComponent(slug)}`),
   },
 
   factorBacktests: {

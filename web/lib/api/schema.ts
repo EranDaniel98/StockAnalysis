@@ -798,6 +798,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ic-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ic Reports
+         * @description Compact list of every analyzer_ic_*.json on disk, newest first.
+         *
+         *     Each row tells the FE which dimensions a report covers — factors,
+         *     horizons, regime split — so the list view can group/filter without
+         *     loading the full payload.
+         */
+        get: operations["list_ic_reports_api_ic_reports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ic-reports/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ic Report
+         * @description Full per-factor (and per-regime, when present) breakdown.
+         */
+        get: operations["get_ic_report_api_ic_reports__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1421,7 +1465,7 @@ export interface components {
             ][];
             /**
              * Spy Equity Curve
-             * @description Synthetic SPY equity over the same dates, normalized to the strategy's starting cash so the FE can overlay on one axis.
+             * @description Real SPY daily closes over the backtest window, normalized so the first point equals the strategy's starting cash. Fetched from yfinance per-request; empty list when yfinance fetch fails.
              */
             spy_equity_curve?: [
                 string,
@@ -1535,6 +1579,153 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IcCellMetrics
+         * @description One (factor, horizon) cell — the alphalens raw stats.
+         */
+        IcCellMetrics: {
+            /** Ic Mean */
+            ic_mean: number;
+            /** Ic Std */
+            ic_std: number;
+            /** Ic Ir */
+            ic_ir: number;
+            /** T Stat */
+            t_stat: number;
+            /** P Value */
+            p_value: number;
+            /** N Periods */
+            n_periods: number;
+            /** Top Minus Bottom Pct */
+            top_minus_bottom_pct: number;
+        };
+        /** IcFactorRow */
+        IcFactorRow: {
+            /** Factor */
+            factor: string;
+            /** N Observations */
+            n_observations: number;
+            /** By Horizon */
+            by_horizon?: {
+                [key: string]: components["schemas"]["IcCellMetrics"];
+            };
+        };
+        /** IcReportDetail */
+        IcReportDetail: {
+            /**
+             * Slug
+             * @description Filename minus .json — URL slug.
+             */
+            slug: string;
+            /** Universe */
+            universe: string;
+            /** Strategy */
+            strategy: string;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Periods */
+            periods?: number[];
+            /** Quantiles */
+            quantiles: number;
+            /**
+             * Bonferroni K
+             * @description Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k.
+             */
+            bonferroni_k: number;
+            /**
+             * Panel Rows
+             * @description Rows in the (date, ticker) panel underlying this report.
+             */
+            panel_rows: number;
+            /** N Factors */
+            n_factors: number;
+            /**
+             * Horizons
+             * @description Per-horizon labels actually present in the report.
+             */
+            horizons?: string[];
+            /**
+             * Regime Split
+             * @description Split key when this is a regime-conditional report (e.g. 'vix').
+             */
+            regime_split?: string | null;
+            /**
+             * Regimes
+             * @description Regime bucket names when regime_split is set.
+             */
+            regimes?: string[];
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
+            /**
+             * Per Factor
+             * @description Unconditional per-factor rows. Empty on regime reports.
+             */
+            per_factor?: components["schemas"]["IcFactorRow"][];
+            /**
+             * Per Regime
+             * @description factor rows keyed by regime bucket; empty on unconditional reports.
+             */
+            per_regime?: {
+                [key: string]: components["schemas"]["IcFactorRow"][];
+            };
+        };
+        /** IcReportSummary */
+        IcReportSummary: {
+            /**
+             * Slug
+             * @description Filename minus .json — URL slug.
+             */
+            slug: string;
+            /** Universe */
+            universe: string;
+            /** Strategy */
+            strategy: string;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Periods */
+            periods?: number[];
+            /** Quantiles */
+            quantiles: number;
+            /**
+             * Bonferroni K
+             * @description Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k.
+             */
+            bonferroni_k: number;
+            /**
+             * Panel Rows
+             * @description Rows in the (date, ticker) panel underlying this report.
+             */
+            panel_rows: number;
+            /** N Factors */
+            n_factors: number;
+            /**
+             * Horizons
+             * @description Per-horizon labels actually present in the report.
+             */
+            horizons?: string[];
+            /**
+             * Regime Split
+             * @description Split key when this is a regime-conditional report (e.g. 'vix').
+             */
+            regime_split?: string | null;
+            /**
+             * Regimes
+             * @description Regime bucket names when regime_split is set.
+             */
+            regimes?: string[];
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
         };
         /**
          * MarketRegime
@@ -3517,6 +3708,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FactorBacktestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ic_reports_api_ic_reports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcReportSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ic_report_api_ic_reports__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcReportDetail"];
                 };
             };
             /** @description Validation Error */

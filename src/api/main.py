@@ -27,6 +27,7 @@ from src.api.routers import (
     diagnostics,
     factor_backtests,
     health,
+    ic_reports,
     market,
     pipeline,
     portfolio,
@@ -118,6 +119,11 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         factor_backtests.router,
         prefix="/api/factor-backtests",
         tags=["factor-backtests"],
+    )
+    app.include_router(
+        ic_reports.router,
+        prefix="/api/ic-reports",
+        tags=["ic-reports"],
     )
 
     return app
