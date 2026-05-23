@@ -146,6 +146,21 @@ def main() -> int:
     lines.append(f"*Strategy:* `composite_d05_r63` (top 5% factor blend, quarterly rebalance)")
     lines.append("")
 
+    # ---- EDGE-CAVEAT BANNER ----
+    # Pinned at top so it's read before any pick or P&L number. The
+    # numbers come from project memory: 3-window cross-window OOS α
+    # check (2026-05-16) and yfinance non-determinism finding
+    # (2026-05-16). Reword only when those source measurements change.
+    lines.append("> ⚠️ **Edge magnitude is in the noise envelope — paper-trade first.**")
+    lines.append("> ")
+    lines.append("> Cross-window OOS α averages **+1.88%/yr** across three backtest windows, "
+                 "but the COVID window fails walk-forward (fold-by-fold breakdown). "
+                 "Independent re-runs of the same backtest 12 h apart drift by ±0.4 Sharpe "
+                 "due to yfinance adjustment lag — the same magnitude as the α point estimate. "
+                 "The picks are a defensible factor signal, **not a proven edge**. "
+                 "Reconcile against SPY weekly before sizing real money.")
+    lines.append("")
+
     # ---- ACCOUNT ----
     lines.append("## Account snapshot")
     lines.append("")
