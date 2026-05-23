@@ -301,21 +301,44 @@ def _align_spy_to_equity(
     base_value: float,
 ) -> list[Optional[float]]:
     """For each portfolio timestamp, find the closest-prior SPY close and
-    rebase to base_value (so the first portfolio point and the first SPY
-    point have the same equity). Returns None where no SPY data is yet
-    available for that timestamp (e.g. before SPY opened that day).
+    rebase so the first portfolio point and the first SPY point have the
+    SAME value of ``base_value``. Anchor SPY price is the SPY tick closest
+    to (and not later than) the first portfolio timestamp — using SPY's
+    earliest tick instead would shift the first SPY value above/below the
+    portfolio's starting equity whenever the portfolio window starts later
+    than SPY's first available bar.
+
+    Returns None at any portfolio timestamp that has no preceding SPY
+    tick, so the FE can ``connectNulls`` over the gap.
     """
     if not portfolio_ts or not spy_series or base_value <= 0:
         return [None] * len(portfolio_ts)
     spy_sorted = sorted(spy_series, key=lambda x: x[0])
     spy_ts = [t for t, _ in spy_sorted]
     spy_px = [p for _, p in spy_sorted]
-    first_spy_px = spy_px[0]
-    if first_spy_px <= 0:
+
+    # Find SPY anchor: latest SPY tick at-or-before portfolio's first ts.
+    first_pt = portfolio_ts[0]
+    anchor_idx: Optional[int] = None
+    for i, t in enumerate(spy_ts):
+        if t <= first_pt:
+            anchor_idx = i
+        else:
+            break
+    if anchor_idx is None:
+        # SPY hasn't traded yet at portfolio start — fall back to SPY's
+        # earliest tick so we still emit a usable line, but flag the
+        # caller can detect the mismatch (returned spy_equity[0] != base).
+        anchor_idx = 0
+    anchor_px = spy_px[anchor_idx]
+    if anchor_px <= 0:
         return [None] * len(portfolio_ts)
+
     out: list[Optional[float]] = []
-    j = 0  # walking-pointer into spy_ts so we keep this O(n + m)
-    last_px: Optional[float] = None
+    j = 0  # walking-pointer; O(n + m) overall
+    last_px: Optional[float] = spy_px[anchor_idx]
+    # Advance j past the anchor so subsequent walks pick up forward ticks.
+    j = anchor_idx
     for pt in portfolio_ts:
         while j < len(spy_ts) and spy_ts[j] <= pt:
             last_px = spy_px[j]
@@ -323,7 +346,7 @@ def _align_spy_to_equity(
         if last_px is None:
             out.append(None)
         else:
-            out.append(base_value * (last_px / first_spy_px))
+            out.append(base_value * (last_px / anchor_px))
     return out
 
 
@@ -358,17 +381,35 @@ async def get_history(
     pls: list[float] = raw["profit_loss"]
     plps: list[Optional[float]] = raw["profit_loss_pct"]
 
+    # Alpaca returns equity=0 for bars that predate account funding. Leaving
+    # those in makes the chart draw a $0 -> $41k spike on day 1, dwarfing
+    # any actual movement, and anchors the SPY overlay to a pre-funding
+    # date so the two lines never share a starting value. Strip leading
+    # zero-equity points; re-anchor base_value to the first funded bar.
+    first_funded = next(
+        (i for i, e in enumerate(equities) if e and e > 0), None,
+    )
+    if first_funded is not None and first_funded > 0:
+        timestamps = timestamps[first_funded:]
+        equities = equities[first_funded:]
+        pls = pls[first_funded:]
+        plps = plps[first_funded:]
+
+    if equities:
+        anchor_value = float(equities[0])
+    else:
+        anchor_value = float(raw.get("base_value") or 0.0)
+
     spy_status: Literal["ok", "skipped", "unavailable"] = "skipped"
     spy_equity: list[Optional[float]] = [None] * len(timestamps)
-    if include_spy and timestamps:
-        base = raw.get("base_value")
-        if base is None or base <= 0:
-            base = equities[0] if equities else None
+    if include_spy and timestamps and anchor_value > 0:
         spy_series = await asyncio.to_thread(
             _fetch_spy_history_sync, period, timeframe,
         )
-        if spy_series and base:
-            spy_equity = _align_spy_to_equity(timestamps, spy_series, float(base))
+        if spy_series:
+            spy_equity = _align_spy_to_equity(
+                timestamps, spy_series, anchor_value,
+            )
             spy_status = "ok" if any(v is not None for v in spy_equity) else "unavailable"
         else:
             spy_status = "unavailable"
@@ -388,7 +429,10 @@ async def get_history(
     return PortfolioHistory(
         period=raw["period"],
         timeframe=raw["timeframe"],
-        base_value=raw["base_value"],
+        # base_value is the first funded equity now, NOT Alpaca's raw base.
+        # The latter sits at a pre-funding date and would mis-position the
+        # alpha-since-start indicator on the FE.
+        base_value=anchor_value if equities else raw.get("base_value"),
         points=points,
         spy_status=spy_status,
     )

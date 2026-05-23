@@ -131,6 +131,15 @@ function isIntraday(tf: Timeframe): boolean {
   return tf === "1Min" || tf === "5Min" || tf === "15Min" || tf === "1H";
 }
 
+// Approximate calendar-day length of each Alpaca shorthand window. Used
+// only for the "truncated" hint — exact match isn't required.
+const PERIOD_TO_DAYS: Record<Period, number> = {
+  "1D": 1, "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1A": 365,
+};
+function periodToDays(p: Period): number {
+  return PERIOD_TO_DAYS[p];
+}
+
 export default function PortfolioPage() {
   const mounted = useMounted();
   const portfolioQ = useQuery({
@@ -530,6 +539,18 @@ function EquityCurveCard({
 
   const showSpy = data?.spy_status === "ok";
 
+  // Window-actually-shown vs window-requested: the backend strips leading
+  // zero-equity bars (pre-funding). When that fires, longer-window buttons
+  // can produce the same number of bars as shorter ones — surface that
+  // so the user doesn't conclude the buttons are broken.
+  const firstShown = points.length > 0 ? points[0].timestamp : null;
+  const lastShown =
+    points.length > 0 ? points[points.length - 1].timestamp : null;
+  const windowDaysShown =
+    firstShown != null && lastShown != null
+      ? Math.max(1, Math.round((lastShown - firstShown) / 86400))
+      : null;
+
   return (
     <Card className="mt-4">
       <CardHeader>
@@ -539,7 +560,18 @@ function EquityCurveCard({
         <CardDescription className="text-muted-foreground font-mono text-xs flex flex-wrap gap-3">
           {data ? (
             <>
-              <span>{period} window · {timeframe} bars</span>
+              <span>
+                {period} requested · {windowDaysShown ?? "—"}d shown
+                {windowDaysShown != null && windowDaysShown < periodToDays(period) - 2 ? (
+                  <span
+                    className="ml-1 text-amber-500"
+                    title="Account funded after the requested window — chart truncated to actual history"
+                  >
+                    (truncated)
+                  </span>
+                ) : null}
+                {" · "}{timeframe} bars
+              </span>
               <span>
                 <span className={cn(pnlColorClass(sinceStart))}>
                   {fmtUSD(sinceStart)}
