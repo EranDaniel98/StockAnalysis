@@ -316,7 +316,11 @@ def _build_action_counts(
     picks: list[dict], positions: list[dict],
 ) -> ActionCounts:
     """Set-diff today's picks against current paper holdings. Matches
-    the NEW BUY / KEEP / EXIT splits in the morning_briefing markdown."""
+    the NEW BUY / KEEP / EXIT splits in the morning_briefing markdown.
+
+    Returns both counts and sorted ticker lists so the FE can render
+    per-pick badges (held? carried over?) without re-fetching positions.
+    """
     pick_set = {
         (p.get("ticker") or "").upper()
         for p in picks if isinstance(p, dict)
@@ -327,10 +331,16 @@ def _build_action_counts(
         for p in positions if isinstance(p, dict)
     }
     pos_set.discard("")
+    new_buys = sorted(pick_set - pos_set)
+    keeps = sorted(pick_set & pos_set)
+    exits = sorted(pos_set - pick_set)
     return ActionCounts(
-        n_new_buys=len(pick_set - pos_set),
-        n_keep=len(pick_set & pos_set),
-        n_exit=len(pos_set - pick_set),
+        n_new_buys=len(new_buys),
+        n_keep=len(keeps),
+        n_exit=len(exits),
+        new_buy_tickers=new_buys,
+        keep_tickers=keeps,
+        exit_tickers=exits,
     )
 
 

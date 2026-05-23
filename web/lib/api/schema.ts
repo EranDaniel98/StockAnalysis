@@ -668,6 +668,21 @@ export interface components {
             n_keep: number;
             /** N Exit */
             n_exit: number;
+            /**
+             * New Buy Tickers
+             * @description Picks not currently held — fresh entries.
+             */
+            new_buy_tickers?: string[];
+            /**
+             * Keep Tickers
+             * @description Picks already held — basket retains the position.
+             */
+            keep_tickers?: string[];
+            /**
+             * Exit Tickers
+             * @description Currently-held tickers that dropped out of today's picks.
+             */
+            exit_tickers?: string[];
         };
         /** BacktestRequest */
         BacktestRequest: {

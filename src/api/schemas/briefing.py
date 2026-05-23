@@ -69,6 +69,18 @@ class ActionCounts(BaseModel):
     n_new_buys: int = Field(ge=0)
     n_keep: int = Field(ge=0)
     n_exit: int = Field(ge=0)
+    new_buy_tickers: list[str] = Field(
+        default_factory=list,
+        description="Picks not currently held — fresh entries.",
+    )
+    keep_tickers: list[str] = Field(
+        default_factory=list,
+        description="Picks already held — basket retains the position.",
+    )
+    exit_tickers: list[str] = Field(
+        default_factory=list,
+        description="Currently-held tickers that dropped out of today's picks.",
+    )
 
 
 class BriefingResponse(BaseModel):

@@ -1484,6 +1484,30 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "N Exit"
+          },
+          "new_buy_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "New Buy Tickers",
+            "description": "Picks not currently held \u2014 fresh entries."
+          },
+          "keep_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keep Tickers",
+            "description": "Picks already held \u2014 basket retains the position."
+          },
+          "exit_tickers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exit Tickers",
+            "description": "Currently-held tickers that dropped out of today's picks."
           }
         },
         "type": "object",
