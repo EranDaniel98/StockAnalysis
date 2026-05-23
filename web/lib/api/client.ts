@@ -105,13 +105,11 @@ export type FailedOrder = Schemas["FailedOrder"];
 export type SanityGate = Schemas["SanityGate"];
 export type SanityGateOutcome = Schemas["SanityGateOutcome"];
 
-export type ScanRequest = Schemas["ScanRequest"];
-export type ScanResponse = Schemas["ScanResponse"];
-export type ScanSummary = Schemas["ScanSummary"];
-export type ScanResultItem = Schemas["ScanResultItem"];
+// ScanRequest / ScanResponse / ScanSummary / ScanResultItem /
+// SanityCheckTriggerRequest were removed 2026-05-23 along with the
+// legacy 5-engine endpoints they typed.
 export type BuySignal = Schemas["BuySignal"];
 export type SanityCheck = Schemas["SanityCheck"];
-export type SanityCheckTriggerRequest = Schemas["SanityCheckTriggerRequest"];
 export type RiskManagement = Schemas["RiskManagement"];
 export type StopLoss = Schemas["StopLoss"];
 export type TakeProfit = Schemas["TakeProfit"];
@@ -177,35 +175,12 @@ export const api = {
   },
 
   scans: {
-    list: (params?: { strategy?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      if (params?.limit) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<ScanSummary[]>(`/api/scans${qs ? `?${qs}` : ""}`);
-    },
-    get: (runId: string) =>
-      request<ScanResponse>(`/api/scans/${encodeURIComponent(runId)}`),
-    trigger: (body: ScanRequest) =>
-      request<ScanResponse>("/api/scans", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    latestBuys: (params?: { strongOnly?: boolean }) => {
-      const q = new URLSearchParams();
-      if (params?.strongOnly) q.set("strong_only", "true");
-      const qs = q.toString();
-      return request<BuySignal[]>(
-        `/api/scans/latest-buys${qs ? `?${qs}` : ""}`,
-      );
-    },
-    factorPicks: () =>
-      request<BuySignal[]>("/api/scans/factor-picks"),
-    triggerSanityCheck: (body: SanityCheckTriggerRequest) =>
-      request<BuySignal[]>("/api/scans/sanity-check", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+    // POST /api/scans, GET /api/scans, GET /api/scans/{id},
+    // /latest-buys, /sanity-check were deleted 2026-05-23. They
+    // drove the legacy 5-engine composite path which the FE no
+    // longer consumes; the only remaining surface is the factor
+    // pipeline's picks reader below.
+    factorPicks: () => request<BuySignal[]>("/api/scans/factor-picks"),
   },
 
   executions: {
@@ -317,20 +292,9 @@ export const api = {
         `/api/stocks/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`,
       );
     },
-    /**
-     * Run the full analyzer chain on a single ticker on-demand. Used as a
-     * fallback when the ticker isn't present in any recent scan_run — keeps
-     * the deep-dive page useful for arbitrary user input from the search bar.
-     */
-    analyze: (ticker: string, params?: { strategy?: string }) => {
-      const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      const qs = q.toString();
-      return request<ScanResultItem>(
-        `/api/stocks/${encodeURIComponent(ticker)}/analyze${qs ? `?${qs}` : ""}`,
-        { method: "POST" },
-      );
-    },
+    // POST /api/stocks/{ticker}/analyze was deleted 2026-05-23 — the
+    // per-stock page now reads factor context from the basket basketItem
+    // instead of running an on-demand 5-engine analyze.
   },
 
   recommendations: {

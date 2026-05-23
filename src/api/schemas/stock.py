@@ -1,22 +1,15 @@
-"""Schemas for the /api/stocks per-ticker deep-dive endpoint.
+"""Schemas for the /api/stocks per-ticker endpoint.
 
-A "stock detail" composes:
-  - the most recent ScanResultItem this ticker appeared in (the trade plan
-    + breakdown the engine produced),
-  - which scan run that came from (strategy, when),
-  - a short OHLCV history for charting entry/stop/target overlays.
-
-The ScanResultItem schema is reused as-is — the page wants exactly the
-same fields the engine emits, so there's no narrowing here.
+After the factor-pipeline migration the endpoint only returns OHLC bars —
+the FE's stock detail page reads recommendation context from the factor
+``basketItem`` instead of an inline ``ScanResultItem`` envelope.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel, Field
-
-from src.api.schemas.scan import ScanResultItem
 
 
 class OHLCBar(BaseModel):
@@ -33,16 +26,6 @@ class OHLCBar(BaseModel):
 
 class StockDetail(BaseModel):
     ticker: str
-    latest_recommendation: ScanResultItem | None = Field(
-        default=None,
-        description=(
-            "Engine's most recent recommendation row for this ticker, or "
-            "null if it has never appeared in a stored scan_run."
-        ),
-    )
-    scan_run_id: str | None = None
-    scan_strategy: str | None = None
-    scan_timestamp: datetime | None = None
     history: list[OHLCBar] = Field(
         default_factory=list,
         description=(

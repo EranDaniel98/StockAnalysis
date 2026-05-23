@@ -47,11 +47,6 @@ export const qk = {
 
   scans: {
     all: ["scans"] as const,
-    list: (params?: { strategy?: string; limit?: number }) =>
-      ["scans", "list", params ?? {}] as const,
-    detail: (runId: string) => ["scans", "detail", runId] as const,
-    latestBuys: (params?: { strongOnly?: boolean }) =>
-      ["scans", "latest-buys", params ?? {}] as const,
     factorPicks: () => ["scans", "factor-picks"] as const,
   },
 

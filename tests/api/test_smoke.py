@@ -40,8 +40,7 @@ def test_openapi_paths_present(client: TestClient) -> None:
         "/api/portfolio",
         "/api/portfolio/positions",
         "/api/portfolio/account",
-        "/api/scans",
-        "/api/scans/{run_id}",
+        "/api/scans/factor-picks",
         "/api/backtests",
         "/api/backtests/{run_id}",
         "/api/diagnostics",
@@ -50,7 +49,6 @@ def test_openapi_paths_present(client: TestClient) -> None:
         "/api/recommendations/{rec_id}",
         "/api/stream/portfolio",
         "/api/stream/heartbeat",
-        "/api/stream/scan",
         "/api/stream/prices",
         "/api/stream/trade-updates",
         "/api/market/regime",
@@ -60,13 +58,6 @@ def test_openapi_paths_present(client: TestClient) -> None:
     }
     missing = expected - paths
     assert not missing, f"OpenAPI missing paths: {missing}"
-
-
-def test_request_validation_rejects_bad_strategy_body(client: TestClient) -> None:
-    """Pydantic should 422 on a malformed scan request — confirms model binding
-    is wired correctly without needing to touch the DB."""
-    r = client.post("/api/scans", json={"top": -1})
-    assert r.status_code == 422
 
 
 def test_backtest_request_validation(client: TestClient) -> None:
