@@ -1,9 +1,17 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Calendar,
+  ChevronLeft,
+  ExternalLink,
+  Wallet,
+} from "lucide-react";
 import Link from "next/link";
-import { use, useEffect } from "react";
+import { use } from "react";
 import {
   Area,
   AreaChart,
@@ -15,25 +23,19 @@ import {
   YAxis,
 } from "recharts";
 
+import { FactorChips } from "@/components/factor-chips";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
-import { EarningsCallCard } from "@/components/stocks/earnings-call-card";
-import { MyPositionCard } from "@/components/stocks/my-position-card";
-import {
-  RecommendationWarnings,
-  actionLabelForGate,
-} from "@/components/stocks/recommendation-warnings";
-import { RiskStrip } from "@/components/stocks/risk-strip";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  api,
   ApiError,
+  api,
   type OHLCBar,
-  type RiskManagement,
-  type ScanResultItem,
+  type Position,
+  type TodayActionItem,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import {
@@ -43,369 +45,245 @@ import {
   CHART_TOOLTIP_BG,
   CHART_TOOLTIP_BORDER,
 } from "@/lib/chart-tokens";
-import { fmtDate, fmtNumber, fmtUSD } from "@/lib/format";
+import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const HISTORY_DAYS = 120;
+const HISTORY_DAYS = 180;
 
-type BadgeVariant = "bullish" | "bearish" | "neutral" | "default" | "outline";
+type Params = { params: Promise<{ ticker: string }> };
 
-function actionBadgeVariant(action: string): BadgeVariant {
-  if (action === "STRONG BUY" || action === "BUY") return "bullish";
-  if (action === "STRONG SELL" || action === "SELL") return "bearish";
-  if (action === "REFUSED") return "bearish";
-  if (action === "HOLD") return "neutral";
-  return "outline";
-}
+// ─── Page entry ─────────────────────────────────────────────────────────────
 
-function scoreTextClass(score: number): string {
-  if (score >= 60) return "text-bullish";
-  if (score <= 40) return "text-bearish";
-  return "text-foreground";
-}
-
-function scoreBarClass(score: number): string {
-  if (score >= 60) return "bg-bullish";
-  if (score <= 40) return "bg-bearish";
-  return "bg-primary";
-}
-
-function num(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  return null;
-}
-
-export default function StockDetailPage({
-  params,
-}: {
-  params: Promise<{ ticker: string }>;
-}) {
+export default function StockDetailPage({ params }: Params) {
   const { ticker: tickerParam } = use(params);
   const ticker = decodeURIComponent(tickerParam).toUpperCase();
 
-  const queryClient = useQueryClient();
-  const { data, isLoading, error } = useQuery({
+  // Three independent queries; the page renders best-effort using
+  // whichever subset succeeded. Price history is the only "required"
+  // surface — without it, there's nothing to draw.
+  const historyQ = useQuery({
     queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
     queryFn: () => api.stocks.get(ticker, { history_days: HISTORY_DAYS }),
     retry: false,
   });
-
-  // Fallback path: the /api/stocks endpoint only returns a recommendation
-  // if the ticker is present in a recent scan_run. For ad-hoc tickers from
-  // the sidebar search bar we run the analyzer chain on-demand.
-  const needsAnalyze =
-    (data && !data.latest_recommendation) ||
-    (error instanceof ApiError && error.status === 404);
-
-  const {
-    data: analyzeRec,
-    isLoading: analyzeLoading,
-    error: analyzeError,
-  } = useQuery({
-    queryKey: ["stocks", "analyze", ticker],
-    queryFn: () => api.stocks.analyze(ticker),
-    enabled: needsAnalyze,
+  const actionsQ = useQuery({
+    queryKey: qk.pipeline.todayActions(),
+    queryFn: () => api.pipeline.todayActions(),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const portfolioQ = useQuery({
+    queryKey: qk.portfolio.status(),
+    queryFn: () => api.portfolio.status(),
+    refetchInterval: 60_000,
     retry: false,
   });
 
-  // /api/stocks/{ticker}/analyze writes the fetched OHLCV to Parquet as a
-  // side effect. Once analyze lands, re-query /api/stocks so the chart
-  // panel picks up the freshly-written bars (it reads from Parquet only).
-  useEffect(() => {
-    if (analyzeRec && (!data?.history || data.history.length === 0)) {
-      queryClient.invalidateQueries({
-        queryKey: qk.stocks.detail(ticker, HISTORY_DAYS),
-      });
-    }
-  }, [analyzeRec, data?.history, ticker, queryClient]);
+  // Lookup helpers — find the basket entry and the held position (if any).
+  const basketItem: TodayActionItem | null =
+    [
+      ...(actionsQ.data?.new_buys ?? []),
+      ...(actionsQ.data?.keeps ?? []),
+      ...(actionsQ.data?.exits ?? []),
+    ].find((it) => it.ticker === ticker) ?? null;
 
-  if (isLoading || (needsAnalyze && analyzeLoading)) {
+  const heldPosition: Position | null =
+    portfolioQ.data?.positions?.find((p) => p.ticker === ticker) ?? null;
+
+  const isLoading = historyQ.isLoading;
+  const history = historyQ.data?.history ?? [];
+
+  if (isLoading) {
     return (
       <>
-        <PageHeader
-          title={ticker}
-          description={analyzeLoading ? "Running on-demand analysis…" : "Loading…"}
-        />
+        <PageHeader title={ticker} description="Loading…" />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
           ))}
         </div>
-        <div className="grid lg:grid-cols-3 gap-4 mt-4">
-          <Skeleton className="h-96 w-full lg:col-span-2" />
-          <Skeleton className="h-96 w-full" />
-        </div>
+        <Skeleton className="h-80 w-full mt-4" />
       </>
     );
   }
 
-  // Both detail + analyze 404'd → ticker is unfetchable (e.g. typo).
+  // /api/stocks 404 means we have no Parquet history for this ticker.
   if (
-    error instanceof ApiError &&
-    error.status === 404 &&
-    analyzeError instanceof ApiError &&
-    analyzeError.status === 404
+    historyQ.error instanceof ApiError &&
+    historyQ.error.status === 404 &&
+    history.length === 0
   ) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
-          No price or fundamental data available
-        </p>
-        <p className="font-mono text-sm text-foreground">{ticker}</p>
-        <Link
-          href="/scan"
-          className="font-mono text-xs tracking-wider uppercase text-primary hover:underline"
-        >
-          [ Back to scan ]
-        </Link>
-      </div>
-    );
+    return <NoData ticker={ticker} />;
   }
 
-  // Merge: prefer the scan-derived recommendation; fall back to the
-  // on-demand analyze result. The /api/stocks payload still owns the
-  // history / scan metadata even when the recommendation came from analyze.
-  const merged = {
-    ticker,
-    latest_recommendation: data?.latest_recommendation ?? analyzeRec ?? null,
-    scan_run_id: data?.scan_run_id ?? null,
-    scan_strategy: data?.scan_strategy ?? null,
-    scan_timestamp: data?.scan_timestamp ?? null,
-    history: data?.history ?? [],
-    onDemand: !data?.latest_recommendation && !!analyzeRec,
-  };
-
-  if (!merged.latest_recommendation) {
-    return (
-      <>
-        <PageHeader title={ticker} description="No recommendation available" />
-        {error ? <ErrorState error={error} /> : null}
-        {analyzeError ? <ErrorState error={analyzeError} /> : null}
-      </>
-    );
-  }
-
-  // Suppress the original /api/stocks 404 once the analyze fallback has
-  // produced a recommendation — that error is expected for ad-hoc tickers
-  // not in any recent scan, and surfacing it next to a successful analysis
-  // is just confusing noise.
-  const surfaceError = merged.onDemand ? null : error;
-  return <StockDetail ticker={ticker} data={merged} error={surfaceError} />;
+  return (
+    <StockDetail
+      ticker={ticker}
+      history={history}
+      basketItem={basketItem}
+      heldPosition={heldPosition}
+      picksDate={actionsQ.data?.picks_date ?? null}
+    />
+  );
 }
 
+// ─── Detail body ───────────────────────────────────────────────────────────
+
 function StockDetail({
-  ticker,
-  data,
-  error,
+  ticker, history, basketItem, heldPosition, picksDate,
 }: {
   ticker: string;
-  data: {
-    ticker: string;
-    latest_recommendation?: ScanResultItem | null;
-    scan_run_id?: string | null;
-    scan_strategy?: string | null;
-    scan_timestamp?: string | null;
-    history?: OHLCBar[];
-    onDemand?: boolean;
-  };
-  error: unknown;
+  history: OHLCBar[];
+  basketItem: TodayActionItem | null;
+  heldPosition: Position | null;
+  picksDate: string | null;
 }) {
-  const rec = data.latest_recommendation ?? null;
-  const history = data.history ?? [];
-  const risk: RiskManagement = rec?.risk_management ?? {};
+  const lastBar = history[history.length - 1] ?? null;
+  const lastClose = lastBar?.close ?? null;
 
-  // entry: prefer the dedicated entry_price (set when the engine has a
-  // distinct entry signal), fall back to current_price as the baseline.
-  const entry = risk.entry_price ?? risk.current_price ?? null;
-  const stop = risk.stop_loss?.price ?? null;
-  const target = risk.take_profit?.price ?? null;
-  // Triple-barrier time stop. Calendar-day budget the engine applies to
-  // new positions of this strategy. Pydantic gives us a fully shaped
-  // object or null — no per-field guards needed.
-  const timeStop = risk.time_stop
-    ? {
-        exitDate: risk.time_stop.exit_date,
-        days: risk.time_stop.days,
-      }
-    : null;
-  // Surface which method the engine actually used for the take-profit.
-  // "resistance" = chart-derived level (a real price the stock has
-  // struggled at); "risk_reward" = mechanical multiple of the stop
-  // distance, not a price forecast.
-  const takeProfitMethod = risk.take_profit?.method ?? null;
-  const lastClose = history.length > 0 ? history[history.length - 1].close : null;
-
-  const headerTitle = rec?.name ? `${ticker} — ${rec.name}` : ticker;
-  const headerDescription = rec
-    ? [
-        rec.sector,
-        rec.industry,
-        rec.market_cap != null
-          ? `market cap ${fmtUSD(rec.market_cap, true)}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : history.length > 0
-      ? `Last close ${fmtUSD(lastClose)}`
-      : "No data yet";
-
+  // Prefer strategy stop/target from basket; fall back to none for
+  // tickers outside the basket (the chart still draws, just no overlay).
+  const entry = basketItem?.entry_price ?? heldPosition?.avg_price ?? null;
+  const stop = basketItem?.stop_loss ?? null;
+  const target = basketItem?.target ?? null;
   const rr =
-    entry !== null && stop !== null && target !== null && entry !== stop
+    entry != null && stop != null && target != null && entry !== stop
       ? (target - entry) / (entry - stop)
       : null;
+
+  const action = basketItem?.action ?? null;  // NEW_BUY / KEEP / EXIT / null
+  const status = basketItem?.position_status ?? null;
+  const sanity = basketItem?.sanity_verdict ?? null;
 
   return (
     <>
       <PageHeader
-        title={headerTitle}
-        description={headerDescription}
+        title={ticker}
+        description={describeTicker(basketItem, heldPosition, lastClose)}
         actions={
-          rec ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant={actionBadgeVariant(actionLabelForGate(rec))}>
-                {actionLabelForGate(rec)}
+          <div className="flex items-center gap-2 flex-wrap">
+            {action ? <ActionBadge action={action} /> : (
+              <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider">
+                not in basket
               </Badge>
-              {timeStop ? (
-                <Badge
-                  variant="neutral"
-                  className="text-[10px]"
-                  title={
-                    timeStop.days != null
-                      ? `Triple-barrier time stop: forced exit after ${timeStop.days} calendar days from entry. Calibrated to the strategy's alpha half-life.`
-                      : "Triple-barrier time stop"
-                  }
-                >
-                  Exit by {timeStop.exitDate}
-                  {timeStop.days != null ? ` · ${timeStop.days}d` : ""}
-                </Badge>
-              ) : null}
-              <a
-                href={`https://www.tradingview.com/symbols/${encodeURIComponent(ticker)}/`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider border border-border rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                title={`Open ${ticker} chart on TradingView`}
-                aria-label={`Open ${ticker} chart on TradingView (new tab)`}
-              >
-                <ExternalLink className="h-3 w-3" />
-                TradingView
-              </a>
-              <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-                {data.onDemand ? (
-                  <>On-demand analysis · swing_trading</>
-                ) : (
-                  <>
-                    Last scored {fmtDate(data.scan_timestamp)}
-                    {data.scan_strategy ? ` · ${data.scan_strategy}` : ""}
-                  </>
-                )}
-              </span>
-            </div>
-          ) : null
+            )}
+            {status && status !== "HOLDING" ? (
+              <Badge variant="outline" className={cn("text-[10px] font-mono uppercase tracking-wider", statusClass(status))}>
+                {status}
+              </Badge>
+            ) : null}
+            <a
+              href={`https://www.tradingview.com/symbols/${encodeURIComponent(ticker)}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider border border-border rounded text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              title={`Open ${ticker} chart on TradingView`}
+            >
+              <ExternalLink className="h-3 w-3" />
+              TradingView
+            </a>
+            <Link
+              href="/buy-signals"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              <ChevronLeft className="h-3 w-3" />
+              actions
+            </Link>
+          </div>
         }
       />
 
-      {error ? <ErrorState error={error} /> : null}
-
-      {rec ? <RecommendationWarnings rec={rec} /> : null}
-
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 mb-3">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
-          label="Composite Score"
-          tooltip="Strategy-weighted blend of all sub-scores, 0-100. ≥70 = STRONG BUY, 50-70 = HOLD, ≤30 = STRONG SELL. Each strategy weighs the sub-scores differently — see /help → Strategies."
+          label="Composite z"
+          tooltip="Strategy z-score for today's basket — ranks this ticker against the rest of the S&P 500 universe. Only present when the ticker is in today's basket."
           value={
-            rec ? (
-              <span
-                className={cn(
-                  rec.composite_score >= 60
-                    ? "text-bullish"
-                    : rec.composite_score <= 40
-                      ? "text-bearish"
-                      : "text-foreground",
-                )}
-              >
-                {fmtNumber(rec.composite_score, 1)}
+            basketItem?.composite_z != null ? (
+              <span className={cn("font-mono", basketItem.composite_z >= 2.0 ? "text-bullish" : "text-foreground")}>
+                +{basketItem.composite_z.toFixed(2)}
               </span>
             ) : (
-              "—"
+              <span className="text-muted-foreground text-base">—</span>
             )
           }
-          sub={rec ? `${rec.confidence} confidence` : undefined}
+          sub={picksDate ? `picks for ${picksDate}` : "no picks data"}
           subTone="muted"
         />
         <ScoreboardTile
-          label="Entry"
-          tooltip="Suggested entry price for the trade plan — the engine's reference price at scan time (typically the latest close). Use the chart on the left to time the actual fill."
-          value={fmtUSD(entry)}
-          sub={lastClose !== null ? `last close ${fmtUSD(lastClose)}` : undefined}
-          subTone="muted"
-        />
-        <ScoreboardTile
-          label="Stop / Take profit"
-          tooltip={
-            takeProfitMethod === "resistance"
-              ? "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is the nearest chart resistance level above entry that gives at least 1.5:1 reward-to-risk — a real price the stock has struggled at, not a forecast that it must reach."
-              : "Stop (top, bearish) and take-profit (bottom, bullish). Stop is ATR-derived (default 2× ATR below entry). Take-profit is a mechanical 3:1 reward-to-risk multiple of the stop distance — NOT a forecast that the stock will reach this price. The system fell back to this when no chart resistance gave a usable level."
-          }
+          label="Factor stack"
+          tooltip="Per-factor rank within today's universe (smaller = stronger). Chips render when the rank lands in top decile (≤ 50)."
           value={
-            <span className="flex flex-col leading-none gap-1">
-              <span className="text-bearish text-lg font-semibold tabular-nums">
-                {fmtUSD(stop)}
-              </span>
-              <span className="text-bullish text-lg font-semibold tabular-nums">
-                {fmtUSD(target)}
-              </span>
-            </span>
+            basketItem ? (
+              <FactorChips
+                mom={basketItem.mom_rank}
+                qual={basketItem.qual_rank}
+                val={basketItem.val_rank}
+                pead={basketItem.pead_rank}
+              />
+            ) : (
+              <span className="text-muted-foreground text-base">—</span>
+            )
           }
-          sub={
-            <span>
-              {rr !== null ? `${rr.toFixed(2)}:1 R/R` : null}
-              {takeProfitMethod ? (
-                <span className="ml-1 opacity-70">
-                  {rr !== null ? "· " : ""}
-                  {takeProfitMethod === "resistance"
-                    ? "chart resistance"
-                    : "R/R multiple"}
-                </span>
-              ) : null}
-            </span>
-          }
+          sub={basketItem ? "top-decile factors" : "not ranked"}
           subTone="muted"
         />
         <ScoreboardTile
-          label="Signals"
-          tooltip="Count of bullish (▲) vs bearish (▼) individual signals fired by all analyzers. Each is a reasoning bullet on the right (e.g. '+ SMA20: price above SMA20'). High bullish:bearish ratio = high-conviction setup."
+          label="Position"
+          tooltip="Currently-held paper position state for this ticker."
           value={
-            rec ? (
-              <span className="font-mono">
-                <span className="text-bullish">{rec.bullish_signals}</span>
-                <span className="text-muted-foreground"> ▲ / </span>
-                <span className="text-bearish">{rec.bearish_signals}</span>
-                <span className="text-muted-foreground"> ▼</span>
+            heldPosition ? (
+              <span className="font-mono text-base">
+                {fmtNumber(heldPosition.shares, 0)} sh
               </span>
             ) : (
-              "—"
+              <span className="text-muted-foreground text-base">none</span>
             )
           }
           sub={
-            rec && rec.breakdown && rec.breakdown.length > 0
-              ? `${rec.breakdown.length} categories scored`
+            heldPosition
+              ? `${fmtUSD(heldPosition.avg_price)} avg · ${fmtUSD(heldPosition.market_value)}`
+              : "not held"
+          }
+          subTone={heldPosition ? "muted" : "muted"}
+        />
+        <ScoreboardTile
+          label="Unrealized P&L"
+          value={
+            heldPosition ? (
+              <span className={cn("font-mono", pnlColorClass(heldPosition.unrealized_pnl))}>
+                {fmtUSD(heldPosition.unrealized_pnl)}
+              </span>
+            ) : (
+              <span className="text-muted-foreground text-base">—</span>
+            )
+          }
+          sub={
+            heldPosition
+              ? `${fmtPct(heldPosition.unrealized_pnl_pct, 2, true)} vs cost`
               : undefined
           }
-          subTone="muted"
+          subTone={
+            heldPosition && heldPosition.unrealized_pnl > 0 ? "bullish"
+            : heldPosition && heldPosition.unrealized_pnl < 0 ? "bearish"
+            : "muted"
+          }
         />
       </div>
 
-      {rec ? <RiskStrip risk={risk} /> : null}
-
-      <div className="grid lg:grid-cols-3 gap-4 mt-3">
+      <div className="grid lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
                 Price + plan
               </CardTitle>
+              <CardDescription className="text-[11px]">
+                {history.length}d of OHLC.
+                {entry != null ? <> Entry {fmtUSD(entry)}.</> : null}
+                {stop != null ? <> Stop {fmtUSD(stop)}.</> : null}
+                {target != null ? <> Target {fmtUSD(target)}.</> : null}
+                {rr != null ? <> R/R {rr.toFixed(2)}:1.</> : null}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {history.length === 0 ? (
@@ -425,7 +303,7 @@ function StockDetail({
             </CardContent>
           </Card>
 
-          {rec ? (
+          {basketItem?.rationale ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
@@ -433,116 +311,326 @@ function StockDetail({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {rec.reasoning && rec.reasoning.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {rec.reasoning.map((r, i) => (
-                      <li
-                        key={i}
-                        className="text-sm text-foreground font-mono leading-relaxed flex gap-2"
-                      >
-                        <span className="text-muted-foreground select-none">
-                          {"→"}
-                        </span>
-                        <span>{r}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-muted-foreground text-sm font-mono">
-                    No engine commentary.
-                  </p>
-                )}
+                <p className="text-sm leading-relaxed">{basketItem.rationale}</p>
+                {basketItem.expected_return_pct != null
+                  || basketItem.position_size_usd != null
+                  || basketItem.time_exit_date != null
+                  ? (
+                  <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs">
+                    {basketItem.position_size_usd != null ? (
+                      <>
+                        <dt className="text-muted-foreground">position size</dt>
+                        <dd>{fmtUSD(basketItem.position_size_usd, true)}</dd>
+                      </>
+                    ) : null}
+                    {basketItem.target_shares != null ? (
+                      <>
+                        <dt className="text-muted-foreground">target shares</dt>
+                        <dd>{basketItem.target_shares}</dd>
+                      </>
+                    ) : null}
+                    {basketItem.expected_return_pct != null ? (
+                      <>
+                        <dt className="text-muted-foreground">expected return</dt>
+                        <dd className={pnlColorClass(basketItem.expected_return_pct)}>
+                          {fmtPct(basketItem.expected_return_pct, 1, true)}
+                        </dd>
+                      </>
+                    ) : null}
+                    {basketItem.time_exit_date != null ? (
+                      <>
+                        <dt className="text-muted-foreground">time-exit</dt>
+                        <dd>{basketItem.time_exit_date}</dd>
+                      </>
+                    ) : null}
+                    {basketItem.days_to_earnings != null ? (
+                      <>
+                        <dt className="text-muted-foreground">earnings in</dt>
+                        <dd className={basketItem.days_to_earnings <= 14 ? "text-bearish" : ""}>
+                          {basketItem.days_to_earnings}d
+                        </dd>
+                      </>
+                    ) : null}
+                  </dl>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
         </div>
 
         <div className="lg:col-span-1 space-y-4">
-          {rec ? (
-            <>
-              <EarningsCallCard rec={rec} />
-              <MyPositionCard
-                ticker={ticker}
-                mark={lastClose ?? entry}
-                entry={entry}
-                stop={stop}
-                target={target}
-                action={rec.action}
-                score={rec.composite_score}
-                timeStop={timeStop}
-              />
-              {rec.sub_scores && Object.keys(rec.sub_scores).length > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-                      Sub-score breakdown
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <SubScoreBars sub={rec.sub_scores} />
-                  </CardContent>
-                </Card>
-              ) : null}
-            </>
-          ) : (
+          {sanity ? (
+            <SanityCard item={basketItem!} />
+          ) : null}
+
+          {heldPosition ? (
+            <PositionCard
+              ticker={ticker}
+              position={heldPosition}
+              stop={stop}
+              target={target}
+              entry={entry}
+              lastClose={lastClose}
+            />
+          ) : null}
+
+          {action != null && !heldPosition && action === "NEW_BUY" ? (
+            <NewBuyHintCard item={basketItem!} />
+          ) : null}
+
+          {!basketItem && !heldPosition ? (
             <Card>
-              <CardContent>
-                <p className="text-muted-foreground text-sm font-mono py-8 text-center">
-                  No engine recommendation yet — run /scan to score this ticker.
-                </p>
+              <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                Not in today&apos;s basket and not in paper positions. The chart
+                still works — for factor context, this ticker would need to
+                make today&apos;s top picks.
               </CardContent>
             </Card>
-          )}
+          ) : null}
         </div>
       </div>
     </>
   );
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function describeTicker(
+  basket: TodayActionItem | null,
+  position: Position | null,
+  lastClose: number | null,
+): string {
+  const parts: string[] = [];
+  if (basket?.sector) parts.push(basket.sector);
+  if (position) parts.push(`held ${position.shares} sh @ ${fmtUSD(position.avg_price)}`);
+  if (lastClose != null) parts.push(`last close ${fmtUSD(lastClose)}`);
+  return parts.length > 0 ? parts.join(" · ") : "Per-ticker detail";
+}
+
+function ActionBadge({ action }: { action: "NEW_BUY" | "KEEP" | "EXIT" }) {
+  const cfg: Record<
+    "NEW_BUY" | "KEEP" | "EXIT",
+    { label: string; cls: string; icon: typeof ArrowUpRight }
+  > = {
+    NEW_BUY: { label: "NEW BUY", cls: "border-bullish/40 bg-bullish/10 text-bullish", icon: ArrowUpRight },
+    KEEP: { label: "KEEP", cls: "border-primary/40 bg-primary/10 text-primary", icon: Wallet },
+    EXIT: { label: "EXIT", cls: "border-bearish/40 bg-bearish/10 text-bearish", icon: ArrowDownRight },
+  };
+  const c = cfg[action];
+  const Icon = c.icon;
+  return (
+    <Badge variant="outline" className={cn("gap-1 text-[10px] font-mono uppercase tracking-wider", c.cls)}>
+      <Icon className="h-3 w-3" />
+      {c.label}
+    </Badge>
+  );
+}
+
+function statusClass(s: NonNullable<TodayActionItem["position_status"]>): string {
+  if (s === "STOP_HIT") return "border-bearish/40 bg-bearish/10 text-bearish";
+  if (s === "NEAR_STOP") return "border-amber-500/40 bg-amber-500/10 text-amber-500";
+  if (s === "TARGET_HIT") return "border-bullish/40 bg-bullish/10 text-bullish";
+  if (s === "NEAR_TARGET") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-500";
+  return "border-border text-muted-foreground";
+}
+
+// ─── Side cards ─────────────────────────────────────────────────────────────
+
+function SanityCard({ item }: { item: TodayActionItem }) {
+  const v = item.sanity_verdict;
+  const cls =
+    v === "VETO" ? "border-bearish/40 bg-bearish/5"
+    : v === "FLAG" ? "border-amber-500/40 bg-amber-500/5"
+    : "border-bullish/40 bg-bullish/5";
+  return (
+    <Card className={cls}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+          AI sanity check
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-baseline gap-2 mb-2">
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-[10px] font-mono uppercase tracking-wider",
+              v === "VETO" && "border-bearish/40 bg-bearish/10 text-bearish",
+              v === "FLAG" && "border-amber-500/40 bg-amber-500/10 text-amber-500",
+              (v === "KEEP") && "border-bullish/40 bg-bullish/10 text-bullish",
+            )}
+          >
+            {v}
+          </Badge>
+          {item.sanity_reason ? (
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {item.sanity_reason}
+            </span>
+          ) : null}
+        </div>
+        {item.sanity_evidence ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {item.sanity_evidence}
+          </p>
+        ) : null}
+        <p className="mt-3 text-[10px] text-muted-foreground/60">
+          Advisory only — does not block paper-trade execution.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PositionCard({
+  ticker, position, stop, target, entry, lastClose,
+}: {
+  ticker: string;
+  position: Position;
+  stop: number | null;
+  target: number | null;
+  entry: number | null;
+  lastClose: number | null;
+}) {
+  const mark = position.current_price ?? lastClose;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+          My position
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs">
+          <dt className="text-muted-foreground">ticker</dt>
+          <dd>{ticker}</dd>
+          <dt className="text-muted-foreground">shares</dt>
+          <dd>{fmtNumber(position.shares, 0)}</dd>
+          <dt className="text-muted-foreground">avg cost</dt>
+          <dd>{fmtUSD(position.avg_price)}</dd>
+          <dt className="text-muted-foreground">mark</dt>
+          <dd>{mark != null ? fmtUSD(mark) : "—"}</dd>
+          <dt className="text-muted-foreground">market value</dt>
+          <dd>{fmtUSD(position.market_value)}</dd>
+          <dt className="text-muted-foreground">unrl P&amp;L</dt>
+          <dd className={pnlColorClass(position.unrealized_pnl)}>
+            {fmtUSD(position.unrealized_pnl)} ({fmtPct(position.unrealized_pnl_pct, 2, true)})
+          </dd>
+          {entry != null ? (
+            <>
+              <dt className="text-muted-foreground">entry plan</dt>
+              <dd>{fmtUSD(entry)}</dd>
+            </>
+          ) : null}
+          {stop != null ? (
+            <>
+              <dt className="text-muted-foreground">stop</dt>
+              <dd className="text-bearish">{fmtUSD(stop)}</dd>
+            </>
+          ) : null}
+          {target != null ? (
+            <>
+              <dt className="text-muted-foreground">target</dt>
+              <dd className="text-bullish">{fmtUSD(target)}</dd>
+            </>
+          ) : null}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NewBuyHintCard({ item }: { item: TodayActionItem }) {
+  return (
+    <Card className="border-bullish/40 bg-bullish/5">
+      <CardHeader>
+        <CardTitle className="text-xs font-medium tracking-wider uppercase text-bullish">
+          New buy — order ready
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs">
+          {item.target_shares != null ? (
+            <>
+              <dt className="text-muted-foreground">qty</dt>
+              <dd>{item.target_shares}</dd>
+            </>
+          ) : null}
+          {item.entry_price != null ? (
+            <>
+              <dt className="text-muted-foreground">entry</dt>
+              <dd>{fmtUSD(item.entry_price)}</dd>
+            </>
+          ) : null}
+          {item.stop_loss != null ? (
+            <>
+              <dt className="text-muted-foreground">stop</dt>
+              <dd className="text-bearish">{fmtUSD(item.stop_loss)}</dd>
+            </>
+          ) : null}
+          {item.target != null ? (
+            <>
+              <dt className="text-muted-foreground">target</dt>
+              <dd className="text-bullish">{fmtUSD(item.target)}</dd>
+            </>
+          ) : null}
+        </dl>
+        <Link
+          href="/buy-signals"
+          className="mt-3 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          Full action list <ChevronLeft className="h-3 w-3 rotate-180" />
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NoData({ ticker }: { ticker: string }) {
+  return (
+    <>
+      <PageHeader title={ticker} description="No data available" />
+      <Card>
+        <CardContent className="py-12 text-center space-y-3">
+          <AlertTriangle className="h-8 w-8 text-muted-foreground mx-auto" />
+          <p className="font-mono text-xs tracking-wider uppercase text-muted-foreground">
+            No price history in Parquet store
+          </p>
+          <p className="text-sm text-muted-foreground">
+            This ticker has no cached OHLC bars and isn&apos;t in today&apos;s basket.
+            Add it to the universe (config/portfolio.yaml) and re-run the
+            pipeline, or check the ticker spelling.
+          </p>
+          <Link
+            href="/buy-signals"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <ChevronLeft className="h-3 w-3" />
+            Today&apos;s actions
+          </Link>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+// ─── Price chart ────────────────────────────────────────────────────────────
+
 function PriceChart({
-  history,
-  entry,
-  stop,
-  target,
+  history, entry, stop, target,
 }: {
   history: OHLCBar[];
   entry: number | null;
   stop: number | null;
   target: number | null;
 }) {
-  const dateFmt = (d: string | number) => {
-    const dt = new Date(d);
-    return Number.isNaN(dt.getTime())
-      ? String(d)
-      : dt.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
-  };
-
-  const tooltipFormatter = (value: unknown) => {
-    if (typeof value !== "number") return [String(value), "close"] as const;
-    const tone =
-      entry !== null
-        ? value > entry
-          ? "above entry"
-          : value < entry
-            ? "below entry"
-            : "at entry"
-        : "";
-    return [`${fmtUSD(value)}${tone ? ` · ${tone}` : ""}`, "close"] as const;
-  };
-
+  const data = history.map((b) => ({
+    date: b.date,
+    close: b.close,
+    timestamp: new Date(b.date).getTime() / 1000,
+  }));
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart
-        data={history}
-        margin={{ top: 8, right: 64, bottom: 0, left: 8 }}
-      >
-        <defs>
-          <linearGradient id="stock-price-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={CHART_TOKEN.primary} stopOpacity={0.12} />
-            <stop offset="100%" stopColor={CHART_TOKEN.primary} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-
+      <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
         <CartesianGrid
           stroke={CHART_GRID}
           strokeOpacity={0.4}
@@ -550,8 +638,15 @@ function PriceChart({
           vertical={false}
         />
         <XAxis
-          dataKey="date"
-          tickFormatter={dateFmt}
+          dataKey="timestamp"
+          type="number"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={(v) =>
+            new Date(Number(v) * 1000).toLocaleDateString(undefined, {
+              month: "short",
+              day: "2-digit",
+            })
+          }
           stroke={CHART_AXIS}
           tick={{
             fill: CHART_AXIS,
@@ -560,7 +655,7 @@ function PriceChart({
           }}
           tickLine={false}
           axisLine={{ stroke: CHART_GRID, strokeOpacity: 0.6 }}
-          minTickGap={32}
+          minTickGap={48}
         />
         <YAxis
           orientation="right"
@@ -572,78 +667,80 @@ function PriceChart({
           }}
           tickLine={false}
           axisLine={false}
-          tickFormatter={(v) => fmtUSD(v as number, true)}
-          width={56}
+          tickFormatter={(v) => fmtUSD(v as number)}
+          width={64}
           domain={["auto", "auto"]}
         />
         <Tooltip
-          contentStyle={{
-            background: CHART_TOOLTIP_BG,
-            border: `1px solid ${CHART_TOOLTIP_BORDER}`,
-            borderRadius: 2,
-            fontSize: 11,
-            fontFamily: "var(--font-geist-mono)",
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const row = payload[0]?.payload as { date: string; close: number };
+            return (
+              <div
+                className="border border-border px-2.5 py-1.5 font-mono text-[11px] leading-tight"
+                style={{
+                  background: CHART_TOOLTIP_BG,
+                  borderColor: CHART_TOOLTIP_BORDER,
+                }}
+              >
+                <div className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                  {row.date}
+                </div>
+                <div className="text-foreground tabular-nums">{fmtUSD(row.close)}</div>
+              </div>
+            );
           }}
-          labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
-          formatter={tooltipFormatter}
+          cursor={{ stroke: CHART_GRID }}
         />
-
-        {entry !== null ? (
-          <ReferenceLine
-            y={entry}
-            stroke={CHART_TOKEN.primary}
-            strokeOpacity={0.9}
-            strokeDasharray="3 3"
-            label={{
-              value: "ENTRY",
-              position: "right",
-              fill: CHART_TOKEN.primary,
-              fontSize: 10,
-              fontFamily: "var(--font-geist-mono)",
-              letterSpacing: 1,
-            }}
-          />
-        ) : null}
-        {stop !== null ? (
+        {stop != null ? (
           <ReferenceLine
             y={stop}
             stroke="var(--bearish)"
-            strokeOpacity={0.9}
             strokeDasharray="3 3"
             label={{
-              value: "STOP",
-              position: "right",
+              value: `STOP ${fmtUSD(stop)}`,
+              position: "insideTopRight",
               fill: "var(--bearish)",
               fontSize: 10,
               fontFamily: "var(--font-geist-mono)",
-              letterSpacing: 1,
             }}
           />
         ) : null}
-        {target !== null ? (
+        {target != null ? (
           <ReferenceLine
             y={target}
             stroke="var(--bullish)"
-            strokeOpacity={0.9}
             strokeDasharray="3 3"
             label={{
-              value: "TARGET",
-              position: "right",
+              value: `TARGET ${fmtUSD(target)}`,
+              position: "insideTopRight",
               fill: "var(--bullish)",
               fontSize: 10,
               fontFamily: "var(--font-geist-mono)",
-              letterSpacing: 1,
             }}
           />
         ) : null}
-
+        {entry != null ? (
+          <ReferenceLine
+            y={entry}
+            stroke={CHART_AXIS}
+            strokeOpacity={0.6}
+            label={{
+              value: `ENTRY ${fmtUSD(entry)}`,
+              position: "insideBottomRight",
+              fill: CHART_AXIS,
+              fontSize: 10,
+              fontFamily: "var(--font-geist-mono)",
+            }}
+          />
+        ) : null}
         <Area
           type="monotone"
           dataKey="close"
           stroke={CHART_TOKEN.primary}
           strokeWidth={1.5}
-          fill="url(#stock-price-fill)"
-          fillOpacity={1}
+          fill={CHART_TOKEN.primary}
+          fillOpacity={0.15}
           isAnimationActive={false}
           dot={false}
           activeDot={{ r: 3, fill: CHART_TOKEN.primary, stroke: "none" }}
@@ -652,46 +749,3 @@ function PriceChart({
     </ResponsiveContainer>
   );
 }
-
-function SubScoreBars({ sub }: { sub: Record<string, number | undefined> }) {
-  const entries = Object.entries(sub)
-    .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
-    .map(([k, v]) => [k, v as number] as const)
-    .sort((a, b) => b[1] - a[1]);
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm font-mono">No sub-scores.</p>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {entries.map(([k, score]) => {
-        const pct = Math.max(0, Math.min(100, score));
-        return (
-          <div key={k} className="flex items-center gap-3">
-            <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground w-28 truncate">
-              {k}
-            </span>
-            <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden flex-1">
-              <div
-                style={{ width: `${pct}%` }}
-                className={cn("h-full", scoreBarClass(score))}
-              />
-            </div>
-            <span
-              className={cn(
-                "font-mono tabular-nums text-xs w-12 text-right",
-                scoreTextClass(score),
-              )}
-            >
-              {score.toFixed(1)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-

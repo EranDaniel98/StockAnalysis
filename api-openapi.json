@@ -6524,6 +6524,50 @@
             ],
             "title": "Composite Z"
           },
+          "mom_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mom Rank"
+          },
+          "qual_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qual Rank"
+          },
+          "val_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Rank"
+          },
+          "pead_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pead Rank"
+          },
           "entry_price": {
             "anyOf": [
               {

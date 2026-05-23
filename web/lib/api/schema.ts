@@ -2770,6 +2770,14 @@ export interface components {
             sector?: string | null;
             /** Composite Z */
             composite_z?: number | null;
+            /** Mom Rank */
+            mom_rank?: number | null;
+            /** Qual Rank */
+            qual_rank?: number | null;
+            /** Val Rank */
+            val_rank?: number | null;
+            /** Pead Rank */
+            pead_rank?: number | null;
             /** Entry Price */
             entry_price?: number | null;
             /** Target Shares */

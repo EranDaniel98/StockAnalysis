@@ -95,6 +95,15 @@ class TodayActionItem(BaseModel):
     sector: Optional[str] = None
     composite_z: Optional[float] = None
 
+    # Factor ranks within today's universe — only present for NEW_BUY +
+    # KEEP rows (the picks file doesn't carry an entry for tickers that
+    # dropped out). Smaller rank = stronger; null = ticker doesn't have
+    # data for that factor in this run.
+    mom_rank: Optional[int] = None
+    qual_rank: Optional[int] = None
+    val_rank: Optional[int] = None
+    pead_rank: Optional[int] = None
+
     # Strategy plan — present for NEW_BUY and KEEP. None for EXIT.
     entry_price: Optional[float] = None
     target_shares: Optional[int] = None
@@ -292,11 +301,16 @@ def _build_new_buy(
 ) -> TodayActionItem:
     """A NEW_BUY: not currently held, in today's basket. All the data we
     have is forward-looking (entry/stop/target/sizing/rationale)."""
+    pk = pick or {}
     return TodayActionItem(
         ticker=ticker,
         action="NEW_BUY",
-        sector=(plan or {}).get("sector") or (pick or {}).get("sector"),
-        composite_z=_safe_float((pick or {}).get("z_score")),
+        sector=(plan or {}).get("sector") or pk.get("sector"),
+        composite_z=_safe_float(pk.get("z_score")),
+        mom_rank=_safe_int(pk.get("mom_rank")),
+        qual_rank=_safe_int(pk.get("qual_rank")),
+        val_rank=_safe_int(pk.get("val_rank")),
+        pead_rank=_safe_int(pk.get("pead_rank")),
         entry_price=_safe_float((plan or {}).get("entry_price")),
         target_shares=_safe_int((plan or {}).get("target_shares")),
         position_size_usd=_safe_float((plan or {}).get("position_size_usd")),
@@ -334,11 +348,16 @@ def _build_keep(
         _classify_position(current, stop, target)
         if current > 0 and stop > 0 and target > 0 else None
     )
+    pk = pick or {}
     return TodayActionItem(
         ticker=ticker,
         action="KEEP",
-        sector=(plan or {}).get("sector") or (pick or {}).get("sector"),
-        composite_z=_safe_float((pick or {}).get("z_score")),
+        sector=(plan or {}).get("sector") or pk.get("sector"),
+        composite_z=_safe_float(pk.get("z_score")),
+        mom_rank=_safe_int(pk.get("mom_rank")),
+        qual_rank=_safe_int(pk.get("qual_rank")),
+        val_rank=_safe_int(pk.get("val_rank")),
+        pead_rank=_safe_int(pk.get("pead_rank")),
         entry_price=_safe_float((plan or {}).get("entry_price")),
         target_shares=_safe_int((plan or {}).get("target_shares")),
         position_size_usd=_safe_float((plan or {}).get("position_size_usd")),
