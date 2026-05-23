@@ -45,9 +45,8 @@ const PAGES: ReadonlyArray<PageRow> = [
   { route: "/stocks/[ticker]", description: "Per-ticker trade plan: composite score, sub-scores, entry/stop/target overlay on price chart, reasoning, risk plan." },
   { route: "/recommendations", description: "Append-only log of every paper-trade recommendation (submitted + skipped)." },
   { route: "/sectors", description: "SPDR sector ETF rotation heatmap. Tile color = 5-day return." },
-  { route: "/backtests", description: "List of completed backtest runs across strategies." },
-  { route: "/backtests/[id]", description: "Per-run tearsheet: equity curve, drawdown, trade log, MAR/Sortino, return distribution." },
-  { route: "/backtests/compare", description: "Overlay N backtest equity curves on one chart." },
+  { route: "/backtests", description: "Factor sweep + A/B results: α vs SPY, walk-forward gate, params, equity curve." },
+  { route: "/backtests/[slug]", description: "Per-run detail: scoreboard, walk-forward folds, equity curve with SPY overlay, rebalance log, trades." },
   { route: "/diagnose", description: "Alphalens IC sweep — quantile-spread, IC decay, factor-grouped Sharpe." },
   { route: "/help", description: "This page." },
 ];
