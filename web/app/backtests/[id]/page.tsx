@@ -337,8 +337,21 @@ function EquityCurveCard({ data }: { data: FactorBacktestDetail }) {
                 </span>
               </span>
               {showSpy && start.spy != null && end.spy != null ? (
-                <span className="text-muted-foreground">
-                  SPY synthetic line is linear-interpolated from total return
+                <span>
+                  SPY{" "}
+                  <span className={cn(pnlColorClass(end.spy - start.spy))}>
+                    {fmtUSD(end.spy - start.spy)}
+                  </span>
+                  {" · α "}
+                  <span className={cn(pnlColorClass(
+                    (end.equity ?? 0) - (start.equity ?? 0)
+                    - (end.spy - start.spy),
+                  ))}>
+                    {fmtUSD(
+                      (end.equity ?? 0) - (start.equity ?? 0)
+                      - (end.spy - start.spy),
+                    )}
+                  </span>
                 </span>
               ) : null}
             </>
@@ -409,7 +422,7 @@ function EquityCurveCard({ data }: { data: FactorBacktestDetail }) {
                 <Area
                   type="monotone"
                   dataKey="spy"
-                  name="SPY (synthetic)"
+                  name="SPY"
                   stroke={CHART_AXIS}
                   strokeWidth={1}
                   strokeDasharray="3 3"

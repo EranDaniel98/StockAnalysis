@@ -13,6 +13,7 @@ runs and stays untouched.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -92,8 +93,10 @@ class FactorBacktestDetail(FactorBacktestSummary):
     spy_equity_curve: list[tuple[str, float]] = Field(
         default_factory=list,
         description=(
-            "Synthetic SPY equity over the same dates, normalized to the "
-            "strategy's starting cash so the FE can overlay on one axis."
+            "Real SPY daily closes over the backtest window, normalized "
+            "so the first point equals the strategy's starting cash. "
+            "Fetched from yfinance per-request; empty list when yfinance "
+            "fetch fails."
         ),
     )
     rebalance_log: list[dict] = Field(
@@ -233,33 +236,92 @@ def _resolve_slug(slug: str) -> Optional[tuple[Path, BacktestKind]]:
     return None
 
 
-def _normalize_spy_curve(
-    equity_curve: list, starting_cash: float,
-    spy_total_return_pct: Optional[float],
+def _fetch_spy_daily_sync(
+    start_date: str, end_date: str,
 ) -> list[tuple[str, float]]:
-    """Synthesize a SPY equity curve at the strategy's daily timestamps.
+    """Pull SPY daily closes from yfinance over the window. Returns
+    (date_iso, close_price) pairs. Empty list on any failure (no SPY
+    overlay shown to the user)."""
+    try:
+        import yfinance as yf
 
-    The on-disk artifact only records SPY's total return (not its daily
-    curve), so we cannot draw the true SPY path. Linear-interpolate from
-    starting cash to ``starting_cash * (1 + spy_total_return)`` so the FE
-    has a same-axis reference line. This is a rough but consistent
-    'where SPY ended' marker rather than a true benchmark trajectory.
-    """
-    if not equity_curve or starting_cash <= 0 or spy_total_return_pct is None:
+        # yfinance.download `end` is exclusive — pad by one day so the
+        # final date appears in the result.
+        from datetime import datetime as _dt, timedelta as _td
+        try:
+            end_inclusive = (
+                _dt.fromisoformat(end_date) + _td(days=1)
+            ).date().isoformat()
+        except ValueError:
+            end_inclusive = end_date
+        df = yf.Ticker("SPY").history(
+            start=start_date, end=end_inclusive,
+            interval="1d", auto_adjust=True,
+        )
+        if df is None or df.empty:
+            return []
+        out: list[tuple[str, float]] = []
+        for ts, px in df["Close"].items():
+            try:
+                date_iso = ts.strftime("%Y-%m-%d")
+            except Exception:  # noqa: BLE001
+                continue
+            try:
+                price = float(px)
+            except (TypeError, ValueError):
+                continue
+            out.append((date_iso, price))
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("SPY history fetch failed (%s..%s): %s",
+                       start_date, end_date, e)
         return []
-    end_value = starting_cash * (1 + spy_total_return_pct / 100.0)
-    n = len(equity_curve)
-    if n < 2:
+
+
+def _real_spy_curve(
+    equity_curve: list, starting_cash: float,
+) -> list[tuple[str, float]]:
+    """Build a same-axis SPY equity series from real yfinance closes
+    aligned to the strategy's bar dates.
+
+    Anchors: SPY's first close in the window equals ``starting_cash``,
+    every subsequent point is ``starting_cash * (spy_close / spy_first)``.
+    Where strategy has a bar but SPY doesn't (e.g. mismatched calendars),
+    we carry forward the most-recent SPY close.
+    """
+    if not equity_curve or starting_cash <= 0:
+        return []
+    dates: list[str] = []
+    for pt in equity_curve:
+        if isinstance(pt, (list, tuple)) and len(pt) >= 1:
+            dates.append(str(pt[0]))
+    if not dates:
+        return []
+    spy_pairs = _fetch_spy_daily_sync(dates[0], dates[-1])
+    if not spy_pairs:
+        return []
+    spy_by_date: dict[str, float] = {d: p for d, p in spy_pairs}
+    spy_sorted_dates = sorted(spy_by_date.keys())
+    anchor_price: Optional[float] = None
+    # Find SPY's earliest tick at-or-after the strategy's start so the two
+    # lines anchor on the same value (starting_cash).
+    for d in spy_sorted_dates:
+        if d >= dates[0]:
+            anchor_price = spy_by_date[d]
+            break
+    if anchor_price is None or anchor_price <= 0:
         return []
     out: list[tuple[str, float]] = []
-    for i, pt in enumerate(equity_curve):
-        # equity_curve may be either the raw JSON list-of-lists or the
-        # already-parsed list-of-tuples — accept both.
-        if not (isinstance(pt, (list, tuple)) and len(pt) >= 1):
+    last_known: Optional[float] = None
+    j = 0
+    for d in dates:
+        # Walk SPY pointer to the last close at-or-before this strategy date.
+        while j < len(spy_sorted_dates) and spy_sorted_dates[j] <= d:
+            last_known = spy_by_date[spy_sorted_dates[j]]
+            j += 1
+        if last_known is None:
             continue
-        date_str = str(pt[0])
-        frac = i / (n - 1)
-        out.append((date_str, starting_cash + frac * (end_value - starting_cash)))
+        out.append((d, starting_cash * (last_known / anchor_price)))
     return out
 
 
@@ -327,8 +389,12 @@ async def get_factor_backtest(slug: str) -> FactorBacktestDetail:
                 equity_curve.append((d, v))
 
     starting_cash = _safe_float((payload.get("parameters") or {}).get("starting_cash")) or 0.0
-    spy_curve = _normalize_spy_curve(
-        equity_curve, starting_cash, summary.spy_total_return_pct,
+    # Real SPY daily closes over the backtest window, anchored to
+    # starting_cash. yfinance is sync — offload so we don't block the
+    # event loop. Falls back to [] on any fetch failure; the FE then
+    # just hides the SPY series.
+    spy_curve = await asyncio.to_thread(
+        _real_spy_curve, equity_curve, starting_cash,
     )
 
     return FactorBacktestDetail(
