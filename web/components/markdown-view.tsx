@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 /**
  * Minimal markdown renderer for author-controlled report files —
  * handles headings, lists, tables, paragraphs, and inline
@@ -7,12 +9,17 @@ import type { ReactNode } from "react";
  * by our own pipeline so we skip XSS escaping.
  */
 export function MarkdownView({ markdown }: { markdown: string }) {
+  // Normalize CRLF and CR to LF first. Pipeline reports are written
+  // by Python on Windows so the bytes are \r\n\r\n between blocks;
+  // without this normalization the \n\n+ split finds zero matches
+  // and the whole document collapses into a single <p>.
   const blocks = markdown
+    .replace(/\r\n?/g, "\n")
     .split(/\n\n+/)
     .map((b) => b.trim())
     .filter(Boolean);
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none space-y-2">
       {blocks.map((block, i) => renderBlock(block, i))}
     </div>
   );
@@ -24,10 +31,36 @@ function renderBlock(block: string, key: number): ReactNode {
     const level = h[1].length;
     const text = h[2];
     const Tag = `h${Math.min(level, 4)}` as "h1" | "h2" | "h3" | "h4";
+    const sizeClass =
+      level === 1 ? "text-xl"
+      : level === 2 ? "text-lg"
+      : level === 3 ? "text-base"
+      : "text-sm";
     return (
-      <Tag key={key} className="mt-6 mb-2 font-semibold">
+      <Tag key={key} className={cn("mt-6 mb-2 font-semibold", sizeClass)}>
         {inline(text)}
       </Tag>
+    );
+  }
+  // Blockquote: every line starts with "> ". Strip the marker, join the
+  // remaining text as paragraphs (blank ">" lines act as separators).
+  if (block.split("\n").every((l) => /^>\s?/.test(l))) {
+    const stripped = block
+      .split("\n")
+      .map((l) => l.replace(/^>\s?/, ""))
+      .join("\n");
+    const paragraphs = stripped.split(/\n\s*\n/).filter((p) => p.trim());
+    return (
+      <blockquote
+        key={key}
+        className="my-3 border-l-2 border-amber-500/60 bg-amber-500/5 pl-3 py-2 text-sm"
+      >
+        {paragraphs.map((p, j) => (
+          <p key={j} className="my-1 leading-relaxed">
+            {inline(p)}
+          </p>
+        ))}
+      </blockquote>
     );
   }
   if (block.includes("|") && block.split("\n")[1]?.includes("---")) {
@@ -53,6 +86,16 @@ function renderBlock(block: string, key: number): ReactNode {
           </li>
         ))}
       </ol>
+    );
+  }
+  // Multi-line plain block: preserve line breaks so report sections that
+  // use single newlines (e.g. label/value rows) don't collapse onto one
+  // line. Block-level split is already on \n\n.
+  if (block.includes("\n")) {
+    return (
+      <p key={key} className="my-2 whitespace-pre-line">
+        {inline(block)}
+      </p>
     );
   }
   return (
