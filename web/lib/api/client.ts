@@ -90,6 +90,9 @@ export type PipelineRecentResponse = Schemas["PipelineRecentResponse"];
 export type PipelineRecentRun = Schemas["PipelineRecentRun"];
 export type TodayActionsResponse = Schemas["TodayActionsResponse"];
 export type TodayActionItem = Schemas["TodayActionItem"];
+export type FactorBacktestSummary = Schemas["FactorBacktestSummary"];
+export type FactorBacktestDetail = Schemas["FactorBacktestDetail"];
+export type WalkForwardFold = Schemas["WalkForwardFold"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -192,6 +195,22 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  factorBacktests: {
+    list: (params?: { kind?: "sweep" | "ab"; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.kind) q.set("kind", params.kind);
+      if (params?.limit) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return request<FactorBacktestSummary[]>(
+        `/api/factor-backtests${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (slug: string) =>
+      request<FactorBacktestDetail>(
+        `/api/factor-backtests/${encodeURIComponent(slug)}`,
+      ),
   },
 
   pipeline: {

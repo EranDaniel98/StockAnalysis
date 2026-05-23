@@ -1,219 +1,116 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { use } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ChevronLeft, CheckCircle2, XCircle } from "lucide-react";
+import Link from "next/link";
+import { use, useMemo } from "react";
 
-import { DrawdownChart } from "@/components/backtests/drawdown-chart";
-import { EquityCurveChart } from "@/components/backtests/equity-curve-chart";
-import { RegimeBreakdown } from "@/components/backtests/regime-breakdown";
-import { SectionStatsTable } from "@/components/backtests/section-stats-table";
-import { TradeTable, type Trade } from "@/components/backtests/trade-table";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api/client";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { api, type FactorBacktestDetail } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtNumber, fmtPct } from "@/lib/format";
+import { CHART_AXIS, CHART_GRID, CHART_TOKEN } from "@/lib/chart-tokens";
+import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type EquityPoint = { date: string; equity: number; [k: string]: unknown };
+type Params = { params: Promise<{ id: string }> };
 
-type SectionSummary = {
-  n_trades?: number;
-  total_return_pct?: number;
-  cagr_pct?: number;
-  win_rate_pct?: number;
-  expectancy_pct?: number;
-  avg_hold_days?: number;
-  sharpe_per_trade?: number;
-  spy_return_pct?: number | null;
-  alpha_vs_spy_pct?: number | null;
-};
-type SectionEquity = {
-  max_drawdown_pct?: number;
-  time_in_dd_pct?: number;
-  ann_sharpe?: number;
-  ann_sortino?: number;
-  calmar?: number;
-  ann_volatility_pct?: number;
-};
-type Section = { summary?: SectionSummary; equity_stats?: SectionEquity };
-
-type Regimes = {
-  spy_bull?: Record<string, number>;
-  spy_bear?: Record<string, number>;
-  vix_low?: Record<string, number>;
-  vix_normal?: Record<string, number>;
-  vix_high?: Record<string, number>;
-};
-
-type AdjustedSection = {
-  total_return_pct?: number | null;
-  cagr_pct?: number | null;
-  ann_sharpe?: number | null;
-  haircut_applied?: {
-    annual_return_haircut_pct?: number;
-    sharpe_haircut?: number;
-    rationale?: string;
-  };
-};
-type SurvivorshipBias = {
-  applies?: boolean;
-  severity?: string;
-  magnitude_hint_annual_pct?: string;
-  source?: string;
-  details?: string;
-  remediation?: string;
-  universe_label?: string;
-  adjusted?: {
-    full?: AdjustedSection | null;
-    out_of_sample?: AdjustedSection | null;
-    method?: string;
-  };
-};
-type DataQuality = {
-  pipeline_version?: string;
-  survivorship_bias?: SurvivorshipBias;
-  n_tickers_traded?: number;
-};
-
-function toneClass(n: number | null | undefined): string {
-  if (n == null || Number.isNaN(n)) return "text-foreground";
-  if (n > 0) return "text-bullish";
-  if (n < 0) return "text-bearish";
-  return "text-muted-foreground";
-}
-
-function toneFor(
-  n: number | null | undefined,
-): "bullish" | "bearish" | "neutral" | "muted" {
-  if (n == null || Number.isNaN(n)) return "muted";
-  if (n > 0) return "bullish";
-  if (n < 0) return "bearish";
-  return "neutral";
-}
-
-export default function BacktestDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id: idParam } = use(params);
-  const id = Number(idParam);
-
+export default function FactorBacktestDetailPage({ params }: Params) {
+  const { id } = use(params);
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.backtests.detail(id),
-    queryFn: () => api.backtests.get(id),
-    enabled: !Number.isNaN(id),
+    queryKey: qk.factorBacktests.detail(id),
+    queryFn: () => api.factorBacktests.get(id),
   });
-
-  if (Number.isNaN(id)) {
-    return <ErrorState error={new Error(`Invalid backtest id: ${idParam}`)} />;
-  }
-
-  const windowLabel = data
-    ? `${new Date(data.window_start).toLocaleDateString()} -> ${new Date(data.window_end).toLocaleDateString()}`
-    : "Loading...";
 
   return (
     <>
       <PageHeader
-        title={data ? `Backtest #${data.id}` : "Backtest"}
+        title={data ? data.slug : isLoading ? "Loading…" : "Backtest"}
         description={
           data
-            ? `${data.strategy} | ${windowLabel}`
-            : "Loading run metadata..."
+            ? `${data.strategy} · ${data.universe_label ?? "—"} · ${data.window_start ?? "?"} → ${data.window_end ?? "?"}`
+            : "Factor backtest detail"
         }
         actions={
-          data ? (
-            <Badge variant="outline" className="font-mono">
-              {data.strategy}
-            </Badge>
-          ) : null
+          <Link
+            href="/backtests"
+            className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+          >
+            <ChevronLeft className="h-3 w-3" />
+            Back to runs
+          </Link>
         }
       />
 
       {error ? <ErrorState error={error} /> : null}
-
       {isLoading || !data ? (
         <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, i) => (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-20 w-full" />
             ))}
           </div>
-          <Skeleton className="h-72 w-full" />
+          <Skeleton className="h-80 w-full" />
         </div>
       ) : (
-        <BacktestDetail result={data.result} />
+        <DetailBody data={data} />
       )}
     </>
   );
 }
 
-function BacktestDetail({ result }: { result: Record<string, unknown> }) {
-  const full = (result.full ?? {}) as Section;
-  const inSample = (result.in_sample ?? {}) as Section;
-  const outOfSample = (result.out_of_sample ?? {}) as Section;
-  const equity = (result.equity_curve ?? []) as EquityPoint[];
-  const trades = (result.trades ?? []) as Trade[];
-  const regimes = (result.regimes ?? {}) as Regimes;
-  const splitDate = (result.split_date ?? null) as string | null;
-  const verdict = (result.verdict_oos ?? null) as string | null;
-  const dataQuality = (result.data_quality ?? null) as DataQuality | null;
-
-  const fullSummary = full.summary ?? {};
-  const fullEq = full.equity_stats ?? {};
-  const oosSummary = outOfSample.summary ?? {};
-  const oosEq = outOfSample.equity_stats ?? {};
-
-  const oosTradeShare =
-    fullSummary.n_trades && oosSummary.n_trades != null
-      ? `${oosSummary.n_trades}/${fullSummary.n_trades} OOS`
-      : undefined;
-
+function DetailBody({ data }: { data: FactorBacktestDetail }) {
   return (
-    <div className="space-y-4">
-      <DataQualityBanner quality={dataQuality} />
-      {/* ── Scoreboard strip: 6 dense tiles ─────────────────────────────── */}
-      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+    <>
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
-          label="Total Return"
+          label="α vs SPY"
+          tooltip="alpha_vs_spy_pct from the run JSON. Strategy total return minus SPY total return over the same window."
           value={
-            <span className={cn(toneClass(fullSummary.total_return_pct))}>
-              {fmtPct(fullSummary.total_return_pct, 2, true)}
-            </span>
+            data.alpha_vs_spy_pct == null ? (
+              "—"
+            ) : (
+              <span
+                className={cn(
+                  "font-mono",
+                  pnlColorClass(data.alpha_vs_spy_pct),
+                )}
+              >
+                {fmtPct(data.alpha_vs_spy_pct, 2, true)}
+              </span>
+            )
           }
           sub={
-            fullSummary.cagr_pct != null
-              ? `${fmtPct(fullSummary.cagr_pct, 2, true)} CAGR`
-              : undefined
-          }
-          subTone={toneFor(fullSummary.cagr_pct)}
-        />
-        <ScoreboardTile
-          label="OOS Return"
-          value={
-            <span className={cn(toneClass(oosSummary.total_return_pct))}>
-              {fmtPct(oosSummary.total_return_pct, 2, true)}
-            </span>
-          }
-          sub={
-            oosSummary.alpha_vs_spy_pct != null
-              ? `alpha ${fmtPct(oosSummary.alpha_vs_spy_pct, 2, true)}`
-              : "vs SPY n/a"
-          }
-          subTone={toneFor(oosSummary.alpha_vs_spy_pct)}
-        />
-        <ScoreboardTile
-          label="Full Sharpe"
-          value={fmtNumber(fullEq.ann_sharpe, 2)}
-          sub={
-            fullEq.ann_sortino != null
-              ? `Sortino ${fmtNumber(fullEq.ann_sortino, 2)}`
+            data.spy_total_return_pct != null && data.total_return_pct != null
+              ? `${fmtPct(data.total_return_pct, 1, true)} vs ${fmtPct(data.spy_total_return_pct, 1, true)}`
               : undefined
           }
           subTone="muted"
@@ -221,216 +118,469 @@ function BacktestDetail({ result }: { result: Record<string, unknown> }) {
         <ScoreboardTile
           label="OOS Sharpe"
           value={
-            <span className={cn(toneClass(oosEq.ann_sharpe))}>
-              {fmtNumber(oosEq.ann_sharpe, 2)}
-            </span>
+            data.ann_sharpe == null ? "—" : (
+              <span className={cn("font-mono", pnlColorClass(data.ann_sharpe))}>
+                {fmtNumber(data.ann_sharpe, 2)}
+              </span>
+            )
           }
           sub={
-            oosEq.calmar != null
-              ? `Calmar ${fmtNumber(oosEq.calmar, 2)}`
+            data.spy_ann_sharpe != null
+              ? `SPY ${fmtNumber(data.spy_ann_sharpe, 2)}`
               : undefined
           }
-          subTone={toneFor(oosEq.ann_sharpe)}
+          subTone="muted"
         />
         <ScoreboardTile
           label="Max DD"
           value={
-            <span className={cn(toneClass(-(fullEq.max_drawdown_pct ?? 0)))}>
-              {fmtPct(fullEq.max_drawdown_pct, 2)}
-            </span>
+            data.max_drawdown_pct == null ? "—" : (
+              <span className="font-mono text-bearish">
+                {fmtPct(data.max_drawdown_pct, 1)}
+              </span>
+            )
           }
           sub={
-            fullEq.time_in_dd_pct != null
-              ? `${fmtPct(fullEq.time_in_dd_pct, 1)} time in DD`
+            data.cagr_pct != null
+              ? `CAGR ${fmtPct(data.cagr_pct, 1, true)}`
               : undefined
           }
           subTone="muted"
         />
         <ScoreboardTile
-          label="Win % / Trades"
-          value={fmtPct(fullSummary.win_rate_pct, 1)}
+          label="Walk-forward"
+          tooltip="walk_forward.passed gate from the run JSON. Pass = every fold cleared the script's Sharpe threshold."
+          value={<WfBadgeBig passed={data.wf_passed} />}
           sub={
-            oosTradeShare ??
-            (fullSummary.n_trades != null
-              ? `${fullSummary.n_trades} trades`
-              : undefined)
+            data.wf_mean_sharpe != null && data.wf_min_sharpe != null
+              ? `mean ${fmtNumber(data.wf_mean_sharpe, 2)} · min ${fmtNumber(data.wf_min_sharpe, 2)} · ${data.n_folds ?? 0} folds`
+              : undefined
           }
           subTone="muted"
         />
       </div>
 
-      {verdict ? (
-        <div className="border-border text-muted-foreground flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 font-mono text-[11px] tracking-wider uppercase">
-          <span>OOS VERDICT</span>
-          <span className="text-foreground">[ {verdict} ]</span>
-          {splitDate ? (
-            <span className="ml-auto">SPLIT {splitDate}</span>
-          ) : null}
-        </div>
-      ) : null}
+      {/* Parameters + walk-forward folds, side-by-side */}
+      <div className="grid gap-4 mt-4 lg:grid-cols-2">
+        <ParametersCard data={data} />
+        <WalkForwardCard data={data} />
+      </div>
 
-      {/* ── Equity curve + drawdown ─────────────────────────────────────── */}
-      {equity.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Equity curve</span>
-              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
-                {equity.length} weekly marks
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <EquityCurveChart equity={equity} splitDate={splitDate} />
-            </div>
-            <div className="border-border mt-3 border-t pt-3">
-              <div className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wider uppercase">
-                Drawdown (% from running peak)
-              </div>
-              <div className="h-32">
-                <DrawdownChart equity={equity} splitDate={splitDate} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+      <EquityCurveCard data={data} />
 
-      {/* ── IS / OOS / Full comparison ─────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span>Section stats</span>
-            <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
-              IS | OOS | Full
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-0">
-          <SectionStatsTable
-            full={full}
-            inSample={inSample}
-            outOfSample={outOfSample}
-            splitDate={splitDate}
-          />
-        </CardContent>
-      </Card>
+      <RebalanceLogCard data={data} />
 
-      {/* ── Regime breakdown (optional) ─────────────────────────────────── */}
-      {regimes && Object.keys(regimes).length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Regime breakdown</span>
-              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
-                trade entry context
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RegimeBreakdown regimes={regimes} />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* ── Trades ─────────────────────────────────────────────────────── */}
-      {trades.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Trades</span>
-              <span className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
-                {trades.length} closed
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-0">
-            <TradeTable trades={trades} />
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
+      <TradesSampleCard data={data} />
+    </>
   );
 }
 
-function DataQualityBanner({ quality }: { quality: DataQuality | null }) {
-  if (!quality || !quality.survivorship_bias?.applies) return null;
-  const sb = quality.survivorship_bias;
-  const adjOos = sb.adjusted?.out_of_sample ?? null;
-  const adjFull = sb.adjusted?.full ?? null;
+// ─── Parameters ────────────────────────────────────────────────────────────
+
+function ParametersCard({ data }: { data: FactorBacktestDetail }) {
+  const entries = useMemo(
+    () => Object.entries(data.parameters ?? {}),
+    [data.parameters],
+  );
   return (
-    <div
-      role="note"
-      aria-label="Data quality warning"
-      className="border-l-4 border-amber-500 bg-amber-500/10 px-4 py-3 text-sm"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="font-semibold text-amber-700 dark:text-amber-300">
-          Survivorship bias: {sb.severity ?? "uncorrected"}
-          {sb.universe_label ? (
-            <span className="text-muted-foreground ml-2 font-normal">
-              · universe: <span className="font-mono">{sb.universe_label}</span>
-            </span>
-          ) : null}
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Parameters</CardTitle>
+        <CardDescription className="text-[11px]">
+          From the run JSON&apos;s <code>parameters</code> object.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {entries.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No parameters recorded.</p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-xs">
+            {entries.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-muted-foreground truncate">{k}</dt>
+                <dd className="tabular-nums truncate">{formatParam(v)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatParam(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(4);
+  if (typeof v === "string") return v;
+  return JSON.stringify(v);
+}
+
+// ─── Walk-forward folds ────────────────────────────────────────────────────
+
+function WalkForwardCard({ data }: { data: FactorBacktestDetail }) {
+  const folds = data.walk_forward_folds ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-sm">Walk-forward folds</CardTitle>
+          <WfBadgeBig passed={data.wf_passed} />
         </div>
-        {quality.pipeline_version ? (
-          <div className="text-muted-foreground font-mono text-[10px] tracking-wider uppercase">
-            {quality.pipeline_version}
+        <CardDescription className="text-[11px]">
+          Per-fold OOS Sharpe + return. The gate is a min-Sharpe threshold
+          enforced by run_factor_backtest.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {folds.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No fold data recorded.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead className="text-right">Days</TableHead>
+                <TableHead className="text-right">Return</TableHead>
+                <TableHead className="text-right">Sharpe</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {folds.map((f) => (
+                <TableRow key={f.fold} mono>
+                  <TableCell className="text-muted-foreground">{f.fold}</TableCell>
+                  <TableCell className="text-right">{f.n_days ?? "—"}</TableCell>
+                  <TableCell
+                    className={cn("text-right", pnlColorClass(f.return_pct))}
+                  >
+                    {fmtPct(f.return_pct, 2, true)}
+                  </TableCell>
+                  <TableCell
+                    className={cn("text-right", pnlColorClass(f.sharpe))}
+                  >
+                    {fmtNumber(f.sharpe, 2)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WfBadgeBig({ passed }: { passed: boolean | null | undefined }) {
+  if (passed == null) {
+    return (
+      <Badge variant="outline" className="font-mono text-[10px] tracking-wider uppercase opacity-50">
+        —
+      </Badge>
+    );
+  }
+  return passed ? (
+    <Badge variant="bullish" className="font-mono text-[10px] tracking-wider uppercase gap-1">
+      <CheckCircle2 className="h-3 w-3" />
+      Passed
+    </Badge>
+  ) : (
+    <Badge variant="bearish" className="font-mono text-[10px] tracking-wider uppercase gap-1">
+      <XCircle className="h-3 w-3" />
+      Failed
+    </Badge>
+  );
+}
+
+// ─── Equity curve ──────────────────────────────────────────────────────────
+
+function EquityCurveCard({ data }: { data: FactorBacktestDetail }) {
+  // Merge strategy + interpolated SPY into one chart series keyed by date.
+  const merged = useMemo(() => {
+    const eqByDate = new Map<string, number>();
+    for (const [d, v] of data.equity_curve ?? []) {
+      eqByDate.set(d, v);
+    }
+    const spyByDate = new Map<string, number>();
+    for (const [d, v] of data.spy_equity_curve ?? []) {
+      spyByDate.set(d, v);
+    }
+    const dates = Array.from(new Set([...eqByDate.keys(), ...spyByDate.keys()]))
+      .sort();
+    return dates.map((d) => ({
+      date: d,
+      timestamp: new Date(d).getTime() / 1000,
+      equity: eqByDate.get(d) ?? null,
+      spy: spyByDate.get(d) ?? null,
+    }));
+  }, [data]);
+
+  const start = merged[0];
+  const end = merged[merged.length - 1];
+  const showSpy = (data.spy_equity_curve ?? []).length > 0;
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-sm">Equity curve</CardTitle>
+        <CardDescription className="text-[11px] flex flex-wrap gap-3">
+          {start && end ? (
+            <>
+              <span>{start.date} → {end.date}</span>
+              <span>
+                strategy{" "}
+                <span className={cn(pnlColorClass(
+                  end.equity != null && start.equity ? end.equity - start.equity : 0,
+                ))}>
+                  {fmtUSD((end.equity ?? 0) - (start.equity ?? 0))}
+                </span>
+              </span>
+              {showSpy && start.spy != null && end.spy != null ? (
+                <span className="text-muted-foreground">
+                  SPY synthetic line is linear-interpolated from total return
+                </span>
+              ) : null}
+            </>
+          ) : "—"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[320px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={merged}
+              margin={{ top: 8, right: 16, bottom: 0, left: 8 }}
+            >
+              <CartesianGrid
+                stroke={CHART_GRID}
+                strokeOpacity={0.4}
+                strokeDasharray="2 4"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="timestamp"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                tickFormatter={(v) =>
+                  new Date(Number(v) * 1000).toLocaleDateString(undefined, {
+                    year: "2-digit",
+                    month: "short",
+                  })
+                }
+                stroke={CHART_AXIS}
+                tick={{
+                  fill: CHART_AXIS,
+                  fontFamily: "var(--font-geist-mono)",
+                  fontSize: 10,
+                }}
+                tickLine={false}
+                axisLine={{ stroke: CHART_GRID, strokeOpacity: 0.6 }}
+                minTickGap={48}
+              />
+              <YAxis
+                orientation="right"
+                stroke={CHART_AXIS}
+                tick={{
+                  fill: CHART_AXIS,
+                  fontFamily: "var(--font-geist-mono)",
+                  fontSize: 10,
+                }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => fmtUSD(v as number, true)}
+                width={64}
+                domain={["auto", "auto"]}
+              />
+              <Tooltip content={<EquityTooltip showSpy={showSpy} />} cursor={{ stroke: CHART_GRID }} />
+              {showSpy ? (
+                <Legend
+                  verticalAlign="top"
+                  height={20}
+                  wrapperStyle={{
+                    fontFamily: "var(--font-geist-mono)",
+                    fontSize: 10,
+                    color: CHART_AXIS,
+                  }}
+                  iconType="line"
+                />
+              ) : null}
+              {showSpy ? (
+                <Area
+                  type="monotone"
+                  dataKey="spy"
+                  name="SPY (synthetic)"
+                  stroke={CHART_AXIS}
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  fill="transparent"
+                  isAnimationActive={false}
+                  dot={false}
+                  activeDot={false}
+                  connectNulls
+                />
+              ) : null}
+              <Area
+                type="monotone"
+                dataKey="equity"
+                name="Strategy"
+                stroke={CHART_TOKEN.primary}
+                strokeWidth={1.5}
+                fill={CHART_TOKEN.primary}
+                fillOpacity={0.15}
+                isAnimationActive={false}
+                dot={false}
+                activeDot={{ r: 3, fill: CHART_TOKEN.primary, stroke: "none" }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EquityTooltip({
+  active, payload, showSpy,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: { date: string; equity: number | null; spy: number | null } }>;
+  showSpy: boolean;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  const alpha =
+    row.equity != null && row.spy != null ? row.equity - row.spy : null;
+  return (
+    <div className="bg-card border border-border px-2.5 py-1.5 font-mono text-[11px] leading-tight">
+      <div className="text-muted-foreground tracking-wider uppercase text-[10px]">
+        {row.date}
+      </div>
+      <div className="tabular-nums text-foreground">
+        Strategy {row.equity != null ? fmtUSD(row.equity) : "—"}
+      </div>
+      {showSpy ? (
+        <>
+          <div className="tabular-nums text-muted-foreground">
+            SPY {row.spy != null ? fmtUSD(row.spy) : "—"}
           </div>
-        ) : null}
-      </div>
-      <p className="text-muted-foreground mt-1 leading-snug">
-        {sb.details ?? "Universe excludes delisted tickers; headline numbers biased upward."}
-      </p>
-      {(adjOos || adjFull) ? (
-        <div className="mt-2 grid gap-2 md:grid-cols-2">
-          {adjOos ? <AdjustedTile label="OOS (haircut-adjusted)" section={adjOos} /> : null}
-          {adjFull ? <AdjustedTile label="Full (haircut-adjusted)" section={adjFull} /> : null}
-        </div>
-      ) : sb.magnitude_hint_annual_pct ? (
-        <p className="text-muted-foreground mt-1 text-xs leading-snug">
-          Magnitude hint: <span className="font-mono">{sb.magnitude_hint_annual_pct}%/yr</span>
-        </p>
-      ) : null}
-      {sb.remediation ? (
-        <p className="text-muted-foreground mt-2 text-xs italic leading-snug">
-          {sb.remediation}
-        </p>
+          {alpha != null ? (
+            <div className={cn("tabular-nums", pnlColorClass(alpha))}>
+              α {fmtUSD(alpha)}
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
 }
 
-function AdjustedTile({ label, section }: { label: string; section: AdjustedSection }) {
-  const h = section.haircut_applied;
+// ─── Rebalance log ─────────────────────────────────────────────────────────
+
+function RebalanceLogCard({ data }: { data: FactorBacktestDetail }) {
+  // Hooks must run before any conditional return. Memoize both the
+  // safe list and its derived key set; bail on empty after.
+  const log = useMemo(() => data.rebalance_log ?? [], [data.rebalance_log]);
+  const allKeys = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of log) {
+      if (row && typeof row === "object") {
+        for (const k of Object.keys(row)) seen.add(k);
+      }
+    }
+    return Array.from(seen);
+  }, [log]);
+  if (log.length === 0) return null;
   return (
-    <div className="bg-background/40 rounded border border-amber-500/30 px-2 py-1.5 text-xs">
-      <div className="font-mono text-[10px] tracking-wider text-amber-700 uppercase dark:text-amber-300">
-        {label}
-      </div>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
-        {section.ann_sharpe != null ? (
-          <span>
-            Sharpe <span className="font-semibold">{section.ann_sharpe.toFixed(2)}</span>
-          </span>
-        ) : null}
-        {section.cagr_pct != null ? (
-          <span>
-            CAGR <span className="font-semibold">{section.cagr_pct.toFixed(2)}%</span>
-          </span>
-        ) : null}
-        {section.total_return_pct != null ? (
-          <span>
-            Total <span className="font-semibold">{section.total_return_pct.toFixed(2)}%</span>
-          </span>
-        ) : null}
-      </div>
-      {h ? (
-        <div className="text-muted-foreground mt-1 text-[10px]">
-          haircut: -{h.annual_return_haircut_pct}%/yr, -{h.sharpe_haircut} Sharpe
-          {h.rationale ? <span className="ml-1 italic">({h.rationale})</span> : null}
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-sm">Rebalance log</CardTitle>
+        <CardDescription className="text-[11px]">
+          {log.length} rebalance{log.length === 1 ? "" : "s"} over the window.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {allKeys.map((k) => (
+                <TableHead key={k} className="text-[10px] font-mono uppercase tracking-wider">
+                  {k}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {log.map((row, i) => (
+              <TableRow key={i} mono>
+                {allKeys.map((k) => (
+                  <TableCell key={k} className="text-[11px]">
+                    {formatParam((row as Record<string, unknown>)[k])}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Trades sample ─────────────────────────────────────────────────────────
+
+function TradesSampleCard({ data }: { data: FactorBacktestDetail }) {
+  // Hooks-before-return order, same pattern as RebalanceLogCard.
+  const trades = useMemo(
+    () => data.trades_sample ?? [],
+    [data.trades_sample],
+  );
+  const allKeys = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of trades) {
+      if (row && typeof row === "object") {
+        for (const k of Object.keys(row)) seen.add(k);
+      }
+    }
+    return Array.from(seen);
+  }, [trades]);
+  if (trades.length === 0) return null;
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-sm">Trades sample</CardTitle>
+        <CardDescription className="text-[11px]">
+          First {trades.length} trades from the run. Full trade list is in the
+          raw JSON.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-96 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {allKeys.map((k) => (
+                  <TableHead key={k} className="text-[10px] font-mono uppercase tracking-wider">
+                    {k}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {trades.slice(0, 50).map((row, i) => (
+                <TableRow key={i} mono>
+                  {allKeys.map((k) => (
+                    <TableCell key={k} className="text-[11px] tabular-nums">
+                      {formatParam((row as Record<string, unknown>)[k])}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
-      ) : null}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

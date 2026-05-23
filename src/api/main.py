@@ -25,6 +25,7 @@ from src.api.routers import (
     briefing,
     dashboard,
     diagnostics,
+    factor_backtests,
     health,
     market,
     pipeline,
@@ -113,6 +114,11 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         briefing.router, prefix="/api/dashboard/briefing", tags=["dashboard"],
     )
     app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+    app.include_router(
+        factor_backtests.router,
+        prefix="/api/factor-backtests",
+        tags=["factor-backtests"],
+    )
 
     return app
 

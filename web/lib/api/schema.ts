@@ -756,6 +756,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/factor-backtests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Factor Backtests
+         * @description Compact list of every factor-backtest artifact on disk.
+         *     Sorted newest-first by file mtime so the freshest results lead.
+         */
+        get: operations["list_factor_backtests_api_factor_backtests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factor-backtests/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Factor Backtest
+         * @description Full payload for one artifact. Returns 404 when the slug doesn't
+         *     map to any sweep/ab file on disk.
+         */
+        get: operations["get_factor_backtest_api_factor_backtests__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1300,6 +1342,174 @@ export interface components {
              * @description Synthetic SPY equity at this timestamp, normalized so that the first point of the window equals ``base_value``. Lets the FE plot a same-axis alpha line. Null when ``include_spy=false`` or SPY data couldn't be fetched.
              */
             spy_equity?: number | null;
+        };
+        /**
+         * FactorBacktestDetail
+         * @description Detail view extends the summary with the curve + folds + a sample
+         *     of trades. Full payload (raw JSON) is also exposed for power users.
+         */
+        FactorBacktestDetail: {
+            /**
+             * Slug
+             * @description Filename minus .json — usable as a URL segment.
+             */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "sweep" | "ab";
+            /** Strategy */
+            strategy: string;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Universe Label */
+            universe_label?: string | null;
+            /** N Tickers */
+            n_tickers?: number | null;
+            /** Top Decile */
+            top_decile?: number | null;
+            /** Rebalance Days */
+            rebalance_days?: number | null;
+            /** Regime Filter Enabled */
+            regime_filter_enabled?: boolean | null;
+            /** N Trades */
+            n_trades?: number | null;
+            /** N Rebalances */
+            n_rebalances?: number | null;
+            /** Total Return Pct */
+            total_return_pct?: number | null;
+            /** Cagr Pct */
+            cagr_pct?: number | null;
+            /** Ann Sharpe */
+            ann_sharpe?: number | null;
+            /** Max Drawdown Pct */
+            max_drawdown_pct?: number | null;
+            /** Spy Total Return Pct */
+            spy_total_return_pct?: number | null;
+            /** Spy Ann Sharpe */
+            spy_ann_sharpe?: number | null;
+            /** Alpha Vs Spy Pct */
+            alpha_vs_spy_pct?: number | null;
+            /** Wf Passed */
+            wf_passed?: boolean | null;
+            /** Wf Mean Sharpe */
+            wf_mean_sharpe?: number | null;
+            /** Wf Min Sharpe */
+            wf_min_sharpe?: number | null;
+            /** N Folds */
+            n_folds?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description File mtime as UTC datetime. When the run was last written.
+             */
+            created_at: string;
+            /** Walk Forward Folds */
+            walk_forward_folds?: components["schemas"]["WalkForwardFold"][];
+            /**
+             * Equity Curve
+             * @description (date_iso, equity) pairs over the run window.
+             */
+            equity_curve?: [
+                string,
+                number
+            ][];
+            /**
+             * Spy Equity Curve
+             * @description Synthetic SPY equity over the same dates, normalized to the strategy's starting cash so the FE can overlay on one axis.
+             */
+            spy_equity_curve?: [
+                string,
+                number
+            ][];
+            /**
+             * Rebalance Log
+             * @description Per-rebalance summary (size, tickers, turnover).
+             */
+            rebalance_log?: {
+                [key: string]: unknown;
+            }[];
+            /** Trades Sample */
+            trades_sample?: {
+                [key: string]: unknown;
+            }[];
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * FactorBacktestSummary
+         * @description Compact row for the list view. Each field is best-effort — the
+         *     sweep JSON contains them all but A/B files vary; missing fields
+         *     surface as null rather than failing the request.
+         */
+        FactorBacktestSummary: {
+            /**
+             * Slug
+             * @description Filename minus .json — usable as a URL segment.
+             */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "sweep" | "ab";
+            /** Strategy */
+            strategy: string;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Universe Label */
+            universe_label?: string | null;
+            /** N Tickers */
+            n_tickers?: number | null;
+            /** Top Decile */
+            top_decile?: number | null;
+            /** Rebalance Days */
+            rebalance_days?: number | null;
+            /** Regime Filter Enabled */
+            regime_filter_enabled?: boolean | null;
+            /** N Trades */
+            n_trades?: number | null;
+            /** N Rebalances */
+            n_rebalances?: number | null;
+            /** Total Return Pct */
+            total_return_pct?: number | null;
+            /** Cagr Pct */
+            cagr_pct?: number | null;
+            /** Ann Sharpe */
+            ann_sharpe?: number | null;
+            /** Max Drawdown Pct */
+            max_drawdown_pct?: number | null;
+            /** Spy Total Return Pct */
+            spy_total_return_pct?: number | null;
+            /** Spy Ann Sharpe */
+            spy_ann_sharpe?: number | null;
+            /** Alpha Vs Spy Pct */
+            alpha_vs_spy_pct?: number | null;
+            /** Wf Passed */
+            wf_passed?: boolean | null;
+            /** Wf Mean Sharpe */
+            wf_mean_sharpe?: number | null;
+            /** Wf Min Sharpe */
+            wf_min_sharpe?: number | null;
+            /** N Folds */
+            n_folds?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description File mtime as UTC datetime. When the run was last written.
+             */
+            created_at: string;
         };
         /**
          * FactorCoverage
@@ -2212,6 +2422,17 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WalkForwardFold */
+        WalkForwardFold: {
+            /** Fold */
+            fold: number;
+            /** N Days */
+            n_days?: number | null;
+            /** Return Pct */
+            return_pct?: number | null;
+            /** Sharpe */
+            sharpe?: number | null;
         };
     };
     responses: never;
@@ -3232,6 +3453,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_factor_backtests_api_factor_backtests_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by source: sweep | ab. Default returns both. */
+                kind?: ("sweep" | "ab") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorBacktestSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_factor_backtest_api_factor_backtests__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorBacktestDetail"];
                 };
             };
             /** @description Validation Error */
