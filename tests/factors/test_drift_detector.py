@@ -102,6 +102,59 @@ def test_factor_coverage_collapse_fails(tmp_path: Path) -> None:
     assert rep.overall_status == "fail"
 
 
+def test_factor_coverage_topn_shrink_with_full_coverage_is_ok(
+    tmp_path: Path,
+) -> None:
+    """Cutting top_n (e.g. 24 -> 15) with full per-factor coverage on
+    both sides must NOT fail. Regression: the pre-ratio check compared
+    raw counts and would flag any concentration ablation as drift."""
+    for d in range(8):
+        _write(tmp_path / f"2026-05-{d+1:02d}.json", _baseline_payload(490))
+    smaller = [
+        {
+            "ticker": f"T{i:02d}", "sector": "Tech",
+            "mom_rank": 5, "qual_rank": 10, "val_rank": 15,
+            "z_score": 2.0,
+        } for i in range(15)
+    ]
+    _write(
+        tmp_path / "2026-05-18.json",
+        _baseline_payload(490, picks=smaller),
+    )
+    rep = compute_drift_report(tmp_path / "2026-05-18.json", tmp_path)
+    for f in ("momentum", "quality", "value"):
+        check = next(
+            c for c in rep.checks if c.name == f"factor_coverage_{f}"
+        )
+        assert check.status == "ok", (
+            f"{f}: top_n change tripped coverage check ({check.message})"
+        )
+
+
+def test_factor_coverage_partial_drop_in_fraction_fails(tmp_path: Path) -> None:
+    """Same top_n on both sides, but today only half the picks have
+    quality data → fraction drops 100% -> 50% → fail."""
+    for d in range(8):
+        _write(tmp_path / f"2026-05-{d+1:02d}.json", _baseline_payload(490))
+    half_missing = [
+        {
+            "ticker": f"T{i:02d}", "sector": "Tech",
+            "mom_rank": 5,
+            "qual_rank": None if i < 12 else 10,
+            "val_rank": 15, "z_score": 2.0,
+        } for i in range(24)
+    ]
+    _write(
+        tmp_path / "2026-05-18.json",
+        _baseline_payload(490, picks=half_missing),
+    )
+    rep = compute_drift_report(tmp_path / "2026-05-18.json", tmp_path)
+    qual = next(
+        c for c in rep.checks if c.name == "factor_coverage_quality"
+    )
+    assert qual.status == "fail"
+
+
 def test_sector_concentration_over_50_fails(tmp_path: Path) -> None:
     one_sector = [
         {

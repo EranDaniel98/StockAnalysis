@@ -10,8 +10,10 @@ Checks (each gets ``ok`` / ``warn`` / ``fail`` status):
 
 1. **universe_size_drift** — today's eligible name count vs trailing
    mean. Fails at -20% from baseline.
-2. **factor_coverage_drift** — n names per factor (momentum, quality,
-   value, pead) vs baseline. Same -20% threshold.
+2. **factor_coverage_drift** — share of picks with a numeric rank
+   per factor (momentum, quality, value, pead) vs baseline. Same
+   -20% threshold; compared as a fraction so changing ``top_n`` does
+   not trip the gate by itself.
 3. **sector_concentration** — share of any single sector in today's
    picks. Fails at >50% (sector cap should have caught this; if we
    see it, the cap broke).
@@ -167,57 +169,75 @@ def _factor_coverage(picks: list[dict], factor: str) -> int:
 def _check_factor_coverage(
     today: dict, history: list[dict],
 ) -> list[DriftCheck]:
-    """One check per factor declared in today's run."""
+    """One check per factor declared in today's run.
+
+    Threshold compares coverage *fractions* (covered / n_picks) so a
+    ``top_n`` change between runs does not by itself trip the gate.
+    Absolute counts are still surfaced in the message for context.
+    """
     factors = today.get("factors", []) or []
     out: list[DriftCheck] = []
     today_picks = today.get("picks", []) or []
     n_today = len(today_picks)
     for f in factors:
         today_cov = _factor_coverage(today_picks, f)
-        baselines = [
-            _factor_coverage(h.get("picks", []) or [], f)
-            for h in history
-            if f in (h.get("factors", []) or [])
-        ]
-        if not baselines:
+        today_frac = today_cov / n_today if n_today > 0 else 0.0
+        baseline_fracs: list[float] = []
+        baseline_counts: list[int] = []
+        for h in history:
+            if f not in (h.get("factors", []) or []):
+                continue
+            hp = h.get("picks", []) or []
+            if not hp:
+                continue
+            cov = _factor_coverage(hp, f)
+            baseline_fracs.append(cov / len(hp))
+            baseline_counts.append(cov)
+        if not baseline_fracs:
             out.append(DriftCheck(
                 name=f"factor_coverage_{f}",
                 status="ok", value=today_cov, baseline=None,
-                threshold="-20% fail, -10% warn",
+                threshold="-20% fail, -10% warn (on fraction)",
                 message=f"No history for {f}",
             ))
             continue
-        baseline = statistics.mean(baselines)
+        baseline_frac = statistics.mean(baseline_fracs)
+        baseline_count = statistics.mean(baseline_counts)
         pct_change = (
-            (today_cov - baseline) / baseline if baseline > 0 else 0.0
+            (today_frac - baseline_frac) / baseline_frac
+            if baseline_frac > 0 else 0.0
         )
-        if today_cov == 0 and baseline > 0:
+        if today_cov == 0 and baseline_frac > 0:
             status = "fail"
             msg = (
-                f"{f} coverage collapsed to 0 (baseline {baseline:.1f})"
+                f"{f} coverage collapsed to 0 (baseline "
+                f"{baseline_frac:.0%})"
             )
         elif pct_change <= -0.20:
             status = "fail"
             msg = (
-                f"{f} coverage {today_cov}/{n_today} vs baseline "
-                f"{baseline:.1f} ({pct_change * 100:+.1f}%)"
+                f"{f} coverage {today_cov}/{n_today} "
+                f"({today_frac:.0%}) vs baseline {baseline_frac:.0%} "
+                f"({pct_change * 100:+.1f}%)"
             )
         elif pct_change <= -0.10:
             status = "warn"
             msg = (
-                f"{f} coverage {today_cov}/{n_today} vs baseline "
-                f"{baseline:.1f} ({pct_change * 100:+.1f}%)"
+                f"{f} coverage {today_cov}/{n_today} "
+                f"({today_frac:.0%}) vs baseline {baseline_frac:.0%} "
+                f"({pct_change * 100:+.1f}%)"
             )
         else:
             status = "ok"
             msg = (
-                f"{f} coverage {today_cov}/{n_today} (baseline "
-                f"{baseline:.1f})"
+                f"{f} coverage {today_cov}/{n_today} "
+                f"({today_frac:.0%}); baseline {baseline_frac:.0%}"
             )
         out.append(DriftCheck(
             name=f"factor_coverage_{f}",
-            status=status, value=today_cov, baseline=round(baseline, 1),
-            threshold="-20% fail, -10% warn",
+            status=status, value=today_cov,
+            baseline=round(baseline_count, 1),
+            threshold="-20% fail, -10% warn (on fraction)",
             message=msg,
         ))
     return out
