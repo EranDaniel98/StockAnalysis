@@ -32,7 +32,7 @@ defensible lower bound.
 
 Usage
 -----
-    uv run python -m scripts.compare_strategies \\
+    uv run python -m scripts.research.compare_strategies \\
         --snapshot-id <id> \\
         --strategies minimal_baseline,minimal_baseline_v2,minimal_baseline_v3 \\
         --years 2 \\

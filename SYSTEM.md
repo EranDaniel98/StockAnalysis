@@ -244,6 +244,22 @@ Sweep replays use a cached `CachedScore` and re-compose with different `enabled_
 - **Risk budget:** `risk_per_trade_pct` from `sizing_config` (`vol_target_risk_pct` alias accepted, canonical wins).
 - **Stop / take-profit:** ATR-based stop, conviction-scaled TP (Stage 2/3 of triple-barrier work — pending).
 
+### 4.5 Two scoring paths (intentional, not legacy debt)
+
+The repository has **two coexisting scoring pipelines**. Both are alive. They serve different consumers and should not be merged.
+
+| Path | Where | Drives | Universe |
+| --- | --- | --- | --- |
+| **Factor composite** (`src/factors/pipeline.py`) | `daily_factor_picks.py`, `paper_trade_factor_picks.py`, `run_factor_backtest.py` | Live picks, paper trades, backtests | PIT S&P 500 only |
+| **7-analyzer composite** (this section, `src/scoring/engine.py`) | CLI `analyze TICKER`, per-stock detail page in the web app, `comprehensive_analysis.py` | Per-stock deep dive UI, signal explainability | Any single ticker |
+
+Why two paths exist:
+
+- The **factor composite** is what we trade. It's deliberately narrow: equal-weight rank-blend of momentum + quality + value (+ optional PEAD), on a 500-name PIT universe, rebalanced quarterly. The factor pipeline has its own backtest (`run_factor_backtest.py`) with walk-forward CV that decides what ships to live.
+- The **7-analyzer composite** is what we look at to understand a single name. RSI + analyst targets + chart pattern detection + PEAD nudge — none of it has survived as live alpha in the factor framing, but each piece is a useful per-stock context lens. Killing this path would break `analyze TICKER`, the `/stocks/[ticker]` web page, and the morning-briefing per-name plans.
+
+The IC report (`scripts/analyzer_ic_report.py`) found that most of the 7 analyzers are *anti-predictive* at 44-day horizons in our PIT universe (see `~/.claude/.../memory/project_analyzer_ic_2022_2024.md`). That finding is what motivated building the factor pipeline as a separate path. **The 7-analyzer composite is explicitly NOT used to pick what we trade.** If you find yourself wiring it into a paper-trade entry filter, stop — that's the alpha-leak path we already debugged.
+
 ---
 
 ## 5. The backtest engine
