@@ -1842,6 +1842,99 @@
           }
         }
       }
+    },
+    "/api/executions": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "List Executions",
+        "description": "Compact per-day summary, newest first.",
+        "operationId": "list_executions_api_executions_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExecutionSummary"
+                  },
+                  "title": "Response List Executions Api Executions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/executions/{date_str}": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Get Execution",
+        "description": "Full detail for one execution day. URL accepts the picks_date\nin YYYY-MM-DD form (matches the filename).",
+        "operationId": "get_execution_api_executions__date_str__get",
+        "parameters": [
+          {
+            "name": "date_str",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Date Str"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2918,6 +3011,292 @@
         ],
         "title": "EquityPoint"
       },
+      "ExecutionDetail": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "picks_date from the log file."
+          },
+          "executed_at_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At Utc"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "long_short_mode": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Short Mode"
+          },
+          "equity_at_start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equity At Start"
+          },
+          "long_capital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Capital"
+          },
+          "short_capital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Capital"
+          },
+          "n_longs": {
+            "type": "integer",
+            "title": "N Longs",
+            "default": 0
+          },
+          "n_shorts": {
+            "type": "integer",
+            "title": "N Shorts",
+            "default": 0
+          },
+          "n_submitted": {
+            "type": "integer",
+            "title": "N Submitted",
+            "default": 0
+          },
+          "n_skipped": {
+            "type": "integer",
+            "title": "N Skipped",
+            "default": 0
+          },
+          "n_failed": {
+            "type": "integer",
+            "title": "N Failed",
+            "default": 0
+          },
+          "sanity_applied": {
+            "type": "boolean",
+            "title": "Sanity Applied",
+            "default": false
+          },
+          "sanity_long_rejected": {
+            "type": "integer",
+            "title": "Sanity Long Rejected",
+            "default": 0
+          },
+          "sanity_long_cautioned": {
+            "type": "integer",
+            "title": "Sanity Long Cautioned",
+            "default": 0
+          },
+          "order_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Style"
+          },
+          "sanity_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SanityGate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submitted": {
+            "items": {
+              "$ref": "#/components/schemas/SubmittedOrder"
+            },
+            "type": "array",
+            "title": "Submitted"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedOrder"
+            },
+            "type": "array",
+            "title": "Skipped"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/FailedOrder"
+            },
+            "type": "array",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "strategy"
+        ],
+        "title": "ExecutionDetail"
+      },
+      "ExecutionSummary": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "picks_date from the log file."
+          },
+          "executed_at_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At Utc"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "long_short_mode": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Short Mode"
+          },
+          "equity_at_start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equity At Start"
+          },
+          "long_capital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Capital"
+          },
+          "short_capital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Capital"
+          },
+          "n_longs": {
+            "type": "integer",
+            "title": "N Longs",
+            "default": 0
+          },
+          "n_shorts": {
+            "type": "integer",
+            "title": "N Shorts",
+            "default": 0
+          },
+          "n_submitted": {
+            "type": "integer",
+            "title": "N Submitted",
+            "default": 0
+          },
+          "n_skipped": {
+            "type": "integer",
+            "title": "N Skipped",
+            "default": 0
+          },
+          "n_failed": {
+            "type": "integer",
+            "title": "N Failed",
+            "default": 0
+          },
+          "sanity_applied": {
+            "type": "boolean",
+            "title": "Sanity Applied",
+            "default": false
+          },
+          "sanity_long_rejected": {
+            "type": "integer",
+            "title": "Sanity Long Rejected",
+            "default": 0
+          },
+          "sanity_long_cautioned": {
+            "type": "integer",
+            "title": "Sanity Long Cautioned",
+            "default": 0
+          },
+          "order_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Style"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "strategy"
+        ],
+        "title": "ExecutionSummary",
+        "description": "One row in the executions list view."
+      },
       "FactorBacktestDetail": {
         "properties": {
           "slug": {
@@ -3563,6 +3942,41 @@
         ],
         "title": "FactorCoverage",
         "description": "How many of today's picks have a non-null rank for one factor.\nA drop vs the rolling baseline is the canary for an ingest break."
+      },
+      "FailedOrder": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker"
+        ],
+        "title": "FailedOrder"
       },
       "HTTPValidationError": {
         "properties": {
@@ -4946,6 +5360,146 @@
         "title": "SanityCheckTriggerRequest",
         "description": "Body for POST /api/scans/sanity-check.\n\nRuns the sanity-check pass over the current BuySignal set and upserts\none row per (ticker, run_id). Returns the refreshed list with\n``sanity_check`` populated."
       },
+      "SanityGate": {
+        "properties": {
+          "applied": {
+            "type": "boolean",
+            "title": "Applied",
+            "default": false
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "long_kept": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Long Kept"
+          },
+          "long_rejected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Long Rejected"
+          },
+          "long_cautioned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Long Cautioned"
+          },
+          "short_kept": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Short Kept"
+          },
+          "short_rejected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Short Rejected"
+          },
+          "short_cautioned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Short Cautioned"
+          },
+          "long_outcomes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SanityGateOutcome"
+            },
+            "type": "object",
+            "title": "Long Outcomes"
+          },
+          "short_outcomes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SanityGateOutcome"
+            },
+            "type": "object",
+            "title": "Short Outcomes"
+          }
+        },
+        "type": "object",
+        "title": "SanityGate"
+      },
+      "SanityGateOutcome": {
+        "properties": {
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "mocked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mocked"
+          }
+        },
+        "type": "object",
+        "title": "SanityGateOutcome",
+        "description": "Per-ticker AI sanity verdict captured at execution time. Same shape\nas the standalone ai_sanity_check_*.json per-pick rows."
+      },
       "ScanRequest": {
         "properties": {
           "strategy": {
@@ -5483,6 +6037,41 @@
         ],
         "title": "SectorsResponse"
       },
+      "SkippedOrder": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker"
+        ],
+        "title": "SkippedOrder"
+      },
       "StockDetail": {
         "properties": {
           "ticker": {
@@ -5707,6 +6296,120 @@
         ],
         "title": "StrategyCard",
         "description": "Per-strategy summary tile."
+      },
+      "SubmittedOrder": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss"
+          },
+          "take_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "client_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Order Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker"
+        ],
+        "title": "SubmittedOrder",
+        "description": "One Alpaca order that landed (or was queued). Fields mirror the\nJSON shape verbatim \u2014 every key is defensive Optional so older log\nversions without long_short or sanity context still parse."
       },
       "TakeProfit": {
         "properties": {

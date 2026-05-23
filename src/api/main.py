@@ -25,6 +25,7 @@ from src.api.routers import (
     briefing,
     dashboard,
     diagnostics,
+    executions,
     factor_backtests,
     health,
     ic_reports,
@@ -124,6 +125,11 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         ic_reports.router,
         prefix="/api/ic-reports",
         tags=["ic-reports"],
+    )
+    app.include_router(
+        executions.router,
+        prefix="/api/executions",
+        tags=["executions"],
     )
 
     return app

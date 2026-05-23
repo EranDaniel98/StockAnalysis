@@ -842,6 +842,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Executions
+         * @description Compact per-day summary, newest first.
+         */
+        get: operations["list_executions_api_executions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{date_str}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Execution
+         * @description Full detail for one execution day. URL accepts the picks_date
+         *     in YYYY-MM-DD form (matches the filename).
+         */
+        get: operations["get_execution_api_executions__date_str__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1387,6 +1428,142 @@ export interface components {
              */
             spy_equity?: number | null;
         };
+        /** ExecutionDetail */
+        ExecutionDetail: {
+            /**
+             * Date
+             * Format: date
+             * @description picks_date from the log file.
+             */
+            date: string;
+            /** Executed At Utc */
+            executed_at_utc?: string | null;
+            /** Strategy */
+            strategy: string;
+            /** Long Short Mode */
+            long_short_mode?: boolean | null;
+            /** Equity At Start */
+            equity_at_start?: number | null;
+            /** Long Capital */
+            long_capital?: number | null;
+            /** Short Capital */
+            short_capital?: number | null;
+            /**
+             * N Longs
+             * @default 0
+             */
+            n_longs: number;
+            /**
+             * N Shorts
+             * @default 0
+             */
+            n_shorts: number;
+            /**
+             * N Submitted
+             * @default 0
+             */
+            n_submitted: number;
+            /**
+             * N Skipped
+             * @default 0
+             */
+            n_skipped: number;
+            /**
+             * N Failed
+             * @default 0
+             */
+            n_failed: number;
+            /**
+             * Sanity Applied
+             * @default false
+             */
+            sanity_applied: boolean;
+            /**
+             * Sanity Long Rejected
+             * @default 0
+             */
+            sanity_long_rejected: number;
+            /**
+             * Sanity Long Cautioned
+             * @default 0
+             */
+            sanity_long_cautioned: number;
+            /** Order Style */
+            order_style?: string | null;
+            sanity_gate?: components["schemas"]["SanityGate"] | null;
+            /** Submitted */
+            submitted?: components["schemas"]["SubmittedOrder"][];
+            /** Skipped */
+            skipped?: components["schemas"]["SkippedOrder"][];
+            /** Failed */
+            failed?: components["schemas"]["FailedOrder"][];
+        };
+        /**
+         * ExecutionSummary
+         * @description One row in the executions list view.
+         */
+        ExecutionSummary: {
+            /**
+             * Date
+             * Format: date
+             * @description picks_date from the log file.
+             */
+            date: string;
+            /** Executed At Utc */
+            executed_at_utc?: string | null;
+            /** Strategy */
+            strategy: string;
+            /** Long Short Mode */
+            long_short_mode?: boolean | null;
+            /** Equity At Start */
+            equity_at_start?: number | null;
+            /** Long Capital */
+            long_capital?: number | null;
+            /** Short Capital */
+            short_capital?: number | null;
+            /**
+             * N Longs
+             * @default 0
+             */
+            n_longs: number;
+            /**
+             * N Shorts
+             * @default 0
+             */
+            n_shorts: number;
+            /**
+             * N Submitted
+             * @default 0
+             */
+            n_submitted: number;
+            /**
+             * N Skipped
+             * @default 0
+             */
+            n_skipped: number;
+            /**
+             * N Failed
+             * @default 0
+             */
+            n_failed: number;
+            /**
+             * Sanity Applied
+             * @default false
+             */
+            sanity_applied: boolean;
+            /**
+             * Sanity Long Rejected
+             * @default 0
+             */
+            sanity_long_rejected: number;
+            /**
+             * Sanity Long Cautioned
+             * @default 0
+             */
+            sanity_long_cautioned: number;
+            /** Order Style */
+            order_style?: string | null;
+        };
         /**
          * FactorBacktestDetail
          * @description Detail view extends the summary with the curve + folds + a sample
@@ -1574,6 +1751,15 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "warn" | "fail";
+        };
+        /** FailedOrder */
+        FailedOrder: {
+            /** Ticker */
+            ticker: string;
+            /** Side */
+            side?: string | null;
+            /** Error */
+            error?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2160,6 +2346,53 @@ export interface components {
              */
             force_refresh: boolean;
         };
+        /** SanityGate */
+        SanityGate: {
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /** Mode */
+            mode?: string | null;
+            /** Long Kept */
+            long_kept?: string[];
+            /** Long Rejected */
+            long_rejected?: string[];
+            /** Long Cautioned */
+            long_cautioned?: string[];
+            /** Short Kept */
+            short_kept?: string[];
+            /** Short Rejected */
+            short_rejected?: string[];
+            /** Short Cautioned */
+            short_cautioned?: string[];
+            /** Long Outcomes */
+            long_outcomes?: {
+                [key: string]: components["schemas"]["SanityGateOutcome"];
+            };
+            /** Short Outcomes */
+            short_outcomes?: {
+                [key: string]: components["schemas"]["SanityGateOutcome"];
+            };
+        };
+        /**
+         * SanityGateOutcome
+         * @description Per-ticker AI sanity verdict captured at execution time. Same shape
+         *     as the standalone ai_sanity_check_*.json per-pick rows.
+         */
+        SanityGateOutcome: {
+            /** Verdict */
+            verdict?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Mocked */
+            mocked?: boolean | null;
+        };
         /** ScanRequest */
         ScanRequest: {
             /**
@@ -2368,6 +2601,15 @@ export interface components {
             /** Sectors */
             sectors?: components["schemas"]["SectorMetric"][];
         };
+        /** SkippedOrder */
+        SkippedOrder: {
+            /** Ticker */
+            ticker: string;
+            /** Side */
+            side?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
         /** StockDetail */
         StockDetail: {
             /** Ticker */
@@ -2439,6 +2681,34 @@ export interface components {
             win_rate_pct?: number | null;
             /** Sweep Universe */
             sweep_universe?: string | null;
+        };
+        /**
+         * SubmittedOrder
+         * @description One Alpaca order that landed (or was queued). Fields mirror the
+         *     JSON shape verbatim — every key is defensive Optional so older log
+         *     versions without long_short or sanity context still parse.
+         */
+        SubmittedOrder: {
+            /** Ticker */
+            ticker: string;
+            /** Side */
+            side?: string | null;
+            /** Qty */
+            qty?: number | null;
+            /** Stop Loss */
+            stop_loss?: number | null;
+            /** Take Profit */
+            take_profit?: number | null;
+            /** Basis */
+            basis?: string | null;
+            /** Order Id */
+            order_id?: string | null;
+            /** Client Order Id */
+            client_order_id?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Submitted At */
+            submitted_at?: string | null;
         };
         /**
          * TakeProfit
@@ -3770,6 +4040,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IcReportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_executions_api_executions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_execution_api_executions__date_str__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                date_str: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDetail"];
                 };
             };
             /** @description Validation Error */

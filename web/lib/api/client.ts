@@ -97,6 +97,13 @@ export type IcReportSummary = Schemas["IcReportSummary"];
 export type IcReportDetail = Schemas["IcReportDetail"];
 export type IcFactorRow = Schemas["IcFactorRow"];
 export type IcCellMetrics = Schemas["IcCellMetrics"];
+export type ExecutionSummary = Schemas["ExecutionSummary"];
+export type ExecutionDetail = Schemas["ExecutionDetail"];
+export type SubmittedOrder = Schemas["SubmittedOrder"];
+export type SkippedOrder = Schemas["SkippedOrder"];
+export type FailedOrder = Schemas["FailedOrder"];
+export type SanityGate = Schemas["SanityGate"];
+export type SanityGateOutcome = Schemas["SanityGateOutcome"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -199,6 +206,19 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  executions: {
+    list: (limit?: number) => {
+      const q = new URLSearchParams();
+      if (limit) q.set("limit", String(limit));
+      const qs = q.toString();
+      return request<ExecutionSummary[]>(
+        `/api/executions${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (date: string) =>
+      request<ExecutionDetail>(`/api/executions/${encodeURIComponent(date)}`),
   },
 
   icReports: {

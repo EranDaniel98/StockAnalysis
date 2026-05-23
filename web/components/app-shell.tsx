@@ -89,9 +89,9 @@ const NAV: NavLink[] = [
   },
   {
     href: "/recommendations",
-    label: "Recommendations",
+    label: "Execution log",
     icon: LineChart,
-    description: "Paper-trade recommendation history",
+    description: "Per-day paper-trade results: submitted / skipped / failed",
   },
   {
     href: "/sectors",

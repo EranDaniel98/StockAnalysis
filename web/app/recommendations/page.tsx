@@ -1,20 +1,18 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  ChevronRight,
+  CircleAlert,
+} from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -24,616 +22,221 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type PaperRecommendationItem } from "@/lib/api/client";
+import { api, type ExecutionSummary } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtDate, fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
+import { fmtRelativeTime, fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Outcome = NonNullable<PaperRecommendationItem["outcome"]>;
-
-function scoreToneClass(score: number | null | undefined): string {
-  if (score === null || score === undefined || Number.isNaN(score))
-    return "text-muted-foreground";
-  if (score >= 60) return "text-bullish";
-  if (score <= 40) return "text-bearish";
-  return "text-neutral";
-}
-
-function actionToneClass(action: string): string {
-  if (action === "STRONG BUY" || action === "BUY") return "text-bullish";
-  if (action === "STRONG SELL" || action === "SELL") return "text-bearish";
-  if (action === "HOLD") return "text-neutral";
-  return "text-muted-foreground";
-}
-
-// Closed-outcome set drives win-rate denominator and the bar.
-const CLOSED_OUTCOMES: ReadonlySet<Outcome> = new Set([
-  "target_hit",
-  "stop_hit",
-  "manual",
-  "other",
-]);
-
-type ActionGrade = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
-type GradeFilter = "ALL" | ActionGrade;
-type OutcomeFilter = "ALL" | Outcome;
-
-const ALL_GRADES: ReadonlyArray<ActionGrade> = [
-  "STRONG BUY",
-  "BUY",
-  "HOLD",
-  "SELL",
-  "STRONG SELL",
-];
-
-const ALL_OUTCOMES: ReadonlyArray<Outcome> = [
-  "target_hit",
-  "stop_hit",
-  "manual",
-  "open",
-  "pending",
-  "skipped",
-  "other",
-];
-
-function gradeChipTone(grade: GradeFilter): string {
-  if (grade === "STRONG BUY" || grade === "BUY") return "text-bullish";
-  if (grade === "SELL" || grade === "STRONG SELL") return "text-bearish";
-  if (grade === "HOLD") return "text-neutral";
-  return "text-muted-foreground";
-}
-
-function outcomeChipTone(o: OutcomeFilter): string {
-  if (o === "target_hit") return "text-bullish";
-  if (o === "stop_hit") return "text-bearish";
-  if (o === "manual" || o === "open") return "text-primary";
-  if (o === "other") return "text-neutral";
-  return "text-muted-foreground";
-}
-
-// Visual order for the distribution bar (left → right narrative).
-const BAR_ORDER: ReadonlyArray<{
-  key: Outcome | "pending" | "skipped";
-  label: string;
-  swatch: string;
-}> = [
-  { key: "target_hit", label: "target hit", swatch: "bg-bullish" },
-  { key: "manual", label: "manual", swatch: "bg-primary" },
-  { key: "open", label: "open", swatch: "bg-primary/50" },
-  { key: "stop_hit", label: "stop hit", swatch: "bg-bearish" },
-  { key: "pending", label: "pending", swatch: "bg-muted-foreground/30" },
-  { key: "skipped", label: "skipped", swatch: "bg-muted-foreground/15" },
-  { key: "other", label: "other", swatch: "bg-neutral" },
-];
-
-function OutcomeCell({ row }: { row: PaperRecommendationItem }) {
-  const o = row.outcome;
-  if (!o) {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  const wrapper =
-    "inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider";
-  switch (o) {
-    case "target_hit":
-      return (
-        <span className={cn(wrapper, "text-bullish")}>
-          <span className="h-1.5 w-1.5 rounded-full bg-bullish" aria-hidden />
-          target hit
-        </span>
-      );
-    case "stop_hit":
-      return (
-        <span className={cn(wrapper, "text-bearish")}>
-          <span className="h-1.5 w-1.5 rounded-full bg-bearish" aria-hidden />
-          stop hit
-        </span>
-      );
-    case "manual":
-      return (
-        <span className={cn(wrapper, "text-primary")}>
-          <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
-          manual close
-        </span>
-      );
-    case "open":
-      return (
-        <span className={cn(wrapper, "text-primary")}>
-          <span
-            className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
-            aria-hidden
-          />
-          open
-        </span>
-      );
-    case "pending":
-      return (
-        <span className={cn(wrapper, "text-muted-foreground")}>
-          <span
-            className="h-1.5 w-1.5 rounded-full bg-muted-foreground"
-            aria-hidden
-          />
-          pending
-        </span>
-      );
-    case "skipped":
-      return (
-        <span
-          className={cn(wrapper, "text-muted-foreground")}
-          title={row.skip_reason ?? undefined}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50"
-            aria-hidden
-          />
-          skipped
-        </span>
-      );
-    case "other":
-      return (
-        <span className={cn(wrapper, "text-neutral")}>
-          <span className="h-1.5 w-1.5 rounded-full bg-neutral" aria-hidden />
-          {/* Backend returns the raw exit_reason here; fall back to "closed". */}
-          {"closed"}
-        </span>
-      );
-    default:
-      return <span className="text-muted-foreground">—</span>;
-  }
-}
-
-export default function RecommendationsPage() {
+export default function ExecutionsListPage() {
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.recommendations.list({ limit: 100 }),
-    queryFn: () => api.recommendations.list({ limit: 100 }),
+    queryKey: qk.executions.list(50),
+    queryFn: () => api.executions.list(50),
   });
 
-  const [gradeFilter, setGradeFilter] = useState<GradeFilter>("ALL");
-  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("ALL");
-
-  const gradeCounts = useMemo(() => {
-    const c: Record<ActionGrade, number> = {
-      "STRONG BUY": 0,
-      "BUY": 0,
-      "HOLD": 0,
-      "SELL": 0,
-      "STRONG SELL": 0,
-    };
-    if (!data) return c;
-    for (const r of data) {
-      const a = r.action as ActionGrade;
-      if (a in c) c[a] += 1;
-    }
-    return c;
-  }, [data]);
-
-  const outcomeCounts = useMemo(() => {
-    const c: Record<Outcome, number> = {
-      target_hit: 0,
-      stop_hit: 0,
-      manual: 0,
-      open: 0,
-      pending: 0,
-      skipped: 0,
-      other: 0,
-    };
-    if (!data) return c;
-    for (const r of data) {
-      const o = r.outcome as Outcome | null | undefined;
-      if (o && o in c) c[o] += 1;
-    }
-    return c;
-  }, [data]);
-
-  const filteredData = useMemo(() => {
-    if (!data) return [] as PaperRecommendationItem[];
-    return data.filter((r) => {
-      if (gradeFilter !== "ALL" && r.action !== gradeFilter) return false;
-      if (outcomeFilter !== "ALL" && r.outcome !== outcomeFilter) return false;
-      return true;
-    });
-  }, [data, gradeFilter, outcomeFilter]);
-
-  const stats = useMemo(() => {
-    if (!data || data.length === 0) {
-      return {
-        total: 0,
-        submitted: 0,
-        skipped: 0,
-        submittedPct: 0,
-        skippedPct: 0,
-        latest: null as { ts: string; ticker: string } | null,
-        closedTotal: 0,
-        closedWinners: 0,
-        winRate: 0,
-        outcomeCounts: {} as Record<string, number>,
-      };
-    }
-    let submitted = 0;
-    let skipped = 0;
-    let closedTotal = 0;
-    let closedWinners = 0;
-    const outcomeCounts: Record<string, number> = {};
-    for (const r of data) {
-      if (r.submitted) submitted += 1;
-      if (r.skip_reason) skipped += 1;
-      if (r.outcome) {
-        outcomeCounts[r.outcome] = (outcomeCounts[r.outcome] ?? 0) + 1;
-        if (CLOSED_OUTCOMES.has(r.outcome)) {
-          closedTotal += 1;
-          if ((r.realized_pnl_pct ?? 0) > 0) closedWinners += 1;
-        }
-      }
-    }
-    const total = data.length;
-    const latestRow = data.reduce((acc, r) =>
-      new Date(r.scan_timestamp).getTime() > new Date(acc.scan_timestamp).getTime()
-        ? r
-        : acc,
-    );
-    return {
-      total,
-      submitted,
-      skipped,
-      submittedPct: total > 0 ? (submitted / total) * 100 : 0,
-      skippedPct: total > 0 ? (skipped / total) * 100 : 0,
-      latest: { ts: latestRow.scan_timestamp, ticker: latestRow.ticker },
-      closedTotal,
-      closedWinners,
-      winRate: closedTotal > 0 ? (closedWinners / closedTotal) * 100 : 0,
-      outcomeCounts,
-    };
-  }, [data]);
-
-  const winRateSubTone: "bullish" | "bearish" | "neutral" =
-    stats.closedTotal === 0
-      ? "neutral"
-      : stats.winRate >= 50
-        ? "bullish"
-        : stats.winRate < 40
-          ? "bearish"
-          : "neutral";
-
-  // Build bar segments from non-zero counts in the canonical visual order.
-  const barSegments = BAR_ORDER.map((seg) => ({
-    ...seg,
-    count: stats.outcomeCounts[seg.key] ?? 0,
-  })).filter((seg) => seg.count > 0);
-  const barTotal = barSegments.reduce((s, x) => s + x.count, 0);
+  const totals = (data ?? []).reduce(
+    (acc, row) => {
+      acc.submitted += row.n_submitted;
+      acc.skipped += row.n_skipped;
+      acc.failed += row.n_failed;
+      return acc;
+    },
+    { submitted: 0, skipped: 0, failed: 0 },
+  );
 
   return (
     <>
       <PageHeader
-        title="Recommendations"
-        description="Historical paper-trade recommendations from `paper trade` runs."
+        title="Execution log"
+        description="Per-day paper-trade results from scripts.paper_trade_factor_picks. Each row records what landed at the broker, what got skipped by the AI sanity gate, and what failed."
       />
 
       {error ? <ErrorState error={error} /> : null}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
-          label="Total"
-          value={isLoading ? "—" : String(stats.total)}
+          label="Trading days"
+          value={isLoading ? "—" : String((data ?? []).length)}
+          sub={
+            (data ?? []).length > 0
+              ? `latest ${fmtRelativeTime((data ?? [])[0]?.date ?? "")}`
+              : "no logs yet"
+          }
+          subTone="muted"
           isLoading={isLoading}
         />
         <ScoreboardTile
-          label="Submitted"
-          value={isLoading ? "—" : String(stats.submitted)}
-          sub={
-            isLoading || stats.total === 0
-              ? undefined
-              : `${stats.submittedPct.toFixed(0)}% of total`
-          }
-          subTone={stats.submittedPct > 50 ? "bullish" : "neutral"}
-          isLoading={isLoading}
-        />
-        <ScoreboardTile
-          label="Win rate"
-          tooltip="Closed-trade winners ÷ total closed. Counts only OUTCOMES that actually exited (target_hit / stop_hit / manual / other). open and pending rows don't contribute."
-          value={
-            isLoading
-              ? "—"
-              : stats.closedTotal === 0
-                ? "—"
-                : (
-                  <span className={cn(
-                    winRateSubTone === "bullish"
-                      ? "text-bullish"
-                      : winRateSubTone === "bearish"
-                        ? "text-bearish"
-                        : "text-foreground",
-                  )}>
-                    {`${stats.winRate.toFixed(1)}%`}
-                  </span>
-                )
-          }
-          sub={
-            isLoading
-              ? undefined
-              : stats.closedTotal === 0
-                ? "no closed trades yet"
-                : `${stats.closedWinners}/${stats.closedTotal} closed wins`
-          }
+          label="Submitted orders"
+          tooltip="Sum across every execution day visible in the list. Includes longs + shorts in long_short mode."
+          value={isLoading ? "—" : (
+            <span className="text-bullish">{totals.submitted}</span>
+          )}
+          sub="across all days"
           subTone="muted"
           isLoading={isLoading}
         />
         <ScoreboardTile
           label="Skipped"
-          value={isLoading ? "—" : String(stats.skipped)}
-          sub={
-            isLoading || stats.total === 0
-              ? undefined
-              : `${stats.skippedPct.toFixed(0)}% of total`
-          }
-          subTone={stats.skippedPct > 50 ? "bearish" : "neutral"}
+          tooltip="Orders the sanity gate refused, or that paper_trade decided not to submit (size too small, etc.)."
+          value={isLoading ? "—" : String(totals.skipped)}
+          sub={totals.skipped > 0 ? "review reasons" : "none"}
+          subTone={totals.skipped > 0 ? "neutral" : "muted"}
           isLoading={isLoading}
         />
         <ScoreboardTile
-          label="Latest"
+          label="Failed"
+          tooltip="Orders Alpaca rejected (insufficient qty, market closed, etc.). Each row carries the broker's error string."
           value={
-            isLoading || !stats.latest ? (
-              "—"
-            ) : (
-              <span className="font-mono text-base tracking-tight">
-                {fmtDate(stats.latest.ts)}
+            isLoading ? "—" : (
+              <span className={cn(totals.failed > 0 ? "text-bearish" : "text-foreground")}>
+                {totals.failed}
               </span>
             )
           }
-          sub={stats.latest ? stats.latest.ticker : undefined}
-          subTone="muted"
+          sub={totals.failed > 0 ? "drill into a day to investigate" : "none"}
+          subTone={totals.failed > 0 ? "bearish" : "muted"}
           isLoading={isLoading}
         />
       </div>
 
-      {isLoading || !data || data.length === 0 || barTotal === 0 ? (
-        <div className="my-4 h-1.5 rounded border border-border bg-muted/30" />
+      {isLoading ? (
+        <div className="mt-4 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      ) : (data ?? []).length === 0 ? (
+        <EmptyState />
       ) : (
-        <div className="my-4 space-y-1">
-          <div className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground">
-            Outcome distribution
-          </div>
-          <div className="flex h-1.5 w-full overflow-hidden rounded border border-border bg-card">
-            {barSegments.map((seg) => (
-              <div
-                key={seg.key}
-                className={seg.swatch}
-                style={{ width: `${(seg.count / barTotal) * 100}%` }}
-                aria-label={`${seg.label}: ${seg.count}`}
-              />
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-            {barSegments.map((seg) => (
-              <span key={seg.key} className="inline-flex items-center gap-1.5">
-                <span
-                  className={cn("h-1.5 w-1.5 rounded-full", seg.swatch)}
-                  aria-hidden
-                />
-                {seg.label} {seg.count}
-              </span>
-            ))}
-          </div>
+        <div className="mt-4 border border-border rounded-md bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Strategy</TableHead>
+                <TableHead className="text-right">Equity</TableHead>
+                <TableHead className="text-right">Basket</TableHead>
+                <TableHead className="text-right">Submitted</TableHead>
+                <TableHead className="text-right">Skipped</TableHead>
+                <TableHead className="text-right">Failed</TableHead>
+                <TableHead>Sanity</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data ?? []).map((row) => (
+                <ExecutionRow key={row.date} row={row} />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle>History</CardTitle>
-          <CardDescription>
-            {data
-              ? gradeFilter === "ALL" && outcomeFilter === "ALL"
-                ? `${data.length} entries`
-                : `${filteredData.length} of ${data.length} entries`
-              : "Loading…"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {data && data.length > 0 ? (
-            <div className="border-b border-border px-3 py-2 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="font-mono text-[9px] tracking-wider uppercase text-muted-foreground/60 w-12">
-                  grade
-                </span>
-                <FilterChip
-                  label="ALL"
-                  count={data.length}
-                  active={gradeFilter === "ALL"}
-                  tone="text-muted-foreground"
-                  onClick={() => setGradeFilter("ALL")}
-                />
-                {ALL_GRADES.map((g) => (
-                  <FilterChip
-                    key={g}
-                    label={g}
-                    count={gradeCounts[g]}
-                    active={gradeFilter === g}
-                    tone={gradeChipTone(g)}
-                    onClick={() => setGradeFilter(g)}
-                  />
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="font-mono text-[9px] tracking-wider uppercase text-muted-foreground/60 w-12">
-                  outcome
-                </span>
-                <FilterChip
-                  label="ALL"
-                  count={data.length}
-                  active={outcomeFilter === "ALL"}
-                  tone="text-muted-foreground"
-                  onClick={() => setOutcomeFilter("ALL")}
-                />
-                {ALL_OUTCOMES.map((o) => (
-                  <FilterChip
-                    key={o}
-                    label={o}
-                    count={outcomeCounts[o]}
-                    active={outcomeFilter === o}
-                    tone={outcomeChipTone(o)}
-                    onClick={() => setOutcomeFilter(o)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {isLoading ? (
-            <div className="space-y-2 p-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-7 w-full" />
-              ))}
-            </div>
-          ) : !data || data.length === 0 ? (
-            <p className="text-muted-foreground text-sm py-12 text-center font-mono">
-              No paper-trade recommendations yet.
-            </p>
-          ) : filteredData.length === 0 ? (
-            <p className="text-muted-foreground text-sm py-12 text-center font-mono">
-              No rows match the current filters.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    When
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    Ticker
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    Strategy
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    Action
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
-                    Score
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
-                    Entry
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
-                    Stop
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
-                    Target
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground py-2 px-3">
-                    Outcome
-                  </TableHead>
-                  <TableHead className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground text-right py-2 px-3">
-                    Realized %
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredData.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    className="hover:bg-muted/40 border-b border-border last:border-b-0"
-                  >
-                    <TableCell className="text-muted-foreground text-xs py-2 px-3">
-                      {fmtDate(r.scan_timestamp)}
-                    </TableCell>
-                    <TableCell className="py-2 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <Link
-                          href={`/stocks/${r.ticker}`}
-                          className="font-mono text-sm font-semibold text-primary hover:underline underline-offset-2"
-                          title="View trade plan"
-                        >
-                          {r.ticker}
-                        </Link>
-                        <a
-                          href={`https://www.tradingview.com/symbols/${encodeURIComponent(r.ticker)}/`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground/60 hover:text-primary transition-colors"
-                          title={`Open ${r.ticker} chart on TradingView`}
-                          aria-label={`Open ${r.ticker} chart on TradingView (new tab)`}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs py-2 px-3">
-                      {r.strategy}
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "font-mono text-xs uppercase tracking-wider py-2 px-3",
-                        actionToneClass(r.action),
-                      )}
-                    >
-                      {r.action}
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "font-mono tabular-nums text-right py-2 px-3",
-                        scoreToneClass(r.composite_score),
-                      )}
-                    >
-                      {fmtNumber(r.composite_score, 1)}
-                    </TableCell>
-                    <TableCell className="font-mono tabular-nums text-right py-2 px-3">
-                      {fmtUSD(r.entry_price)}
-                    </TableCell>
-                    <TableCell className="font-mono tabular-nums text-right py-2 px-3">
-                      {fmtUSD(r.stop_loss)}
-                    </TableCell>
-                    <TableCell className="font-mono tabular-nums text-right py-2 px-3">
-                      {fmtUSD(r.take_profit)}
-                    </TableCell>
-                    <TableCell className="py-2 px-3 text-xs">
-                      <OutcomeCell row={r} />
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "font-mono tabular-nums text-right py-2 px-3",
-                        r.realized_pnl_pct == null
-                          ? "text-muted-foreground"
-                          : pnlColorClass(r.realized_pnl_pct),
-                      )}
-                    >
-                      {r.realized_pnl_pct == null
-                        ? "—"
-                        : fmtPct(r.realized_pnl_pct, 2, true)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
     </>
   );
 }
 
-function FilterChip({
-  label,
-  count,
-  active,
-  tone,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  tone: string;
-  onClick: () => void;
-}) {
+function ExecutionRow({ row }: { row: ExecutionSummary }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border rounded transition-colors",
-        active
-          ? `bg-muted/40 border-border ${tone}`
-          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30",
-      )}
-    >
-      {label} <span className="opacity-60">({count})</span>
-    </button>
+    <TableRow mono className="group">
+      <TableCell>
+        <Link
+          href={`/recommendations/${encodeURIComponent(row.date)}`}
+          className="flex items-center gap-1 font-mono text-foreground hover:text-primary"
+        >
+          {row.date}
+          <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+        </Link>
+      </TableCell>
+      <TableCell className="text-[11px] text-muted-foreground">
+        {row.strategy}
+        {row.long_short_mode ? (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[9px] font-mono uppercase tracking-wider"
+          >
+            L/S
+          </Badge>
+        ) : null}
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        {row.equity_at_start != null ? fmtUSD(row.equity_at_start, true) : "—"}
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums text-[11px]">
+        <span className="text-bullish">{row.n_longs}L</span>
+        {row.n_shorts > 0 ? (
+          <>
+            <span className="text-muted-foreground/40 mx-0.5">/</span>
+            <span className="text-bearish">{row.n_shorts}S</span>
+          </>
+        ) : null}
+      </TableCell>
+      <TableCell className={cn(
+        "text-right font-mono tabular-nums",
+        row.n_submitted > 0 ? "text-bullish" : "text-muted-foreground",
+      )}>
+        {row.n_submitted}
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
+        {row.n_skipped}
+      </TableCell>
+      <TableCell className={cn(
+        "text-right font-mono tabular-nums",
+        row.n_failed > 0 ? "text-bearish" : "text-muted-foreground",
+      )}>
+        {row.n_failed}
+      </TableCell>
+      <TableCell>
+        {row.sanity_applied ? (
+          <Badge
+            variant="outline"
+            className="text-[9px] font-mono uppercase tracking-wider gap-1 border-bullish/40 bg-bullish/5 text-bullish"
+            title={`AI sanity gate applied (mode: ${row.sanity_long_rejected} rejected, ${row.sanity_long_cautioned} cautioned)`}
+          >
+            applied
+            {row.sanity_long_rejected + row.sanity_long_cautioned > 0 ? (
+              <span className="opacity-70">
+                {row.sanity_long_rejected + row.sanity_long_cautioned}
+              </span>
+            ) : null}
+          </Badge>
+        ) : (
+          <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-wider">
+            off
+          </span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="mt-4 border border-border rounded-md bg-card p-12 text-center">
+      <CircleAlert className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+      <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+        No execution logs on disk
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Logs live at{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">
+          data/daily_picks/execution_log/*.json
+        </code>
+        . Run{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">
+          uv run python -m scripts.paper_trade_factor_picks
+        </code>
+        {" "}to create one.
+      </p>
+      <Link
+        href="/scan"
+        className="mt-3 inline-flex items-center gap-1 text-primary text-sm hover:underline"
+      >
+        Run the daily pipeline <ArrowUpRight className="h-3 w-3" />
+      </Link>
+      <Link
+        href="/buy-signals"
+        className="ml-4 mt-3 inline-flex items-center gap-1 text-primary text-sm hover:underline"
+      >
+        Today&apos;s actions <ArrowDownRight className="h-3 w-3" />
+      </Link>
+    </div>
   );
 }

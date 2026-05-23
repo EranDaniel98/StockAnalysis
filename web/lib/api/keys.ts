@@ -19,6 +19,12 @@ export const qk = {
     spySnapshot: () => ["portfolio", "spy-snapshot"] as const,
   },
 
+  executions: {
+    all: ["executions"] as const,
+    list: (limit?: number) => ["executions", "list", limit ?? 50] as const,
+    detail: (date: string) => ["executions", "detail", date] as const,
+  },
+
   icReports: {
     all: ["ic-reports"] as const,
     list: (limit?: number) => ["ic-reports", "list", limit ?? 50] as const,
