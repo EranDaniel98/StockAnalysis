@@ -19,6 +19,11 @@ export const qk = {
     spySnapshot: () => ["portfolio", "spy-snapshot"] as const,
   },
 
+  pipeline: {
+    all: ["pipeline"] as const,
+    recent: (limit?: number) => ["pipeline", "recent", limit ?? 5] as const,
+  },
+
   scans: {
     all: ["scans"] as const,
     list: (params?: { strategy?: string; limit?: number }) =>

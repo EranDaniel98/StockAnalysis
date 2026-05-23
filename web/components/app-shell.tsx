@@ -17,6 +17,7 @@ import {
   Home,
   LineChart,
   Microscope,
+  Play,
   Search,
   Sparkles,
   TrendingUp,
@@ -64,9 +65,9 @@ const NAV: NavLink[] = [
   },
   {
     href: "/scan",
-    label: "Scan",
-    icon: Search,
-    description: "Trigger a market scan",
+    label: "Run pipeline",
+    icon: Play,
+    description: "Re-run the daily factor pipeline on demand",
   },
   {
     href: "/buy-signals",

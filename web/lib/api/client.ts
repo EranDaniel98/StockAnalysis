@@ -86,6 +86,8 @@ export type PositionStatus =
   | "TARGET_HIT"
   | "NEAR_TARGET";
 export type PaperVsSpySnapshot = Schemas["PaperVsSpySnapshot"];
+export type PipelineRecentResponse = Schemas["PipelineRecentResponse"];
+export type PipelineRecentRun = Schemas["PipelineRecentRun"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -188,6 +190,17 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  pipeline: {
+    recent: (limit?: number) => {
+      const q = new URLSearchParams();
+      if (limit) q.set("limit", String(limit));
+      const qs = q.toString();
+      return request<PipelineRecentResponse>(
+        `/api/pipeline/recent${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 
   backtests: {

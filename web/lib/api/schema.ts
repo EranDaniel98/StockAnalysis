@@ -684,6 +684,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pipeline/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recent
+         * @description List the last ``limit`` pipeline-style runs by inspecting disk
+         *     artifacts. Each entry says which downstream files exist so the FE
+         *     can show a per-step completion mark.
+         */
+        get: operations["get_recent_api_pipeline_recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Pipeline
+         * @description Spawn ``scripts.run_daily_pipeline`` and stream per-step progress.
+         *
+         *     SSE event types:
+         *       - ``ready``           {steps:[...]}    sent once before subprocess starts
+         *       - ``step_started``    {step, ts}       new step begins
+         *       - ``step_completed``  {step, exit_code, elapsed_s, tail:[...]}
+         *       - ``heartbeat``       {}               keepalive every ~1s during quiet stretches
+         *       - ``done``            {exit_code, total_elapsed_s, steps:{name: exit_code}}
+         *       - ``error``           {detail}         setup error or 409 conflict
+         */
+        get: operations["stream_pipeline_api_pipeline_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1396,6 +1446,46 @@ export interface components {
             current_price: number;
             /** Return Pct */
             return_pct: number;
+        };
+        /** PipelineRecentResponse */
+        PipelineRecentResponse: {
+            /** Runs */
+            runs?: components["schemas"]["PipelineRecentRun"][];
+            /**
+             * In Flight
+             * @description True if a pipeline run is currently executing.
+             */
+            in_flight: boolean;
+            /** In Flight Started At */
+            in_flight_started_at?: string | null;
+        };
+        /**
+         * PipelineRecentRun
+         * @description One historical pipeline-or-picks invocation, derived from disk
+         *     artifacts. Used by /scan to list the last few runs.
+         */
+        PipelineRecentRun: {
+            /**
+             * Picks Date
+             * Format: date
+             */
+            picks_date: string;
+            /**
+             * Picks Generated At
+             * Format: date-time
+             * @description Mtime of data/daily_picks/<date>.json — proxy for run time.
+             */
+            picks_generated_at: string;
+            /** N Picks */
+            n_picks: number;
+            /** Has Analysis */
+            has_analysis: boolean;
+            /** Has Briefing */
+            has_briefing: boolean;
+            /** Has Exit Plan */
+            has_exit_plan: boolean;
+            /** Has Sanity Check */
+            has_sanity_check: boolean;
         };
         /** PortfolioHistory */
         PortfolioHistory: {
@@ -2928,6 +3018,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BriefingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_recent_api_pipeline_recent_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRecentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_pipeline_api_pipeline_stream_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to today's UTC date. */
+                picks_date?: string | null;
+                top_n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

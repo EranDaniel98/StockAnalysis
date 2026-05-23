@@ -1472,6 +1472,115 @@
           }
         }
       }
+    },
+    "/api/pipeline/recent": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Get Recent",
+        "description": "List the last ``limit`` pipeline-style runs by inspecting disk\nartifacts. Each entry says which downstream files exist so the FE\ncan show a per-step completion mark.",
+        "operationId": "get_recent_api_pipeline_recent_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 5,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRecentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pipeline/stream": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Stream Pipeline",
+        "description": "Spawn ``scripts.run_daily_pipeline`` and stream per-step progress.\n\nSSE event types:\n  - ``ready``           {steps:[...]}    sent once before subprocess starts\n  - ``step_started``    {step, ts}       new step begins\n  - ``step_completed``  {step, exit_code, elapsed_s, tail:[...]}\n  - ``heartbeat``       {}               keepalive every ~1s during quiet stretches\n  - ``done``            {exit_code, total_elapsed_s, steps:{name: exit_code}}\n  - ``error``           {detail}         setup error or 409 conflict",
+        "operationId": "stream_pipeline_api_pipeline_stream_get",
+        "parameters": [
+          {
+            "name": "picks_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "YYYY-MM-DD. Defaults to today's UTC date.",
+              "title": "Picks Date"
+            },
+            "description": "YYYY-MM-DD. Defaults to today's UTC date."
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 15,
+              "title": "Top N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3028,6 +3137,86 @@
           "return_pct"
         ],
         "title": "PaperVsSpySpyLeg"
+      },
+      "PipelineRecentResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineRecentRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "in_flight": {
+            "type": "boolean",
+            "title": "In Flight",
+            "description": "True if a pipeline run is currently executing."
+          },
+          "in_flight_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Flight Started At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "in_flight"
+        ],
+        "title": "PipelineRecentResponse"
+      },
+      "PipelineRecentRun": {
+        "properties": {
+          "picks_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Picks Date"
+          },
+          "picks_generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Picks Generated At",
+            "description": "Mtime of data/daily_picks/<date>.json \u2014 proxy for run time."
+          },
+          "n_picks": {
+            "type": "integer",
+            "title": "N Picks"
+          },
+          "has_analysis": {
+            "type": "boolean",
+            "title": "Has Analysis"
+          },
+          "has_briefing": {
+            "type": "boolean",
+            "title": "Has Briefing"
+          },
+          "has_exit_plan": {
+            "type": "boolean",
+            "title": "Has Exit Plan"
+          },
+          "has_sanity_check": {
+            "type": "boolean",
+            "title": "Has Sanity Check"
+          }
+        },
+        "type": "object",
+        "required": [
+          "picks_date",
+          "picks_generated_at",
+          "n_picks",
+          "has_analysis",
+          "has_briefing",
+          "has_exit_plan",
+          "has_sanity_check"
+        ],
+        "title": "PipelineRecentRun",
+        "description": "One historical pipeline-or-picks invocation, derived from disk\nartifacts. Used by /scan to list the last few runs."
       },
       "PortfolioHistory": {
         "properties": {

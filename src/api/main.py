@@ -27,6 +27,7 @@ from src.api.routers import (
     diagnostics,
     health,
     market,
+    pipeline,
     portfolio,
     recommendations,
     scans,
@@ -111,6 +112,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(
         briefing.router, prefix="/api/dashboard/briefing", tags=["dashboard"],
     )
+    app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 
     return app
 
