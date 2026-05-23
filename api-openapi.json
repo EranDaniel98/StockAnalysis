@@ -1468,6 +1468,33 @@
         ],
         "title": "AccountSummary"
       },
+      "ActionCounts": {
+        "properties": {
+          "n_new_buys": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N New Buys"
+          },
+          "n_keep": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Keep"
+          },
+          "n_exit": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Exit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_new_buys",
+          "n_keep",
+          "n_exit"
+        ],
+        "title": "ActionCounts",
+        "description": "Set difference between today's picks and current paper positions.\nMirrors the NEW BUY / KEEP / EXIT lists in the morning briefing\nmarkdown so the dashboard can headline the rebalance shape."
+      },
       "BacktestRequest": {
         "properties": {
           "strategy": {
@@ -1822,6 +1849,74 @@
             "minimum": 0.0,
             "title": "N Positions",
             "default": 0
+          },
+          "top_picks": {
+            "items": {
+              "$ref": "#/components/schemas/TopPick"
+            },
+            "type": "array",
+            "title": "Top Picks",
+            "description": "Top-N picks by composite rank, projected for the dashboard hero card. Empty when no picks file exists for the date."
+          },
+          "action_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NEW BUY / KEEP / EXIT counts from set-diff of today's picks vs current paper positions. Null when picks or positions couldn't be resolved."
+          },
+          "paper_equity_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Equity Usd",
+            "description": "Live paper-account equity. Null when Alpaca is unreachable."
+          },
+          "unrealized_pl_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pl Usd",
+            "description": "Sum of unrealized P&L across held positions."
+          },
+          "unrealized_pl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pl Pct",
+            "description": "unrealized_pl_usd / paper_equity_usd * 100."
+          },
+          "picks_generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picks Generated At",
+            "description": "Filesystem mtime of the picks JSON. Surfaces pipeline freshness without an extra API call."
           },
           "generated_at": {
             "type": "string",
@@ -3978,6 +4073,92 @@
         ],
         "title": "TimeStop",
         "description": "Triple-barrier time stop \u2014 forced exit N calendar days after entry."
+      },
+      "TopPick": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "z_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z Score"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "mom_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mom Rank"
+          },
+          "qual_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qual Rank"
+          },
+          "val_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Rank"
+          },
+          "pead_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pead Rank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "ticker"
+        ],
+        "title": "TopPick",
+        "description": "Compact per-pick row for the dashboard hero card. Mirrors the\nfields the per-stock rationale chips need without dragging the full\nfactor-picks JSON into the briefing response."
       },
       "ValidationError": {
         "properties": {

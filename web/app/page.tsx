@@ -1,12 +1,13 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, RefreshCw, Sparkles, TrendingUp, X, Zap } from "lucide-react";
+import { ExternalLink, RefreshCw, Sparkles, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
+import { FactorChips } from "@/components/factor-chips";
 import { MorningBriefingBanner } from "@/components/morning-briefing-banner";
 import { PageHeader } from "@/components/page-header";
 import { ScanProgress } from "@/components/scan-progress";
@@ -31,8 +32,10 @@ import {
 } from "@/components/ui/table";
 import {
   api,
+  type BriefingResponse,
   type DashboardPick,
   type StrategyCard,
+  type TopPick,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import { useScanStream } from "@/lib/api/use-scan-stream";
@@ -361,38 +364,260 @@ function StrategyCardView({
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+// ─── Factor hero (top-5 picks with rationale chips) ─────────────────────────
+
+function FactorPicksHero({
+  briefing, isLoading,
+}: {
+  briefing: BriefingResponse | undefined;
+  isLoading: boolean;
+}) {
+  const picks = briefing?.top_picks ?? [];
+  const picksDate = briefing?.picks_date ?? null;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-bullish" />
+            <CardTitle className="text-sm tracking-tight">
+              Today&apos;s Factor Picks
+            </CardTitle>
+            {picksDate ? (
+              <Badge variant="outline" className="text-[9px] font-mono">
+                {picksDate}
+              </Badge>
+            ) : null}
+          </div>
+          <Link
+            href="/factors"
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            full 15-pick view →
+          </Link>
+        </div>
+        <CardDescription>
+          Composite m+q+v(+pead) ranking. Chips mark factors where the pick
+          sits in the universe top decile (rank ≤ 50).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2 py-1">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : picks.length === 0 ? (
+          <div className="text-center py-8">
+            <TrendingUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-muted-foreground text-xs mb-3">
+              No factor picks for today. Run the daily pipeline.
+            </p>
+            <code className="text-[10px] bg-muted px-2 py-1 rounded font-mono">
+              uv run python -m scripts.run_daily_pipeline
+            </code>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10 text-[10px]">#</TableHead>
+                <TableHead className="text-[10px]">Ticker</TableHead>
+                <TableHead className="text-[10px] text-right">z</TableHead>
+                <TableHead className="text-[10px]">Sector</TableHead>
+                <TableHead className="text-[10px]">Factor stack</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {picks.map((p) => (
+                <FactorPickRow key={p.ticker} pick={p} />
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FactorPickRow({ pick }: { pick: TopPick }) {
+  const tvHref = `https://www.tradingview.com/symbols/${encodeURIComponent(pick.ticker)}/`;
+  const z = pick.z_score;
+  return (
+    <TableRow mono>
+      <TableCell className="text-muted-foreground font-mono text-[11px]">
+        {pick.rank}
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href={`/stocks/${encodeURIComponent(pick.ticker)}`}
+            className="font-mono text-foreground hover:text-primary transition-colors"
+          >
+            {pick.ticker}
+          </Link>
+          <a
+            href={tvHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground/60 hover:text-primary transition-colors"
+            title={`Open ${pick.ticker} chart on TradingView`}
+            aria-label={`Open ${pick.ticker} chart on TradingView (new tab)`}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        <span
+          className={cn(
+            z != null && z >= 2.0 && "text-bullish",
+            z != null && z < 1.0 && "text-muted-foreground",
+          )}
+        >
+          {z != null ? `+${z.toFixed(2)}` : "—"}
+        </span>
+      </TableCell>
+      <TableCell className="text-muted-foreground text-[11px]">
+        {pick.sector || "—"}
+      </TableCell>
+      <TableCell>
+        <FactorChips
+          mom={pick.mom_rank}
+          qual={pick.qual_rank}
+          val={pick.val_rank}
+          pead={pick.pead_rank}
+        />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// ─── Actions card (NEW BUY / KEEP / EXIT counts) ─────────────────────────────
+
+function ActionsCard({
+  briefing, isLoading,
+}: {
+  briefing: BriefingResponse | undefined;
+  isLoading: boolean;
+}) {
+  const counts = briefing?.action_counts ?? null;
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (!counts) {
+    return (
+      <Card>
+        <CardContent className="py-4 text-xs text-muted-foreground">
+          No rebalance plan yet — needs both today&apos;s picks and current
+          paper positions.
+        </CardContent>
+      </Card>
+    );
+  }
+  const total = counts.n_new_buys + counts.n_keep + counts.n_exit;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm tracking-tight">
+          Today&apos;s rebalance shape
+        </CardTitle>
+        <CardDescription className="text-[11px]">
+          Set-diff of today&apos;s picks vs current paper positions. Full
+          per-stock orders on <Link href="/portfolio" className="underline">/portfolio</Link>.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <ActionCountCell label="NEW BUY" count={counts.n_new_buys} tone="bullish" />
+          <ActionCountCell label="KEEP" count={counts.n_keep} tone="neutral" />
+          <ActionCountCell label="EXIT" count={counts.n_exit} tone="bearish" />
+        </div>
+        {total === 0 ? (
+          <p className="text-[11px] text-muted-foreground text-center mt-3">
+            Nothing to do — basket is already aligned.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActionCountCell({
+  label, count, tone,
+}: {
+  label: string;
+  count: number;
+  tone: "bullish" | "neutral" | "bearish";
+}) {
+  return (
+    <div className="border border-border rounded px-2 py-2">
+      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "font-mono text-2xl font-semibold tabular-nums mt-1",
+          count > 0 && tone === "bullish" && "text-bullish",
+          count > 0 && tone === "bearish" && "text-bearish",
+          count > 0 && tone === "neutral" && "text-foreground",
+          count === 0 && "text-muted-foreground",
+        )}
+      >
+        {count}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
   const qc = useQueryClient();
   const mounted = useMounted();
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
+  const dashboardQ = useQuery({
     queryKey: qk.dashboard.get(),
     queryFn: () => api.dashboard.get(),
     refetchInterval: 5 * 60_000, // 5 min
   });
+  const briefingQ = useQuery({
+    queryKey: qk.dashboard.briefing(),
+    queryFn: () => api.dashboard.briefing(),
+    refetchInterval: 5 * 60_000,
+  });
   // See use-mounted.ts: isFetching=false on server, true on client mount.
-  const fetching = mounted && isFetching;
+  const fetching = mounted && (dashboardQ.isFetching || briefingQ.isFetching);
 
-  const topPicks = data?.top_picks ?? [];
-  const strategies = data?.strategies ?? [];
+  const dashboard = dashboardQ.data;
+  const briefing = briefingQ.data;
+  const briefingLoading = briefingQ.isLoading;
+  const dashboardLoading = dashboardQ.isLoading;
 
-  const totalBuys = strategies.reduce((sum, s) => sum + s.n_buys, 0);
+  const strategies = dashboard?.strategies ?? [];
   const bestStrategy = strategies
     .filter((s) => s.oos_sharpe !== null && s.oos_sharpe !== undefined)
     .sort((a, b) => (b.oos_sharpe ?? 0) - (a.oos_sharpe ?? 0))[0];
-  const strategiesWithScan = strategies.filter((s) => s.last_scan_at).length;
+
+  const topZ = briefing?.top_picks?.[0]?.z_score ?? null;
+  const topTicker = briefing?.top_picks?.[0]?.ticker ?? null;
+  const equity = briefing?.paper_equity_usd ?? null;
+  const plUsd = briefing?.unrealized_pl_usd ?? null;
+  const plPct = briefing?.unrealized_pl_pct ?? null;
+  const picksMtime = briefing?.picks_generated_at ?? null;
 
   return (
     <>
       <PageHeader
-        title="Today's Best Plays"
-        description="Top buys across every strategy. One snapshot of what the system thinks you should act on right now."
+        title="Today's Plays"
+        description="Daily-pipeline factor picks, rebalance shape, and paper P&L — the one-screen scan before market open."
         actions={
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
-              refetch();
+              dashboardQ.refetch();
+              briefingQ.refetch();
               qc.invalidateQueries({ queryKey: qk.dashboard.get() });
+              qc.invalidateQueries({ queryKey: qk.dashboard.briefing() });
             }}
             disabled={fetching}
           >
@@ -404,154 +629,157 @@ export default function DashboardPage() {
         }
       />
 
-      {error ? <ErrorState error={error} /> : null}
+      {dashboardQ.error ? <ErrorState error={dashboardQ.error} /> : null}
 
-      {/* ── Morning briefing banner ──────────────────────────────────────── */}
+      {/* ── Morning briefing banner (gate + factor coverage + alerts) ────── */}
       <MorningBriefingBanner />
 
       {/* ── Scoreboard strip ─────────────────────────────────────────────── */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <ScoreboardTile
-          label="Cross-Strategy BUYs"
-          value={isLoading ? "—" : String(topPicks.length)}
-          sub={isLoading ? undefined : "highest-conviction across all strategies"}
-          subTone={topPicks.length > 0 ? "bullish" : "muted"}
-          isLoading={isLoading}
-        />
-        <ScoreboardTile
-          label="Total BUY Signals"
-          value={isLoading ? "—" : String(totalBuys)}
-          sub={
-            isLoading
-              ? undefined
-              : `${strategiesWithScan} / ${strategies.length} strategies scanned`
-          }
-          subTone="muted"
-          isLoading={isLoading}
-        />
-        <ScoreboardTile
-          label="Best Strategy (OOS Sharpe)"
-          tooltip="Out-of-sample Sharpe from the most-recent A/B sweep (insider-off baseline). Higher = better risk-adjusted return on data the strategy didn't see during fitting."
+          label="Today's picks"
+          tooltip="Click to drill into /factors for the full 15-pick table, sector mix, and paper-vs-SPY chart."
           value={
-            bestStrategy ? (
+            briefingLoading ? (
+              "—"
+            ) : (
+              <Link href="/factors" className="hover:text-primary transition-colors">
+                {briefing?.n_picks ?? 0}
+              </Link>
+            )
+          }
+          sub={
+            briefing && briefing.n_picks > 0
+              ? `composite m+q+v${(briefing.factor_coverage ?? []).some((f) => f.factor === "pead") ? "+pead" : ""}`
+              : "run the daily pipeline"
+          }
+          subTone={briefing && briefing.n_picks > 0 ? "bullish" : "muted"}
+          isLoading={briefingLoading}
+        />
+        <ScoreboardTile
+          label="Top pick"
+          value={
+            briefingLoading ? (
+              "—"
+            ) : topTicker ? (
+              <Link
+                href={`/stocks/${encodeURIComponent(topTicker)}`}
+                className="font-mono text-base tracking-tight hover:text-primary transition-colors"
+              >
+                {topTicker}
+              </Link>
+            ) : (
+              "—"
+            )
+          }
+          sub={
+            topZ != null
+              ? `composite z = +${topZ.toFixed(2)}`
+              : "no picks today"
+          }
+          subTone={topZ != null && topZ >= 2.0 ? "bullish" : "muted"}
+          isLoading={briefingLoading}
+        />
+        <ScoreboardTile
+          label="Paper P&L"
+          tooltip="Unrealized P&L on currently held paper positions. Full breakdown on /portfolio."
+          value={
+            briefingLoading ? (
+              "—"
+            ) : equity != null ? (
               <span className="font-mono text-base tracking-tight">
-                {bestStrategy.strategy}
+                {fmtUSD(equity)}
               </span>
             ) : (
               "—"
             )
           }
           sub={
-            bestStrategy
-              ? `Sharpe ${fmtNumber(bestStrategy.oos_sharpe, 2)} · ${fmtPct(bestStrategy.win_rate_pct, 1)} win`
-              : "no sweep results yet"
+            plUsd != null && plPct != null
+              ? `${plUsd >= 0 ? "+" : ""}${fmtUSD(plUsd)} (${fmtPct(plPct, 2)})`
+              : equity != null
+              ? "no positions"
+              : "Alpaca unreachable"
           }
-          subTone={bestStrategy ? "bullish" : "muted"}
-          isLoading={isLoading}
+          subTone={
+            plUsd != null
+              ? plUsd > 0
+                ? "bullish"
+                : plUsd < 0
+                ? "bearish"
+                : "muted"
+              : "muted"
+          }
+          isLoading={briefingLoading}
         />
         <ScoreboardTile
-          label="Generated"
+          label="Pipeline run"
+          tooltip="File-system mtime of today's picks JSON. Stale = pipeline hasn't run yet today."
           value={
-            data ? (
+            briefingLoading ? (
+              "—"
+            ) : picksMtime ? (
               <span
                 className="font-mono text-base tracking-tight"
-                title={fmtDate(data.generated_at)}
+                title={fmtDate(picksMtime)}
               >
-                {fmtRelativeTime(data.generated_at)}
+                {fmtRelativeTime(picksMtime)}
               </span>
             ) : (
-              "—"
+              <span className="text-bearish text-base">never</span>
             )
           }
-          sub="auto-refresh every 5 min"
-          subTone="muted"
-          isLoading={isLoading}
+          sub={
+            picksMtime
+              ? `auto-refresh every 5 min`
+              : "run scripts.run_daily_pipeline"
+          }
+          subTone={picksMtime ? "muted" : "bearish"}
+          isLoading={briefingLoading}
         />
       </div>
 
-      {/* ── Cross-strategy hero card ─────────────────────────────────────── */}
-      <Card className="mt-4">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-bullish" />
-            <CardTitle className="text-sm tracking-tight">
-              Top Picks — Across All Strategies
-            </CardTitle>
-          </div>
-          <CardDescription>
-            Highest composite score per ticker (deduplicated when a ticker shows
-            up in multiple strategies — strongest signal wins).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-2 py-1">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-8 w-full" />
+      {/* ── Factor hero + rebalance actions ─────────────────────────────── */}
+      <div className="grid gap-4 mt-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <FactorPicksHero briefing={briefing} isLoading={briefingLoading} />
+        </div>
+        <ActionsCard briefing={briefing} isLoading={briefingLoading} />
+      </div>
+
+      {/* ── Legacy 5-engine grid (collapsed by default) ─────────────────── */}
+      <details className="mt-6 group">
+        <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-medium tracking-wider uppercase text-muted-foreground hover:text-foreground transition-colors">
+          <span className="opacity-60 group-open:rotate-90 inline-block transition-transform">▶</span>
+          Other strategies (legacy 5-engine)
+          <span className="ml-2 text-[10px] normal-case opacity-60">
+            no defensible edge proven — for reference only
+          </span>
+        </summary>
+        <div className="mt-4">
+          {dashboardLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-72 w-full" />
               ))}
             </div>
-          ) : topPicks.length === 0 ? (
-            <div className="text-center py-8">
-              <TrendingUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground text-xs mb-3">
-                No BUY/STRONG BUY candidates across any strategy yet.
-              </p>
-              <Link href="/scan">
-                <Button variant="outline" size="sm">
-                  <Zap className="mr-2 h-3.5 w-3.5" />
-                  Run a scan
-                </Button>
-              </Link>
-            </div>
+          ) : strategies.length === 0 ? (
+            <p className="text-muted-foreground text-center text-xs py-12">
+              No strategies configured.
+            </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ticker</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="text-right">Score</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Strategy</TableHead>
-                  <TableHead className="text-right">Entry</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topPicks.map((p) => (
-                  <PickRow key={p.ticker} pick={p} showStrategy />
-                ))}
-              </TableBody>
-            </Table>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {strategies.map((card) => (
+                <StrategyCardView
+                  key={card.strategy}
+                  card={card}
+                  isBest={!!bestStrategy && card.strategy === bestStrategy.strategy}
+                />
+              ))}
+            </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* ── Per-strategy grid ────────────────────────────────────────────── */}
-      <div className="mt-6 mb-2">
-        <h2 className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-          By Strategy
-        </h2>
-      </div>
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 w-full" />
-          ))}
         </div>
-      ) : strategies.length === 0 ? (
-        <p className="text-muted-foreground text-center text-xs py-12">
-          No strategies configured.
-        </p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {strategies.map((card) => (
-            <StrategyCardView
-              key={card.strategy}
-              card={card}
-              isBest={!!bestStrategy && card.strategy === bestStrategy.strategy}
-            />
-          ))}
-        </div>
-      )}
+      </details>
     </>
   );
 }

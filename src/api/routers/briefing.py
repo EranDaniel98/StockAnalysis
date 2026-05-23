@@ -21,10 +21,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from src.api.schemas.briefing import (
+    ActionCounts,
     BriefingResponse,
     DriftCheckOut,
     FactorCoverage,
     PositionAlert,
+    TopPick,
 )
 from src.execution.alpaca import AlpacaClient, AlpacaClientError
 from src.factors.drift_detector import compute_drift_report
@@ -60,6 +62,10 @@ _FALLBACK_TARGET_PCT = 0.10  # 10% above
 # pennies (0.7 sh of DNN at $3.28 = $2.30). Don't alert on those -- they
 # can't be flattened meaningfully and just add noise to the card.
 _MIN_ALERT_MARKET_VALUE = 10.0
+
+# Number of picks projected into BriefingResponse.top_picks. Five is
+# the morning-briefing markdown's headline depth; the rest live on /factors.
+_TOP_PICKS_FOR_DASHBOARD = 5
 
 
 def _is_missing(v) -> bool:
@@ -243,6 +249,120 @@ async def _fetch_positions() -> list[dict]:
         return []
 
 
+async def _fetch_account() -> Optional[dict]:
+    """Same fail-soft pattern as _fetch_positions. Returns None when
+    Alpaca is unreachable so the dashboard renders without the equity
+    tile rather than 500ing."""
+    try:
+        client = AlpacaClient()
+    except AlpacaClientError as e:
+        logger.warning("Alpaca client unavailable for account: %s", e)
+        return None
+    try:
+        return await asyncio.to_thread(client.get_account)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Alpaca get_account failed: %s", e)
+        return None
+
+
+def _build_top_picks(picks: list[dict], limit: int) -> list[TopPick]:
+    """Project the first ``limit`` picks into the compact dashboard shape.
+    Assumes the picks JSON is already sorted by ``rank``."""
+    out: list[TopPick] = []
+    for p in picks[:limit]:
+        if not isinstance(p, dict):
+            continue
+        rank = p.get("rank") or p.get("_eff_rank")
+        if rank is None:
+            continue
+        out.append(TopPick(
+            rank=int(rank),
+            ticker=str(p.get("ticker") or ""),
+            z_score=_coerce_float(p.get("z_score")),
+            sector=p.get("sector"),
+            mom_rank=_coerce_int(p.get("mom_rank")),
+            qual_rank=_coerce_int(p.get("qual_rank")),
+            val_rank=_coerce_int(p.get("val_rank")),
+            pead_rank=_coerce_int(p.get("pead_rank")),
+        ))
+    return out
+
+
+def _coerce_float(v) -> Optional[float]:
+    """JSON-NaN survives json.loads as float('nan'); Pydantic rejects it
+    on a float field. Both NaN and None get mapped to None for the wire."""
+    if v is None:
+        return None
+    if isinstance(v, float) and v != v:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(v) -> Optional[int]:
+    if v is None:
+        return None
+    if isinstance(v, float) and v != v:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_action_counts(
+    picks: list[dict], positions: list[dict],
+) -> ActionCounts:
+    """Set-diff today's picks against current paper holdings. Matches
+    the NEW BUY / KEEP / EXIT splits in the morning_briefing markdown."""
+    pick_set = {
+        (p.get("ticker") or "").upper()
+        for p in picks if isinstance(p, dict)
+    }
+    pick_set.discard("")
+    pos_set = {
+        (p.get("ticker") or "").upper()
+        for p in positions if isinstance(p, dict)
+    }
+    pos_set.discard("")
+    return ActionCounts(
+        n_new_buys=len(pick_set - pos_set),
+        n_keep=len(pick_set & pos_set),
+        n_exit=len(pos_set - pick_set),
+    )
+
+
+def _sum_unrealized_pl(positions: list[dict]) -> float:
+    """Sum unrealized P&L across held positions. AlpacaClient.get_positions
+    serializes the field as ``unrealized_pnl`` (with the 'n') in
+    src/execution/alpaca.py — not ``unrealized_pl``."""
+    total = 0.0
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        v = p.get("unrealized_pnl")
+        if v is None:
+            continue
+        try:
+            total += float(v)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _picks_mtime(path: Path) -> Optional[datetime]:
+    """File-system mtime as a UTC datetime. Surfacing this lets the FE
+    show 'picks generated 3h ago' without an extra round-trip to a
+    pipeline-status endpoint."""
+    try:
+        ts = path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
 @router.get("", response_model=BriefingResponse)
 async def get_briefing(
     picks_date: Optional[date] = Query(
@@ -255,7 +375,9 @@ async def get_briefing(
     if not picks_path.exists():
         # Degraded mode: still surface position alerts so stops/targets
         # are visible even on a missed-pipeline day.
-        positions = await _fetch_positions()
+        positions, account = await asyncio.gather(
+            _fetch_positions(), _fetch_account(),
+        )
         analysis_path = _latest_portfolio_analysis()
         analysis_plans: dict[str, dict] = {}
         if analysis_path is not None:
@@ -270,6 +392,11 @@ async def get_briefing(
         n_stops = sum(1 for a in alerts if a.status == "STOP_HIT")
         n_targets = sum(1 for a in alerts if a.status == "TARGET_HIT")
         n_near_stop = sum(1 for a in alerts if a.status == "NEAR_STOP")
+        equity = float(account["equity"]) if account else None
+        pl_usd = _sum_unrealized_pl(positions)
+        pl_pct = (
+            (pl_usd / equity * 100.0) if equity and equity > 0 else None
+        )
         return BriefingResponse(
             picks_date=None,
             gate_status="no_picks",
@@ -283,6 +410,12 @@ async def get_briefing(
             n_targets_hit=n_targets,
             n_near_stop=n_near_stop,
             n_positions=len(positions),
+            top_picks=[],
+            action_counts=None,
+            paper_equity_usd=equity,
+            unrealized_pl_usd=pl_usd if positions else None,
+            unrealized_pl_pct=pl_pct,
+            picks_generated_at=None,
             generated_at=datetime.now(timezone.utc),
         )
 
@@ -322,11 +455,19 @@ async def get_briefing(
         except (OSError, json.JSONDecodeError) as e:
             logger.warning("Bad analysis JSON %s: %s", analysis_path, e)
 
-    positions = await _fetch_positions()
+    positions, account = await asyncio.gather(
+        _fetch_positions(), _fetch_account(),
+    )
     alerts = _build_position_alerts(positions, analysis_plans)
     n_stops = sum(1 for a in alerts if a.status == "STOP_HIT")
     n_targets = sum(1 for a in alerts if a.status == "TARGET_HIT")
     n_near_stop = sum(1 for a in alerts if a.status == "NEAR_STOP")
+
+    top_picks = _build_top_picks(picks, _TOP_PICKS_FOR_DASHBOARD)
+    action_counts = _build_action_counts(picks, positions)
+    equity = float(account["equity"]) if account else None
+    pl_usd = _sum_unrealized_pl(positions)
+    pl_pct = (pl_usd / equity * 100.0) if equity and equity > 0 else None
 
     return BriefingResponse(
         picks_date=date.fromisoformat(payload["as_of"])
@@ -342,5 +483,11 @@ async def get_briefing(
         n_targets_hit=n_targets,
         n_near_stop=n_near_stop,
         n_positions=len(positions),
+        top_picks=top_picks,
+        action_counts=action_counts,
+        paper_equity_usd=equity,
+        unrealized_pl_usd=pl_usd if positions else None,
+        unrealized_pl_pct=pl_pct,
+        picks_generated_at=_picks_mtime(picks_path),
         generated_at=datetime.now(timezone.utc),
     )

@@ -110,6 +110,8 @@ export type StrategyCard = Schemas["StrategyCard"];
 
 export type BriefingResponse = Schemas["BriefingResponse"];
 export type FactorCoverage = Schemas["FactorCoverage"];
+export type TopPick = Schemas["TopPick"];
+export type ActionCounts = Schemas["ActionCounts"];
 export type DriftCheckOut = Schemas["DriftCheckOut"];
 export type PositionAlert = Schemas["PositionAlert"];
 

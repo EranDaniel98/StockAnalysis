@@ -655,6 +655,20 @@ export interface components {
             /** Pattern Day Trader */
             pattern_day_trader: boolean;
         };
+        /**
+         * ActionCounts
+         * @description Set difference between today's picks and current paper positions.
+         *     Mirrors the NEW BUY / KEEP / EXIT lists in the morning briefing
+         *     markdown so the dashboard can headline the rebalance shape.
+         */
+        ActionCounts: {
+            /** N New Buys */
+            n_new_buys: number;
+            /** N Keep */
+            n_keep: number;
+            /** N Exit */
+            n_exit: number;
+        };
         /** BacktestRequest */
         BacktestRequest: {
             /**
@@ -853,6 +867,33 @@ export interface components {
              * @default 0
              */
             n_positions: number;
+            /**
+             * Top Picks
+             * @description Top-N picks by composite rank, projected for the dashboard hero card. Empty when no picks file exists for the date.
+             */
+            top_picks?: components["schemas"]["TopPick"][];
+            /** @description NEW BUY / KEEP / EXIT counts from set-diff of today's picks vs current paper positions. Null when picks or positions couldn't be resolved. */
+            action_counts?: components["schemas"]["ActionCounts"] | null;
+            /**
+             * Paper Equity Usd
+             * @description Live paper-account equity. Null when Alpaca is unreachable.
+             */
+            paper_equity_usd?: number | null;
+            /**
+             * Unrealized Pl Usd
+             * @description Sum of unrealized P&L across held positions.
+             */
+            unrealized_pl_usd?: number | null;
+            /**
+             * Unrealized Pl Pct
+             * @description unrealized_pl_usd / paper_equity_usd * 100.
+             */
+            unrealized_pl_pct?: number | null;
+            /**
+             * Picks Generated At
+             * @description Filesystem mtime of the picks JSON. Surfaces pipeline freshness without an extra API call.
+             */
+            picks_generated_at?: string | null;
             /**
              * Generated At
              * Format: date-time
@@ -1743,6 +1784,30 @@ export interface components {
             exit_date: string;
             /** Detail */
             detail: string;
+        };
+        /**
+         * TopPick
+         * @description Compact per-pick row for the dashboard hero card. Mirrors the
+         *     fields the per-stock rationale chips need without dragging the full
+         *     factor-picks JSON into the briefing response.
+         */
+        TopPick: {
+            /** Rank */
+            rank: number;
+            /** Ticker */
+            ticker: string;
+            /** Z Score */
+            z_score?: number | null;
+            /** Sector */
+            sector?: string | null;
+            /** Mom Rank */
+            mom_rank?: number | null;
+            /** Qual Rank */
+            qual_rank?: number | null;
+            /** Val Rank */
+            val_rank?: number | null;
+            /** Pead Rank */
+            pead_rank?: number | null;
         };
         /** ValidationError */
         ValidationError: {

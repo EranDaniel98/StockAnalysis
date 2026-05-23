@@ -48,6 +48,29 @@ class PositionAlert(BaseModel):
     source: Literal["strategy", "fallback_8pct"]
 
 
+class TopPick(BaseModel):
+    """Compact per-pick row for the dashboard hero card. Mirrors the
+    fields the per-stock rationale chips need without dragging the full
+    factor-picks JSON into the briefing response."""
+    rank: int = Field(ge=1)
+    ticker: str
+    z_score: Optional[float] = None
+    sector: Optional[str] = None
+    mom_rank: Optional[int] = None
+    qual_rank: Optional[int] = None
+    val_rank: Optional[int] = None
+    pead_rank: Optional[int] = None
+
+
+class ActionCounts(BaseModel):
+    """Set difference between today's picks and current paper positions.
+    Mirrors the NEW BUY / KEEP / EXIT lists in the morning briefing
+    markdown so the dashboard can headline the rebalance shape."""
+    n_new_buys: int = Field(ge=0)
+    n_keep: int = Field(ge=0)
+    n_exit: int = Field(ge=0)
+
+
 class BriefingResponse(BaseModel):
     picks_date: Optional[date] = Field(
         None,
@@ -84,4 +107,38 @@ class BriefingResponse(BaseModel):
     n_targets_hit: int = Field(default=0, ge=0)
     n_near_stop: int = Field(default=0, ge=0)
     n_positions: int = Field(default=0, ge=0)
+    top_picks: list[TopPick] = Field(
+        default_factory=list,
+        description=(
+            "Top-N picks by composite rank, projected for the dashboard "
+            "hero card. Empty when no picks file exists for the date."
+        ),
+    )
+    action_counts: Optional[ActionCounts] = Field(
+        default=None,
+        description=(
+            "NEW BUY / KEEP / EXIT counts from set-diff of today's picks "
+            "vs current paper positions. Null when picks or positions "
+            "couldn't be resolved."
+        ),
+    )
+    paper_equity_usd: Optional[float] = Field(
+        default=None,
+        description="Live paper-account equity. Null when Alpaca is unreachable.",
+    )
+    unrealized_pl_usd: Optional[float] = Field(
+        default=None,
+        description="Sum of unrealized P&L across held positions.",
+    )
+    unrealized_pl_pct: Optional[float] = Field(
+        default=None,
+        description="unrealized_pl_usd / paper_equity_usd * 100.",
+    )
+    picks_generated_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "Filesystem mtime of the picks JSON. Surfaces pipeline "
+            "freshness without an extra API call."
+        ),
+    )
     generated_at: datetime
