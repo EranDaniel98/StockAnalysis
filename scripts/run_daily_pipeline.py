@@ -41,6 +41,7 @@ STEPS = [
     "ai_sanity_check",
     "morning_briefing",
     "paper_vs_spy_snapshot",
+    "kill_switch_check",
 ]
 
 
@@ -69,9 +70,9 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--picks-date", default=None,
                    help="YYYY-MM-DD. Defaults to today.")
-    p.add_argument("--top-n", type=int, default=15,
-                   help="Number of picks (default 15 = top 3%%, matches "
-                        "daily_factor_picks default since 2026-05-19 d03 ship).")
+    p.add_argument("--top-n", type=int, default=24,
+                   help="Number of picks (default 24 = top 5%%, matches "
+                        "daily_factor_picks default since 2026-05-23 d05 revert).")
     args = p.parse_args()
 
     logging.basicConfig(
@@ -154,6 +155,15 @@ def main() -> int:
     results["paper_vs_spy_snapshot"] = _run(
         ["scripts.paper_vs_spy_snapshot"],
         "paper_vs_spy_snapshot",
+    )
+
+    # 9. Kill-switch check (advisory in this pipeline -- the hard gate lives
+    # in paper_trade_factor_picks.py before order submission). --soft makes
+    # this step never fail the daily run; it just refreshes the report and
+    # advances the strategy-rollover counter.
+    results["kill_switch_check"] = _run(
+        ["scripts.kill_switch_check", "--soft"],
+        "kill_switch_check",
     )
 
     # Force UTF-8 stdout so unicode summary markers don't crash on

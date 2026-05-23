@@ -1,0 +1,11 @@
+{
+  "strategy_label": "factor_composite_d05_r63",
+  "strategy_started_at": "2026-05-23",
+  "threshold_pct": -8.0,
+  "lookback_trading_days": 60,
+  "generated_at_utc": "2026-05-23T15:53:24.322249+00:00",
+  "status": "warming_up",
+  "trading_days_in_window": 0,
+  "alpha_pct": null,
+  "message": "0/60 trading days since strategy started 2026-05-23. Kill switch inactive."
+}

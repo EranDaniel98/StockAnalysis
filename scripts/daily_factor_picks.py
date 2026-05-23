@@ -6,24 +6,30 @@ current trading day. Thin wrapper around
 for the composite-factor pipeline shared with the CLI's
 ``factor-picks`` command and any future API endpoint.
 
-Recommended deployment config (per
-`reports/factor_strategy_report_2026_05_16.md`, updated 2026-05-19):
+Recommended deployment config (reverted to d05 on 2026-05-23 after
+live paper showed -11.2% α vs SPY over 90d on d03):
 
   uv run python -m scripts.daily_factor_picks \\
-      --top-n 15 \\
+      --top-n 24 \\
       --output-dir data/daily_picks/
 
-15 names = top 3% of S&P 500. Rebalance quarterly (every ~63 trading
+24 names = top 5% of S&P 500. Rebalance quarterly (every ~63 trading
 days) for the live strategy — don't trade these picks daily.
 
-Why 15 instead of the historical 24: the 2026-05-19 concentration
-ablation on commit 330153e found that top-3% nearly doubles
-cross-window alpha (+5.70% → +10.80% 3-window avg) and flips the
-2024-26 bull window from -6.60% to +2.37% alpha vs SPY. The
-defensive features (asymmetric trend, sector-neutral quality,
-hysteresis) are kept on — they were individually NET POSITIVE in
-both bear and bull windows. The lever that mattered was simply
-concentration, not removing brakes.
+History of the concentration knob:
+- d05 (top-24) was the original Phase 1+3 winner. Cross-window α
+  +2.77% on 2 windows; on 3 windows including COVID, +1.88%.
+- d03 (top-15) was shipped 2026-05-19 based on a concentration
+  ablation that nearly doubled backtested cross-window α
+  (+5.70% → +10.80% 3-window avg) and flipped the 2024-26 bull
+  window from -6.60% to +2.37%.
+- Live paper 2026-02-22 → 2026-05-23: -11.2% α vs SPY. The
+  bull-window DD prediction (-14.5% → -19.2%) materialized; the
+  α improvement did not. d03 is a bear-window strategy that does
+  not survive a bull regime in live conditions.
+- Reverted to d05 (top-24) on 2026-05-23. Kill switch added in
+  the same change blocks new entries if 60d rolling α drops
+  below -8% from the strategy-start date.
 
 This script is read-only and DOES NOT place orders. Hand the output
 to the paper-trading runner or review by eye before any execution.
@@ -47,14 +53,15 @@ logger = logging.getLogger("daily_factor_picks")
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--top-n", type=int, default=15,
-                   help="Number of picks (default 15 = top 3%% of ~500). "
-                        "Bumped from 24 (top 5%%) on 2026-05-19 after the "
-                        "concentration ablation: d03 nearly doubled "
-                        "cross-window α (+5.70%% → +10.80%% 3-window avg) "
-                        "and flipped the 2024-26 bull window from -6.60%% "
-                        "to +2.37%%. Cost: max DD widens from -14.5%% to "
-                        "-19.2%% in the bull window (-13.9%% in bear).")
+    p.add_argument("--top-n", type=int, default=24,
+                   help="Number of picks (default 24 = top 5%% of ~500). "
+                        "Reverted from 15 (d03) to 24 (d05) on 2026-05-23 "
+                        "after live paper logged -11.2%% α vs SPY over 90d. "
+                        "The d03 backtest predicted +5.10pp cross-window α "
+                        "AND wider bull-window DD (-14.5%% → -19.2%%); the "
+                        "DD prediction came true, the α did not. d05 is "
+                        "the original Phase 1+3 winner — 3-window avg α "
+                        "+1.88%%, max DD -14.5%% in bull, -13.9%% in bear.")
     p.add_argument("--snapshot-id", default=None,
                    help="Use a frozen snapshot for prices (deterministic) "
                         "instead of pulling fresh from yfinance.")

@@ -110,6 +110,13 @@ def _parse_args() -> argparse.Namespace:
                         "fallback removed: a failure now means the call broke, "
                         "not that the LLM is uncertain. Override ONLY for "
                         "known-transient issues.")
+    p.add_argument("--override-kill-switch", action="store_true",
+                   help="Proceed even when the live-α kill switch reports "
+                        "TRIGGERED (60d rolling α vs SPY below threshold). "
+                        "Default refuses. Override ONLY after manually "
+                        "reviewing reports/kill_switch.json and deciding "
+                        "the trigger is a transient drawdown, not a "
+                        "regime/strategy failure.")
     p.add_argument("--retry-suffix", default="",
                    help="Appended to every client_order_id (e.g., 'v2') to "
                         "make today's IDs unique when re-running after a "
@@ -236,6 +243,49 @@ def _run_drift_gate(args) -> None:
                 logger.warning("  WARN %s: %s", c.name, c.message)
     else:
         logger.info("Drift gate OK (%d checks)", len(report.checks))
+
+
+def _run_kill_switch_gate(args) -> dict:
+    """Refuse new entries when live α has dropped below the threshold.
+
+    Always runs (also under --no-execute) so the report file stays fresh
+    and the warm-up counter advances. Rolls over the strategy state file
+    if STRATEGY_LABEL no longer matches what's recorded -- this means a
+    config change is detected the moment the new strategy first tries to
+    trade, and the rolling window restarts cleanly.
+
+    Status semantics:
+    - warming_up: <60 trading days since strategy started -- no gate yet
+    - unavailable: Alpaca or yfinance unreachable -- gate inactive, log
+    - ok: window full, α >= threshold
+    - triggered: window full, α < threshold -- refuse unless overridden
+    """
+    from src.execution.kill_switch import evaluate, write_report
+
+    payload = evaluate(STRATEGY_LABEL)
+    write_report(payload)
+    status = payload["status"]
+    if status == "triggered":
+        logger.error("KILL SWITCH TRIGGERED: %s", payload["message"])
+        if not args.override_kill_switch:
+            raise SystemExit(
+                "\nRefusing to trade -- live α kill switch triggered. "
+                "Inspect reports/kill_switch.json and decide whether the "
+                "drawdown is recoverable. To override (e.g., the threshold "
+                "fires on an isolated bad week), rerun with "
+                "--override-kill-switch."
+            )
+        logger.warning(
+            "Proceeding despite kill-switch trigger because "
+            "--override-kill-switch was set."
+        )
+    elif status == "warming_up":
+        logger.info("Kill switch: %s", payload["message"])
+    elif status == "unavailable":
+        logger.warning("Kill switch unavailable: %s", payload["message"])
+    else:
+        logger.info("Kill switch OK: %s", payload["message"])
+    return payload
 
 
 def _sanity_outcomes_to_dict(res) -> dict:
@@ -1007,6 +1057,7 @@ def main() -> int:
     )
 
     _run_drift_gate(args)
+    _run_kill_switch_gate(args)
     longs, shorts, sanity_summary = _run_sanity_gate(
         args, longs, shorts, long_short_mode,
     )
