@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 from src.contracts.entities.fundamentals import FundamentalSnapshot
-from src.scoring.fundamentals_adapter import snapshot_to_analyzer_dict
 
 # Source-precedence: higher rank wins when several snapshots are valid at as_of.
 # When lookup() sees both an EDGAR 10-Q and a yfinance snapshot covering as_of
@@ -141,30 +140,6 @@ class FundamentalsPITLoader:
             return None
         last_four = sorted(quarterly, key=lambda r: r.valid_from)[-4:]
         return sum(r.eps_diluted for r in last_four)  # type: ignore[misc]
-
-    def lookup_dict(
-        self,
-        ticker: str,
-        as_of: datetime,
-        *,
-        price: float | None = None,
-        overlay: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Same as ``lookup`` but returns the analyzer-shaped dict. Returns
-        the overlay alone (or empty) when no PIT row covers as_of.
-
-        Auto-injects ``eps_ttm`` into the overlay when 4 quarters of EDGAR
-        EPS are available — so the adapter computes PE from real TTM rather
-        than the latest-quarter × 4 heuristic. Caller-supplied eps_ttm in
-        the overlay wins (lets tests pin a specific value).
-        """
-        snap = self.lookup(ticker, as_of)
-        merged_overlay: dict[str, Any] = dict(overlay) if overlay else {}
-        if "eps_ttm" not in merged_overlay:
-            ttm = self.compute_eps_ttm(ticker, as_of)
-            if ttm is not None:
-                merged_overlay["eps_ttm"] = ttm
-        return snapshot_to_analyzer_dict(snap, price=price, overlay=merged_overlay)
 
     def coverage(self) -> dict[str, int]:
         """Per-ticker row count. Useful for sanity-checking the universe at

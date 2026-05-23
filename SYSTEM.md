@@ -180,101 +180,68 @@ Tables (autoritative list, see `alembic/versions/`):
 
 ---
 
-## 4. The scoring pipeline
+## 4. The factor pipeline
+
+The system selects what to trade through a single deliberately narrow pipeline:
 
 ```
-┌──────────┐      ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
-│ Universe │ ───► │ 5 analyzers +   │ ───► │ Composite engine │ ───► │ Recommender     │
-│ (7.5K eq)│      │ Alpha158 + PEAD │      │ (weighted avg +  │      │ (action +       │
-└──────────┘      └─────────────────┘      │  consensus nudge)│      │  position size) │
-                                            └──────────────────┘      └─────────────────┘
+PIT S&P 500 ─► momentum / quality / value (+ PEAD) ─► rank-blend ─► top-N picks
+              src/factors/*                                          (daily JSON)
 ```
 
-### 4.1 Analyzers (`src/scoring/analyzers/`)
+Each factor is independent; the composite is an equal-weight rank-blend, not a weighted score. Memory + reports tell the story of why we landed here — the 5-engine composite the project shipped with was anti-predictive at retail horizons (`memory/project_analyzer_ic_2022_2024.md`), so it was retired and the factor pipeline replaced it 2026-05-23.
 
-Each analyzer returns a `SubAnalysisResult`:
-```python
+### 4.1 Factor modules (`src/factors/`)
+
+| Module | What it computes |
+|--------|------------------|
+| `momentum.py` | Cross-sectional rank on 12-1 momentum (skip-the-last-month) |
+| `quality.py` | Sector-neutral rank on profitability + leverage + accruals (3-of-N components) |
+| `value.py` | Multi-metric rank on PE / PB / EV-EBITDA, keeps negative EPS as separate band |
+| `pead.py` | Post-earnings drift overlay (4th factor, opt-in via `--include-pead`) |
+| `composite.py` | Equal-weight rank-blend + sector cap + concentration top-N |
+| `pipeline.py` | Orchestrator — universe → factor scores → composite → picks JSON |
+| `hysteresis_*` / `exposure_scaling.py` / `vix_regime.py` | Stickiness / regime overlays validated 2026-05-18+ |
+| `drift_detector.py` | Pre-trade gate: factor coverage / sector / top-z / carry rate sanity |
+| `regime.py` / `regime_weights.py` | VIX-percentile + 200-SMA regime classifier |
+| `fundamentals_pit_loader.py` | EDGAR PIT loader with `to_json` / `from_json` for reproducibility |
+| `earnings_cache.py` | yfinance earnings history with disk + memory caches |
+| `pead_compute.py` | Per-ticker drift score (relocated from the legacy analyzers 2026-05-23) |
+
+### 4.2 Pipeline output
+
+`scripts/daily_factor_picks.py --output-dir data/daily_picks/` produces a JSON like:
+
+```json
 {
-    "score": float | None,       # 0-100, None if analyzer disabled or errored
-    "signals": list[Signal],     # bullish/bearish with strength
-    "indicators": dict,          # raw indicator values for display
-    "status": Literal["ok", "disabled", "error"],
-    "error": str | None,
+  "as_of": "2026-05-23",
+  "strategy": "composite_d05_r63",
+  "universe_size": 499,
+  "picks": [
+    {"ticker": "CF", "rank": 1, "composite_z": 2.75, ...},
+    ...
+  ],
+  "factor_coverage": {"momentum": 499, "quality": 487, "value": 499, "pead": 412},
+  "hysteresis": {"carried": 7, "fresh": 17}
 }
 ```
 
-The 7 analyzers:
-| Name           | Inputs                          | What it does                                                          |
-|----------------|---------------------------------|-----------------------------------------------------------------------|
-| `technical`    | OHLCV                           | RSI, MACD, Bollinger, MAs, volume profile                             |
-| `fundamental`  | yfinance / EDGAR snapshot       | Valuation, growth, profitability, leverage, dividend, analyst targets |
-| `patterns`     | OHLCV                           | Chart-pattern detection (cup/handle, double-bottom, breakouts)        |
-| `statistical`  | OHLCV (returns)                 | Drift, volatility regime, mean-reversion z-scores                     |
-| `trend_detector` | OHLCV                         | Multi-timeframe trend strength + alignment                            |
-| `alpha158`     | OHLCV + factor lib              | Microsoft Qlib's Alpha158 factor zoo                                  |
-| `pead`         | Earnings surprises + drift      | Post-earnings-announcement drift bonus (additive, gated)              |
+That JSON is the single source of truth for the live system. The paper trader reads it, the per-ticker analysis page overlays it on the chart, the morning briefing summarizes it, and the kill switch evaluates the strategy started by it.
 
-### 4.2 Composite engine (`src/scoring/engine.py:calculate_composite_score`)
+### 4.3 Live strategy: `composite_d05_r63`
 
-```
-composite = weighted_avg(sub_scores × strategy.weights[source])  # 0–100
-         + signal_consensus_nudge                                # ±5, normalized per analyzer slot
-         + carver_consensus_scaling                              # multiplicative, gated on alignment
-         + pead_bonus                                            # additive, requires pead enabled
-```
+- Top 24 names (5% of S&P 500), equal-weight long-only
+- Rank-blend of momentum + quality + value + PEAD
+- Quarterly rebalance (~63 trading days)
+- Hysteresis bonus 0.75 (held name keeps slot if rank stays within top-N × 1.75)
+- Asymmetric trend filter: 75-SMA re-entry, 200-SMA exit
+- Sector cap 30% of top-N
 
-**Critical correctness gate (the keystone fix):**
-```python
-score_valid = all(sub.status != "error" for sub in active_subs)
-if not score_valid:
-    return CompositeScore(score=composite, score_valid=False, ...)
-# PEAD / Carver / ±5 nudge applied ONLY when score_valid=True
-```
+Reverted from the more concentrated d03 (top-15) on 2026-05-23 after 90d of live paper showed -11.2% α vs SPY — see `memory/project_d05_revert_kill_switch.md`.
 
-Previously, a broken analyzer returned `score=50.0` silently. The composite then received the full PEAD bonus + Carver lift + consensus nudge on top, producing a manufactured BUY signal on a broken pipeline. The `score_valid` flag now propagates through `Recommendation`, paper-trade entry filter, AND backtest entry loop. The recommender force-overrides to `HOLD` / confidence `Low` when `score_valid=False`.
+### 4.4 Backtest harness
 
-### 4.3 Enabled-sources symmetry
-
-Sweep replays use a cached `CachedScore` and re-compose with different `enabled_sources` sets. The keystone parity fix: `recompose_composite` filters `pead_bonus`, `sub_scores`, AND `signal_counts` symmetrically. Previously PEAD leaked through both arms of any A/B test, producing byte-identical composites and masking real differences (likely root cause of the 2026-05-14 insider_flow R1000 null result).
-
-### 4.4 Recommender (`src/scoring/recommender.py`)
-
-- **Action:** thresholds (`strong_buy`, `buy`, `hold_upper`, `hold_lower`, `sell`) come from `strategies.yaml`, defaults from `settings.yaml`.
-- **Position sizing:** fixed-fractional or volatility-targeted. Kelly is **refused** (logged WARNING, falls back to fixed-fractional, marked `original_method="kelly"` + `kelly_refused_reason` in the result). Real money + Kelly + finite sample = pain.
-- **Risk budget:** `risk_per_trade_pct` from `sizing_config` (`vol_target_risk_pct` alias accepted, canonical wins).
-- **Stop / take-profit:** ATR-based stop, conviction-scaled TP (Stage 2/3 of triple-barrier work — pending).
-
-### 4.5 Two scoring paths (intentional, not legacy debt)
-
-The repository has **two coexisting scoring pipelines**. Both are alive. They serve different consumers and should not be merged.
-
-| Path | Where | Drives | Universe |
-| --- | --- | --- | --- |
-| **Factor composite** (`src/factors/pipeline.py`) | `daily_factor_picks.py`, `paper_trade_factor_picks.py`, `run_factor_backtest.py` | Live picks, paper trades, backtests | PIT S&P 500 only |
-| **7-analyzer composite** (this section, `src/scoring/engine.py`) | CLI `analyze TICKER`, per-stock detail page in the web app, `comprehensive_analysis.py` | Per-stock deep dive UI, signal explainability | Any single ticker |
-
-Why two paths exist:
-
-- The **factor composite** is what we trade. It's deliberately narrow: equal-weight rank-blend of momentum + quality + value (+ optional PEAD), on a 500-name PIT universe, rebalanced quarterly. The factor pipeline has its own backtest (`run_factor_backtest.py`) with walk-forward CV that decides what ships to live.
-- The **7-analyzer composite** is what we look at to understand a single name. RSI + analyst targets + chart pattern detection + PEAD nudge — none of it has survived as live alpha in the factor framing, but each piece is a useful per-stock context lens. Killing this path would break `analyze TICKER`, the `/stocks/[ticker]` web page, and the morning-briefing per-name plans.
-
-The IC report (`scripts/analyzer_ic_report.py`) found that most of the 7 analyzers are *anti-predictive* at 44-day horizons in our PIT universe (see `~/.claude/.../memory/project_analyzer_ic_2022_2024.md`). That finding is what motivated building the factor pipeline as a separate path. **The 7-analyzer composite is explicitly NOT used to pick what we trade.** If you find yourself wiring it into a paper-trade entry filter, stop — that's the alpha-leak path we already debugged.
-
----
-
-## 5. The backtest engine
-
-`src/backtest/engine.py` runs strategies over historical windows with:
-
-- **Walk-forward CV** with configurable train / test split.
-- **Regime splits** — bull / bear / range markets, plotted separately.
-- **Point-in-time fundamentals** — fundamentals queried with `valid_from <= as_of_date < valid_to`. `LookaheadGuardError` raised if the loader is asked for future data.
-- **Score caching** — `_score_ticker` caches `CachedScore(sub_scores, signals, pead_bonus, atr, close, …)`. Replays compose composites on the fly via `recompose_composite`, so an entire sweep over `enabled_sources` configurations costs one base pass + N composition passes (orders of magnitude faster than re-scoring).
-- **Honest metrics** (`src/backtest/metrics.py`):
-  - **CAGR** respects `compound` flag — linear for fixed-fractional sizing, geometric for compounding.
-  - **Sharpe** uses empirical `periods_per_year = n_samples / years_elapsed` derived from equity-curve dates, then annualizes via `sqrt(periods_per_year)`. Previously a hardcoded `WEEKS_PER_YEAR=52` lied on holiday weeks.
-  - `annualization_method` field emitted alongside summary ("compound" / "linear").
-- **Equity conservation** — `current_equity()` sums `cost_basis`, not `shares × entry_price`, so per-trade commission doesn't shrink the vol-target sizing basis transaction by transaction.
+`scripts/run_factor_backtest.py` is the only backtest runner. It pins to a frozen snapshot (`data/snapshots/<id>/fundamentals_pit.json` + price parquets), walks the strategy through historical rebalance dates, and emits walk-forward fold metrics. The 5-engine `src/backtest/engine.py` was deleted 2026-05-23.
 
 ### Sweep battery (`scripts/run_sweep_battery.py`)
 

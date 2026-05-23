@@ -1,6 +1,6 @@
 """yfinance-backed sector cache for the factor pipeline.
 
-The EDGAR PIT loader (``src/scoring/fundamentals_pit_loader.py``) carries a
+The EDGAR PIT loader (``src/factors/fundamentals_pit_loader.py``) carries a
 ``sector`` field on every snapshot — but the ingest path never populates
 it, so every row reads ``sector=None``. The sector-cap selector in the
 factor pipeline then buckets every ticker as "Unknown" and the cap binds

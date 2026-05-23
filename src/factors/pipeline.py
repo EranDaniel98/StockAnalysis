@@ -175,7 +175,7 @@ def _load_fundamentals_sync(tickers: list[str]):
         PostgresFundamentalsRepository,
     )
     from src.db.session import get_sessionmaker, run_with_dispose
-    from src.scoring.fundamentals_pit_loader import (
+    from src.factors.fundamentals_pit_loader import (
         FundamentalsPITLoader,
     )
 
@@ -249,7 +249,7 @@ def run_factor_picks(
     from src.factors.pead import pead_factor
     from src.factors.quality import quality_factor
     from src.factors.value import value_factor
-    from src.scoring.earnings_cache import load_earnings_histories
+    from src.factors.earnings_cache import load_earnings_histories
     from src.storage.universe_loader import (
         load_from_snapshot, load_pit_sp500_with_prices,
     )

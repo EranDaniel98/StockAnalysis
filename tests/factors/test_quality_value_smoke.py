@@ -26,7 +26,7 @@ def loader_and_prices():
             PostgresFundamentalsRepository,
         )
         from src.db.session import get_sessionmaker, run_with_dispose
-        from src.scoring.fundamentals_pit_loader import (
+        from src.factors.fundamentals_pit_loader import (
             FundamentalsPITLoader,
         )
     except ImportError as e:

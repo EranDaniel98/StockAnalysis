@@ -82,7 +82,7 @@ def main() -> int:
     # EDGAR PIT for all (we need it for the composite computation across universe)
     from src.db.repositories.fundamentals import PostgresFundamentalsRepository
     from src.db.session import get_sessionmaker, run_with_dispose
-    from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+    from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 
     logger.info("Loading EDGAR PIT fundamentals for universe...")
 

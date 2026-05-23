@@ -33,7 +33,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 
 logger = logging.getLogger(__name__)
 

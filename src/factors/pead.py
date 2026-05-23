@@ -54,7 +54,7 @@ from typing import Mapping, Optional
 import numpy as np
 import pandas as pd
 
-from src.scoring.analyzers.pead import analyze as analyze_one
+from src.factors.pead_compute import analyze as analyze_one
 
 logger = logging.getLogger(__name__)
 

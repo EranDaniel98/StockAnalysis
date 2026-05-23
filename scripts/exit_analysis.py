@@ -80,7 +80,7 @@ def _fetch_quotes(tickers: list[str]) -> dict[str, float]:
 
 def _fetch_earnings(tickers: list[str]) -> dict[str, int]:
     """Days until next earnings per ticker. Empty for tickers without dates."""
-    from src.scoring.earnings_cache import load_next_earnings_dates
+    from src.factors.earnings_cache import load_next_earnings_dates
 
     today = pd.Timestamp.utcnow().tz_localize(None)
     next_dates = load_next_earnings_dates(tickers, as_of=today)

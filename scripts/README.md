@@ -1,9 +1,8 @@
 # scripts/
 
 Everything runnable as `uv run python -m scripts.X`. Organised by what
-the script is *for* — not by what it does. The directory had grown into
-a research diary; this README and the `research/` subdirectory are the
-line between production and experiment.
+the script is *for* — not by what it does. The `research/` subdirectory
+is the line between production and experiment.
 
 ## Production daily pipeline
 
@@ -31,26 +30,21 @@ Orchestrator: `run_daily_pipeline.py` — runs the lot in order.
 | `flatten_paper.py` | Close every paper position (use before strategy rollover) |
 | `sync_real_holdings.py` | Pull real cost basis from broker into `config/real_holdings.yaml` |
 
-## Backtesting
+## Backtesting + per-ticker analysis
 
 | Script | Purpose |
 | --- | --- |
 | `run_factor_backtest.py` | The factor-composite walk-forward harness |
-| `analyzer_ic_report.py` | Per-analyzer IC (information coefficient) across regimes |
-| `analyze_ticker.py` | One-shot per-stock 5-engine analysis (CLI) |
+| `analyze_ticker.py` | One-shot per-stock trading plan (CLI) |
 
 ## Data ops (run when stale)
 
 | Script | Purpose |
 | --- | --- |
-| `freeze_snapshot.py` | Pin a point-in-time price + universe snapshot |
-| `snapshot_features.py` | Cache today's factor features for reproducibility |
 | `fetch_sp500_membership.py` | Refresh the PIT S&P 500 universe |
 | `fetch_russell_1000.py` | Refresh the Russell 1000 ticker list |
-| `run_russell_scan.py` | Score the Russell 1000 |
 | `ingest_filings.py` | Ingest 10-K / 10-Q / 8-K from EDGAR into the corpus |
 | `backfill_insider.py` | Insider transactions (SEC Form 4) |
-| `backfill_insider_narrative.py` | Narrative-feature backfill for insider clusters |
 | `backfill_short_interest.py` | FINRA short-interest history |
 | `run_edgar_backfill.py` | EDGAR PIT fundamentals (per-ticker) |
 | `run_edgar_bulk_backfill.py` | EDGAR PIT fundamentals (universe-wide) |
@@ -67,7 +61,6 @@ Orchestrator: `run_daily_pipeline.py` — runs the lot in order.
 | `migrate_ohlcv_to_parquet.py` | One-time OHLCV → Parquet migration |
 | `migrate_paper_db.py` | One-time paper-DB schema upgrade |
 | `export_openapi.py` | Dump the FastAPI OpenAPI schema |
-| `register_legacy.py` | One-time backfill of legacy strategy IDs |
 
 ## Research one-offs (`research/`)
 
@@ -81,13 +74,29 @@ in `~/.claude/.../memory/MEMORY.md` for that experiment.
 | `research/kronos_proper_test.py` | Properly-powered Kronos eval (sign-rate CIs include 50%) — KILL |
 | `research/spike_kronos_forecast.py` | Initial Kronos spike that was later overruled by the proper test |
 | `research/check_backtest_align.py` | One-shot reproducibility check after PIT snapshot freeze |
-| `research/compare_strategies.py` | Multi-strategy head-to-head on a frozen snapshot |
 
 ## Windows launchers (`.ps1`)
 
 `install_schedule.ps1` / `uninstall_schedule.ps1` — register the daily
-pipeline with Task Scheduler. `run_paper.ps1`,
-`submit_d03_post_open.ps1`, `sync_real_post_open.ps1`,
-`wait_then_sweep.ps1` — convenience wrappers that just call into the
-Python scripts above. The `d03` launcher is stale after the
-2026-05-23 d05 revert; safe to delete, kept around as a reference.
+pipeline with Task Scheduler. `run_paper.ps1`, `sync_real_post_open.ps1`,
+`wait_then_sweep.ps1`, `submit_d03_post_open.ps1` — convenience wrappers
+that call into the Python scripts above. The `d03` launcher is stale
+after the 2026-05-23 d05 revert; safe to delete, kept as a reference.
+
+## Removed 2026-05-23 (5-engine → factor migration)
+
+- `analyzer_correlation.py`, `analyzer_ic_report.py` — generated IC
+  reports for the now-deleted 7-analyzer composite. The on-disk JSON
+  outputs in `reports/analyzer_ic_*.json` remain readable by the FE
+  viewer; new generations are not needed.
+- `freeze_snapshot.py`, `snapshot_features.py` — snapshot prep for the
+  old backtest engine. The factor backtest is its own world.
+- `train_model.py`, `train_ml_composite.py`, `register_legacy.py` —
+  ML-composite training pipeline. Shelved; never beat the linear stack.
+- `backfill_insider_narrative.py` — wrote to insider_narrative_snapshots
+  for the old ML feature store. Factor pipeline has its own
+  `src/factors/insider_cluster.py`.
+- `run_russell_scan.py` — CLI scan wrapper.
+- `validation_daily.py` — CLI paper-trade validator.
+- `compare_strategies.py` (under `research/`) — multi-strategy head-to-head
+  on the OLD composite.

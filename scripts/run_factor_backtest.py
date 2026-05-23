@@ -282,7 +282,7 @@ def _load_pit_fundamentals(tickers: list[str]):
         PostgresFundamentalsRepository,
     )
     from src.db.session import get_sessionmaker, run_with_dispose
-    from src.scoring.fundamentals_pit_loader import (
+    from src.factors.fundamentals_pit_loader import (
         FundamentalsPITLoader,
     )
 
@@ -499,7 +499,7 @@ def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers:
     up front (parquet cache hits after the first run)."""
     if not args.include_pead:
         return None
-    from src.scoring.earnings_cache import load_earnings_histories
+    from src.factors.earnings_cache import load_earnings_histories
     logger.info("Loading earnings histories for PEAD...")
     histories = load_earnings_histories(
         universe_tickers, Path(args.earnings_cache_dir),
@@ -526,7 +526,7 @@ def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: lis
     """
     if args.factor not in ("quality", "value", "composite"):
         return None
-    from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+    from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 
     cache_path = Path("data/snapshots") / args.snapshot_id / "fundamentals_pit.json"
     if cache_path.exists():

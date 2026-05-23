@@ -96,7 +96,7 @@ def _fetch_earnings_dates(tickers: list[str]) -> dict[str, pd.Timestamp]:
     analysis, backtest engine) instead of paying the round-trip
     five times.
     """
-    from src.scoring.earnings_cache import load_next_earnings_dates
+    from src.factors.earnings_cache import load_next_earnings_dates
 
     return load_next_earnings_dates(tickers)
 
@@ -104,7 +104,7 @@ def _fetch_earnings_dates(tickers: list[str]) -> dict[str, pd.Timestamp]:
 def _load_fundamentals(tickers: list[str]):
     from src.db.repositories.fundamentals import PostgresFundamentalsRepository
     from src.db.session import get_sessionmaker, run_with_dispose
-    from src.scoring.fundamentals_pit_loader import FundamentalsPITLoader
+    from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 
     async def _go():
         async with get_sessionmaker()() as session:
