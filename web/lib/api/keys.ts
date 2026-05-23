@@ -50,19 +50,9 @@ export const qk = {
     factorPicks: () => ["scans", "factor-picks"] as const,
   },
 
-  backtests: {
-    all: ["backtests"] as const,
-    list: (params?: { strategy?: string; limit?: number }) =>
-      ["backtests", "list", params ?? {}] as const,
-    detail: (id: number) => ["backtests", "detail", id] as const,
-  },
-
-  diagnostics: {
-    all: ["diagnostics"] as const,
-    list: (params?: { factor?: string; limit?: number }) =>
-      ["diagnostics", "list", params ?? {}] as const,
-    detail: (id: number) => ["diagnostics", "detail", id] as const,
-  },
+  // qk.backtests / qk.diagnostics removed 2026-05-23 with the legacy
+  // /api/backtests + /api/diagnostics routes. Use qk.factorBacktests
+  // for the live backtest UI surface.
 
   recommendations: {
     all: ["recommendations"] as const,

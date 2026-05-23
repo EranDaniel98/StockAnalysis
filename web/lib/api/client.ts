@@ -116,13 +116,8 @@ export type TakeProfit = Schemas["TakeProfit"];
 export type TimeStop = Schemas["TimeStop"];
 export type PositionSizing = Schemas["PositionSizing"];
 
-export type BacktestRequest = Schemas["BacktestRequest"];
-export type BacktestResponse = Schemas["BacktestResponse"];
-export type BacktestSummary = Schemas["BacktestSummary"];
-
-export type DiagnosticRequest = Schemas["DiagnosticRequest"];
-export type DiagnosticResponse = Schemas["DiagnosticResponse"];
-export type DiagnosticSummary = Schemas["DiagnosticSummary"];
+// BacktestRequest/Response/Summary + DiagnosticRequest/Response/Summary
+// removed 2026-05-23 with the /api/backtests + /api/diagnostics routes.
 
 export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 
@@ -244,39 +239,10 @@ export const api = {
     },
   },
 
-  backtests: {
-    list: (params?: { strategy?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      if (params?.limit) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<BacktestSummary[]>(`/api/backtests${qs ? `?${qs}` : ""}`);
-    },
-    get: (id: number) => request<BacktestResponse>(`/api/backtests/${id}`),
-    trigger: (body: BacktestRequest) =>
-      request<BacktestResponse>("/api/backtests", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-
-  diagnostics: {
-    list: (params?: { factor?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.factor) q.set("factor", params.factor);
-      if (params?.limit) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<DiagnosticSummary[]>(
-        `/api/diagnostics${qs ? `?${qs}` : ""}`,
-      );
-    },
-    get: (id: number) => request<DiagnosticResponse>(`/api/diagnostics/${id}`),
-    trigger: (body: DiagnosticRequest) =>
-      request<DiagnosticResponse>("/api/diagnostics", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
+  // /api/backtests + /api/diagnostics were deleted 2026-05-23. The
+  // FE never consumed them after the factor-pipeline migration; the
+  // live backtest UI now uses api.factorBacktests (above) which reads
+  // the on-disk reports.
 
   market: {
     regime: () => request<MarketRegime>("/api/market/regime"),

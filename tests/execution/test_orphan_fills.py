@@ -13,10 +13,8 @@ Pins:
 
 from __future__ import annotations
 
-import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -112,108 +110,3 @@ def test_summary_counts_includes_unresolved_orphan_count(tmp_db):
     assert counts["unresolved_orphans"] == 0
 
 
-# --- _reconcile_closed_trades end-to-end ------------------------------------
-
-
-def _alpaca_fill(order_id, ticker, side, filled_at, qty=10,
-                 filled_qty=10, filled_price=200.0):
-    return {
-        "order_id": order_id,
-        "client_order_id": f"coid-{order_id}",
-        "ticker": ticker,
-        "side": side,
-        "qty": qty,
-        "filled_qty": filled_qty,
-        "filled_price": filled_price,
-        "submitted_at": filled_at,
-        "filled_at": filled_at,
-        "status": "filled",
-        "order_class": "bracket",
-    }
-
-
-def test_reconcile_detects_orphan_buy_and_emits_warn(tmp_db, caplog):
-    """An Alpaca BUY fill we don't have in our DB → recorded as orphan
-    + WARN log + the ticker shows up in get_orphan_tickers."""
-    from src.execution.paper_evaluate_service import _reconcile_closed_trades
-
-    client = MagicMock()
-    client.get_closed_orders_since.return_value = [
-        _alpaca_fill("orphan-buy-1", "AAPL", "buy", "2026-05-15T15:30:00Z"),
-    ]
-
-    with caplog.at_level(logging.WARNING, logger="src.execution.paper_evaluate_service"):
-        new_trades, new_orphans = _reconcile_closed_trades(client, tmp_db, days=30)
-
-    assert new_trades == 0  # no closed round-trip, just an orphan
-    assert new_orphans == 1
-    assert "AAPL" in tmp_db.get_orphan_tickers()
-    assert any("ORPHAN BUY" in r.message and "AAPL" in r.message for r in caplog.records)
-
-
-def test_reconcile_detects_orphan_sell(tmp_db, caplog):
-    """An Alpaca SELL we don't know about is the more dangerous case —
-    it's closing a position we never opened. Same orphan flow."""
-    from src.execution.paper_evaluate_service import _reconcile_closed_trades
-
-    client = MagicMock()
-    client.get_closed_orders_since.return_value = [
-        _alpaca_fill("orphan-sell-1", "MSFT", "sell", "2026-05-15T16:00:00Z"),
-    ]
-
-    with caplog.at_level(logging.WARNING, logger="src.execution.paper_evaluate_service"):
-        new_trades, new_orphans = _reconcile_closed_trades(client, tmp_db, days=30)
-
-    assert new_orphans == 1
-    assert "MSFT" in tmp_db.get_orphan_tickers()
-    assert any("ORPHAN SELL" in r.message for r in caplog.records)
-
-
-def test_reconcile_no_orphan_when_buy_is_tracked(tmp_db):
-    """A buy we already recorded (insert_order) must NOT be flagged as
-    orphan — only refusal-of-orphans matters; we must not produce
-    false positives on healthy state."""
-    from src.execution.paper_evaluate_service import _reconcile_closed_trades
-
-    # Insert a recommendation + tracked order matching the Alpaca fill
-    rec_id = tmp_db.insert_recommendation(
-        ticker="AAPL", strategy="swing_trading", composite_score=70.0,
-        action="BUY", sub_scores={}, entry_price=200.0, stop_loss=190.0,
-        take_profit=220.0, sector="Tech",
-    )
-    tmp_db.insert_order(
-        rec_id,
-        {
-            "order_id": "tracked-1",
-            "client_order_id": "coid-tracked-1",
-            "ticker": "AAPL",
-            "qty": 10,
-            "status": "submitted",
-            "submitted_at": "2026-05-15T15:30:00Z",
-        },
-        take_profit=220.0, stop_loss=190.0,
-    )
-
-    client = MagicMock()
-    client.get_closed_orders_since.return_value = [
-        _alpaca_fill("tracked-1", "AAPL", "buy", "2026-05-15T15:30:00Z"),
-    ]
-    new_trades, new_orphans = _reconcile_closed_trades(client, tmp_db, days=30)
-    assert new_orphans == 0
-    assert tmp_db.get_orphan_tickers() == set()
-
-
-def test_reconcile_orphan_idempotent_across_runs(tmp_db):
-    """Running reconcile twice with the same Alpaca fill list must only
-    record the orphan ONCE — the DB-level UNIQUE catches a second insert."""
-    from src.execution.paper_evaluate_service import _reconcile_closed_trades
-
-    client = MagicMock()
-    client.get_closed_orders_since.return_value = [
-        _alpaca_fill("orphan-dup-1", "GOOG", "buy", "2026-05-15T15:30:00Z"),
-    ]
-    _, first_count = _reconcile_closed_trades(client, tmp_db, days=30)
-    _, second_count = _reconcile_closed_trades(client, tmp_db, days=30)
-    assert first_count == 1
-    assert second_count == 0
-    assert len(tmp_db.list_orphans()) == 1

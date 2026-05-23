@@ -75,32 +75,10 @@ def test_health_ready_against_live_infra(client: TestClient) -> None:
     assert body == {"status": "ready", "db": "ok", "redis": "ok"}
 
 
-def test_backtest_list_round_trip(client: TestClient) -> None:
-    r = client.get("/api/backtests?limit=5")
-    assert r.status_code == 200, r.text
-    assert isinstance(r.json(), list)
-
-
-def test_diagnostic_list_round_trip(client: TestClient) -> None:
-    r = client.get("/api/diagnostics?limit=5")
-    assert r.status_code == 200, r.text
-    assert isinstance(r.json(), list)
-
-
 def test_recommendation_list_round_trip(client: TestClient) -> None:
     r = client.get("/api/recommendations?limit=5")
     assert r.status_code == 200, r.text
     assert isinstance(r.json(), list)
-
-
-def test_get_unknown_backtest_returns_404(client: TestClient) -> None:
-    r = client.get("/api/backtests/999999999")
-    assert r.status_code == 404
-
-
-def test_get_unknown_diagnostic_returns_404(client: TestClient) -> None:
-    r = client.get("/api/diagnostics/999999999")
-    assert r.status_code == 404
 
 
 @pytest.mark.skipif(
