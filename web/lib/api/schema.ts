@@ -115,8 +115,60 @@ export interface paths {
          *     ``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).
          *     ``timeframe`` is the bar size; intraday timeframes are silently
          *     downgraded to 1D for windows > 1W (Alpaca rejects them otherwise).
+         *
+         *     When ``include_spy=true``, each point also carries a synthetic
+         *     ``spy_equity`` value derived from yfinance SPY closes, normalized so
+         *     the window's first point matches ``base_value`` — both lines share
+         *     the same y-axis and the visual gap is alpha.
          */
         get: operations["get_history_api_portfolio_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolio/spy-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Spy Snapshot
+         * @description Returns the latest ``reports/paper_vs_spy.json`` snapshot. Refreshed
+         *     by ``scripts/paper_vs_spy_snapshot.py`` (last step of the daily
+         *     pipeline). 404 when the file doesn't exist yet.
+         */
+        get: operations["get_spy_snapshot_api_portfolio_spy_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolio/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recommendations
+         * @description Per-position stop/target/status overlay sourced from the latest
+         *     portfolio_analysis JSON + today's picks file. Lets the FE render the
+         *     action/strategy columns on /portfolio without re-reading reports.
+         *
+         *     Held positions outside the current basket get fallback ±8% / +10%
+         *     bands so the table never has empty cells; ``source`` flags which.
+         */
+        get: operations["get_recommendations_api_portfolio_recommendations_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1171,6 +1223,11 @@ export interface components {
             profit_loss: number;
             /** Profit Loss Pct */
             profit_loss_pct?: number | null;
+            /**
+             * Spy Equity
+             * @description Synthetic SPY equity at this timestamp, normalized so that the first point of the window equals ``base_value``. Lets the FE plot a same-axis alpha line. Null when ``include_spy=false`` or SPY data couldn't be fetched.
+             */
+            spy_equity?: number | null;
         };
         /**
          * FactorCoverage
@@ -1297,6 +1354,49 @@ export interface components {
             /** Realized Pnl Pct */
             realized_pnl_pct?: number | null;
         };
+        /** PaperVsSpyPaperLeg */
+        PaperVsSpyPaperLeg: {
+            /** Starting Equity Usd */
+            starting_equity_usd: number;
+            /** Current Equity Usd */
+            current_equity_usd: number;
+            /** Pnl Usd */
+            pnl_usd: number;
+            /** Return Pct */
+            return_pct: number;
+        };
+        /**
+         * PaperVsSpySnapshot
+         * @description Mirror of ``reports/paper_vs_spy.json``. The Python snapshot
+         *     script writes this file on every daily-pipeline run; the FE reads
+         *     it via this endpoint so it doesn't have to share the filesystem.
+         */
+        PaperVsSpySnapshot: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "not_configured" | "no_history" | "error";
+            /** Message */
+            message?: string | null;
+            /** Generated At Utc */
+            generated_at_utc: string;
+            /** Window Days */
+            window_days: number;
+            paper?: components["schemas"]["PaperVsSpyPaperLeg"] | null;
+            spy?: components["schemas"]["PaperVsSpySpyLeg"] | null;
+            /** Alpha Pct */
+            alpha_pct?: number | null;
+        };
+        /** PaperVsSpySpyLeg */
+        PaperVsSpySpyLeg: {
+            /** Starting Price */
+            starting_price: number;
+            /** Current Price */
+            current_price: number;
+            /** Return Pct */
+            return_pct: number;
+        };
         /** PortfolioHistory */
         PortfolioHistory: {
             /** Period */
@@ -1307,6 +1407,34 @@ export interface components {
             base_value?: number | null;
             /** Points */
             points?: components["schemas"]["EquityPoint"][];
+            /**
+             * Spy Status
+             * @description 'ok' = SPY normalized line included on every point; 'skipped' = include_spy=false; 'unavailable' = SPY fetch failed (yfinance down / DNS). FE should hide the SPY series when not 'ok'.
+             * @default skipped
+             * @enum {string}
+             */
+            spy_status: "ok" | "skipped" | "unavailable";
+        };
+        /** PortfolioRecommendations */
+        PortfolioRecommendations: {
+            /**
+             * As Of
+             * @description picks_date underlying these recommendations.
+             */
+            as_of?: string | null;
+            /**
+             * Analysis Path
+             * @description Filename of the portfolio_analysis JSON consulted.
+             */
+            analysis_path?: string | null;
+            /** Recommendations */
+            recommendations?: components["schemas"]["PositionRecommendation"][];
+            /**
+             * N At Risk
+             * @description Count of positions with status != HOLDING.
+             * @default 0
+             */
+            n_at_risk: number;
         };
         /** PortfolioStatus */
         PortfolioStatus: {
@@ -1368,6 +1496,46 @@ export interface components {
              * @enum {string}
              */
             source: "strategy" | "fallback_8pct";
+        };
+        /**
+         * PositionRecommendation
+         * @description Per-position recommended levels + basket-membership verdict.
+         *
+         *     Sourced from the most-recent ``portfolio_analysis_*.json``. When the
+         *     ticker is held but not in the analysis (legacy position from before
+         *     the current strategy), the response uses ``source='fallback_8pct'``
+         *     bands at ±8% / +10%.
+         */
+        PositionRecommendation: {
+            /** Ticker */
+            ticker: string;
+            /** Stop Loss */
+            stop_loss: number;
+            /** Target */
+            target: number;
+            /**
+             * Time Exit Date
+             * @description Quarter-end forced exit from the analysis JSON. Null when the ticker isn't in the current basket.
+             */
+            time_exit_date?: string | null;
+            /** Expected Return Pct */
+            expected_return_pct?: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "strategy" | "fallback_8pct";
+            /**
+             * In Todays Basket
+             * @description True when the ticker is in today's factor picks — i.e. the system would KEEP this position on rebalance. False = EXIT.
+             */
+            in_todays_basket: boolean;
+            /**
+             * Status
+             * @description Live classification vs the recommended levels. Mirrors scripts/position_monitor.py and src.api.routers.briefing._classify_position.
+             * @enum {string}
+             */
+            status: "HOLDING" | "STOP_HIT" | "NEAR_STOP" | "TARGET_HIT" | "NEAR_TARGET";
         };
         /**
          * PositionSizing
@@ -1955,6 +2123,8 @@ export interface operations {
             query?: {
                 period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
                 timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+                /** @description When true, overlay a same-axis SPY equity line. */
+                include_spy?: boolean;
             };
             header?: never;
             path?: never;
@@ -1978,6 +2148,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_spy_snapshot_api_portfolio_spy_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperVsSpySnapshot"];
+                };
+            };
+        };
+    };
+    get_recommendations_api_portfolio_recommendations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioRecommendations"];
                 };
             };
         };

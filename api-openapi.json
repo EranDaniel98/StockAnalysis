@@ -126,7 +126,7 @@
           "portfolio"
         ],
         "summary": "Get History",
-        "description": "Equity curve from Alpaca's portfolio history.\n\n``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).\n``timeframe`` is the bar size; intraday timeframes are silently\ndowngraded to 1D for windows > 1W (Alpaca rejects them otherwise).",
+        "description": "Equity curve from Alpaca's portfolio history.\n\n``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).\n``timeframe`` is the bar size; intraday timeframes are silently\ndowngraded to 1D for windows > 1W (Alpaca rejects them otherwise).\n\nWhen ``include_spy=true``, each point also carries a synthetic\n``spy_equity`` value derived from yfinance SPY closes, normalized so\nthe window's first point matches ``base_value`` \u2014 both lines share\nthe same y-axis and the visual gap is alpha.",
         "operationId": "get_history_api_portfolio_history_get",
         "parameters": [
           {
@@ -163,6 +163,18 @@
               "default": "1D",
               "title": "Timeframe"
             }
+          },
+          {
+            "name": "include_spy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "When true, overlay a same-axis SPY equity line.",
+              "default": false,
+              "title": "Include Spy"
+            },
+            "description": "When true, overlay a same-axis SPY equity line."
           }
         ],
         "responses": {
@@ -182,6 +194,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/portfolio/spy-snapshot": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get Spy Snapshot",
+        "description": "Returns the latest ``reports/paper_vs_spy.json`` snapshot. Refreshed\nby ``scripts/paper_vs_spy_snapshot.py`` (last step of the daily\npipeline). 404 when the file doesn't exist yet.",
+        "operationId": "get_spy_snapshot_api_portfolio_spy_snapshot_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperVsSpySnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/portfolio/recommendations": {
+      "get": {
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Get Recommendations",
+        "description": "Per-position stop/target/status overlay sourced from the latest\nportfolio_analysis JSON + today's picks file. Lets the FE render the\naction/strategy columns on /portfolio without re-reading reports.\n\nHeld positions outside the current basket get fallback \u00b18% / +10%\nbands so the table never has empty cells; ``source`` flags which.",
+        "operationId": "get_recommendations_api_portfolio_recommendations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioRecommendations"
                 }
               }
             }
@@ -2470,6 +2526,18 @@
               }
             ],
             "title": "Profit Loss Pct"
+          },
+          "spy_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Equity",
+            "description": "Synthetic SPY equity at this timestamp, normalized so that the first point of the window equals ``base_value``. Lets the FE plot a same-axis alpha line. Null when ``include_spy=false`` or SPY data couldn't be fetched."
           }
         },
         "type": "object",
@@ -2838,6 +2906,129 @@
         ],
         "title": "PaperRecommendationItem"
       },
+      "PaperVsSpyPaperLeg": {
+        "properties": {
+          "starting_equity_usd": {
+            "type": "number",
+            "title": "Starting Equity Usd"
+          },
+          "current_equity_usd": {
+            "type": "number",
+            "title": "Current Equity Usd"
+          },
+          "pnl_usd": {
+            "type": "number",
+            "title": "Pnl Usd"
+          },
+          "return_pct": {
+            "type": "number",
+            "title": "Return Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "starting_equity_usd",
+          "current_equity_usd",
+          "pnl_usd",
+          "return_pct"
+        ],
+        "title": "PaperVsSpyPaperLeg"
+      },
+      "PaperVsSpySnapshot": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "not_configured",
+              "no_history",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "generated_at_utc": {
+            "type": "string",
+            "title": "Generated At Utc"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "paper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaperVsSpyPaperLeg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaperVsSpySpyLeg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alpha_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alpha Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "generated_at_utc",
+          "window_days"
+        ],
+        "title": "PaperVsSpySnapshot",
+        "description": "Mirror of ``reports/paper_vs_spy.json``. The Python snapshot\nscript writes this file on every daily-pipeline run; the FE reads\nit via this endpoint so it doesn't have to share the filesystem."
+      },
+      "PaperVsSpySpyLeg": {
+        "properties": {
+          "starting_price": {
+            "type": "number",
+            "title": "Starting Price"
+          },
+          "current_price": {
+            "type": "number",
+            "title": "Current Price"
+          },
+          "return_pct": {
+            "type": "number",
+            "title": "Return Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "starting_price",
+          "current_price",
+          "return_pct"
+        ],
+        "title": "PaperVsSpySpyLeg"
+      },
       "PortfolioHistory": {
         "properties": {
           "period": {
@@ -2865,6 +3056,17 @@
             },
             "type": "array",
             "title": "Points"
+          },
+          "spy_status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "skipped",
+              "unavailable"
+            ],
+            "title": "Spy Status",
+            "description": "'ok' = SPY normalized line included on every point; 'skipped' = include_spy=false; 'unavailable' = SPY fetch failed (yfinance down / DNS). FE should hide the SPY series when not 'ok'.",
+            "default": "skipped"
           }
         },
         "type": "object",
@@ -2873,6 +3075,51 @@
           "timeframe"
         ],
         "title": "PortfolioHistory"
+      },
+      "PortfolioRecommendations": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of",
+            "description": "picks_date underlying these recommendations."
+          },
+          "analysis_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Path",
+            "description": "Filename of the portfolio_analysis JSON consulted."
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/PositionRecommendation"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "n_at_risk": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N At Risk",
+            "description": "Count of positions with status != HOLDING.",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "PortfolioRecommendations"
       },
       "PortfolioStatus": {
         "properties": {
@@ -3018,6 +3265,82 @@
         ],
         "title": "PositionAlert",
         "description": "A held position that hit a stop, target, or is within 2% of either."
+      },
+      "PositionRecommendation": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "stop_loss": {
+            "type": "number",
+            "title": "Stop Loss"
+          },
+          "target": {
+            "type": "number",
+            "title": "Target"
+          },
+          "time_exit_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Exit Date",
+            "description": "Quarter-end forced exit from the analysis JSON. Null when the ticker isn't in the current basket."
+          },
+          "expected_return_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Return Pct"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "strategy",
+              "fallback_8pct"
+            ],
+            "title": "Source"
+          },
+          "in_todays_basket": {
+            "type": "boolean",
+            "title": "In Todays Basket",
+            "description": "True when the ticker is in today's factor picks \u2014 i.e. the system would KEEP this position on rebalance. False = EXIT."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "HOLDING",
+              "STOP_HIT",
+              "NEAR_STOP",
+              "TARGET_HIT",
+              "NEAR_TARGET"
+            ],
+            "title": "Status",
+            "description": "Live classification vs the recommended levels. Mirrors scripts/position_monitor.py and src.api.routers.briefing._classify_position."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "stop_loss",
+          "target",
+          "source",
+          "in_todays_basket",
+          "status"
+        ],
+        "title": "PositionRecommendation",
+        "description": "Per-position recommended levels + basket-membership verdict.\n\nSourced from the most-recent ``portfolio_analysis_*.json``. When the\nticker is held but not in the analysis (legacy position from before\nthe current strategy), the response uses ``source='fallback_8pct'``\nbands at \u00b18% / +10%."
       },
       "PositionSizing": {
         "properties": {

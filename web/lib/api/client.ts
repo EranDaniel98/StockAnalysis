@@ -74,6 +74,18 @@ export type Position = Schemas["Position"];
 export type PortfolioStatus = Schemas["PortfolioStatus"];
 export type PortfolioHistory = Schemas["PortfolioHistory"];
 export type EquityPoint = Schemas["EquityPoint"];
+export type PortfolioRecommendations = Schemas["PortfolioRecommendations"];
+export type PositionRecommendation = Schemas["PositionRecommendation"];
+// PositionStatus is a Python Literal[...] alias — Pydantic doesn't promote
+// those to top-level schemas, so we mirror the union locally. Keep in sync
+// with src/api/routers/portfolio.py::PositionStatus.
+export type PositionStatus =
+  | "HOLDING"
+  | "STOP_HIT"
+  | "NEAR_STOP"
+  | "TARGET_HIT"
+  | "NEAR_TARGET";
+export type PaperVsSpySnapshot = Schemas["PaperVsSpySnapshot"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -129,15 +141,21 @@ export const api = {
     history: (params?: {
       period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
       timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+      includeSpy?: boolean;
     }) => {
       const q = new URLSearchParams();
       if (params?.period) q.set("period", params.period);
       if (params?.timeframe) q.set("timeframe", params.timeframe);
+      if (params?.includeSpy) q.set("include_spy", "true");
       const qs = q.toString();
       return request<PortfolioHistory>(
         `/api/portfolio/history${qs ? `?${qs}` : ""}`,
       );
     },
+    recommendations: () =>
+      request<PortfolioRecommendations>("/api/portfolio/recommendations"),
+    spySnapshot: () =>
+      request<PaperVsSpySnapshot>("/api/portfolio/spy-snapshot"),
   },
 
   scans: {

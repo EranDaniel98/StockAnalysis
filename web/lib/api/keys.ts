@@ -12,8 +12,11 @@ export const qk = {
     status: () => ["portfolio", "status"] as const,
     positions: () => ["portfolio", "positions"] as const,
     account: () => ["portfolio", "account"] as const,
-    history: (params?: { period?: string; timeframe?: string }) =>
-      ["portfolio", "history", params ?? {}] as const,
+    history: (params?: {
+      period?: string; timeframe?: string; includeSpy?: boolean;
+    }) => ["portfolio", "history", params ?? {}] as const,
+    recommendations: () => ["portfolio", "recommendations"] as const,
+    spySnapshot: () => ["portfolio", "spy-snapshot"] as const,
   },
 
   scans: {

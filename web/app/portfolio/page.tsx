@@ -1,12 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Radio, RefreshCw } from "lucide-react";
+import { AlertTriangle, ExternalLink, Radio, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import {
   Area,
   AreaChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,6 +16,11 @@ import {
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
+import { PaperVsSpyCard } from "@/components/paper-vs-spy-card";
+import {
+  BasketActionBadge,
+  PositionStatusBadge,
+} from "@/components/position-status-badge";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +45,7 @@ import {
   type EquityPoint,
   type PortfolioHistory,
   type Position,
+  type PositionRecommendation,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
 import { useLivePrices, type LivePriceMap } from "@/lib/api/use-live-prices";
@@ -47,6 +54,7 @@ import {
   CHART_GRID,
   CHART_TOKEN,
 } from "@/lib/chart-tokens";
+import type { PaperVsSpyFile } from "@/lib/factors/data";
 import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
 import { useMounted } from "@/lib/use-mounted";
 import { cn } from "@/lib/utils";
@@ -91,8 +99,6 @@ type Timeframe = "1Min" | "5Min" | "15Min" | "1H" | "1D";
 
 const PERIODS: ReadonlyArray<Period> = ["1D", "1W", "1M", "3M", "6M", "1A"];
 
-// Alpaca rejects mismatched (period, timeframe) combos. Lock the bar size
-// per window so the user never has to think about it.
 const PERIOD_TIMEFRAME: Record<Period, Timeframe> = {
   "1D": "5Min",
   "1W": "1H",
@@ -127,15 +133,29 @@ function isIntraday(tf: Timeframe): boolean {
 
 export default function PortfolioPage() {
   const mounted = useMounted();
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
+  const portfolioQ = useQuery({
     queryKey: qk.portfolio.status(),
     queryFn: () => api.portfolio.status(),
     refetchInterval: 60_000,
   });
-  // `isFetching` is false during SSR but flips to true on client mount,
-  // which mismatches the Refresh button's `disabled` attribute. Gate it
-  // until after the first client paint so the hydration match holds.
-  const fetching = mounted && isFetching;
+  const recsQ = useQuery({
+    queryKey: qk.portfolio.recommendations(),
+    queryFn: () => api.portfolio.recommendations(),
+    refetchInterval: 60_000,
+  });
+  const spyQ = useQuery({
+    queryKey: qk.portfolio.spySnapshot(),
+    queryFn: () => api.portfolio.spySnapshot(),
+    // Snapshot only changes when the daily pipeline runs; no need to
+    // hammer the file every minute.
+    refetchInterval: 5 * 60_000,
+    // The endpoint 404s when no snapshot exists yet; suppress retry-storms.
+    retry: false,
+  });
+
+  const data = portfolioQ.data;
+  const { isLoading, error, refetch, isFetching } = portfolioQ;
+  const fetching = mounted && (isFetching || recsQ.isFetching);
 
   const symbols = data?.positions.map((p) => p.ticker) ?? [];
   const { prices, connected, error: liveError } = useLivePrices(symbols);
@@ -150,16 +170,10 @@ export default function PortfolioPage() {
     0,
   );
 
-  // Tier-2 #23: the Unrealized P&L TILE must show Alpaca's authoritative
-  // number, not a client-side recompute. Per-position ``unrealized_pnl``
-  // in ``data.positions`` is sourced from Alpaca's ``Position.unrealized_pl``
-  // — that's what the broker reports. Recomputing as
-  // ``tick.price * shares - cost_basis`` drops fees / accruals / dividend
-  // receivables and drifts visibly from the Alpaca dashboard.
-  //
-  // Live ticks modulate the tile via a per-position price-delta sum,
-  // marked as an estimate. When the next 60s snapshot arrives the delta
-  // resets to zero and the tile re-anchors to Alpaca's truth.
+  // See the original comment in the prior version of this file: the
+  // tile shows Alpaca's authoritative snapshot P&L plus a live-tick
+  // delta so the displayed number doesn't drift permanently from the
+  // broker's own number.
   const snapshotUnrealizedPnl = (data?.positions ?? []).reduce(
     (sum, p) => sum + p.unrealized_pnl,
     0,
@@ -170,15 +184,19 @@ export default function PortfolioPage() {
     return sum + (tick.price - p.current_price) * p.shares;
   }, 0);
   const liveUnrealizedPnl = snapshotUnrealizedPnl + liveTickDelta;
-  // Cost basis is the same in both views — use it for the % denominator.
   const liveUnrealizedPnlPct =
     liveCostBasis > 0 ? (liveUnrealizedPnl / liveCostBasis) * 100 : 0;
-  // Total Equity must mirror Alpaca's dashboard exactly — `equity` is the
-  // authoritative server-side value (cash + market value − short value +
-  // any margin/accruals). Recomputing it client-side from cash +
-  // long_market_value drops shorts, margin, and pending settlements and
-  // drifts visibly from Alpaca.
   const reportedEquity = data?.account.equity ?? null;
+
+  // Recommendation lookup keyed by ticker for O(1) per-row joins.
+  const recByTicker = new Map<string, PositionRecommendation>();
+  for (const r of recsQ.data?.recommendations ?? []) {
+    recByTicker.set(r.ticker, r);
+  }
+  const nAtRisk = recsQ.data?.n_at_risk ?? 0;
+  const atRiskRecs = (recsQ.data?.recommendations ?? []).filter(
+    (r) => r.status !== "HOLDING",
+  );
 
   const [period, setPeriod] = useState<Period>("1M");
   const timeframe = PERIOD_TIMEFRAME[period];
@@ -187,7 +205,7 @@ export default function PortfolioPage() {
     <>
       <PageHeader
         title="Portfolio"
-        description="Live Alpaca paper account. Position prices stream from Alpaca's IEX feed."
+        description="Live Alpaca paper account, joined with today's strategy stops/targets. IEX prices stream when the market is open."
         actions={
           <div className="flex items-center gap-2">
             <Badge
@@ -203,7 +221,11 @@ export default function PortfolioPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => refetch()}
+              onClick={() => {
+                refetch();
+                recsQ.refetch();
+                spyQ.refetch();
+              }}
               disabled={fetching}
             >
               <RefreshCw
@@ -272,15 +294,48 @@ export default function PortfolioPage() {
         />
       </div>
 
-      <EquityCurveCard period={period} setPeriod={setPeriod} timeframe={timeframe} />
+      {/* Positions-at-risk callout — only renders when the broker
+          recommendations report a stop/target situation. */}
+      {nAtRisk > 0 ? (
+        <PositionsAtRiskCallout positions={atRiskRecs} />
+      ) : null}
+
+      {/* Paper vs SPY card — the alpha story. */}
+      <div className="mt-4">
+        {spyQ.data ? (
+          // PaperVsSpyCard was written for the file-loaded shape; the
+          // API response is structurally identical so we cast through.
+          <PaperVsSpyCard data={spyQ.data as unknown as PaperVsSpyFile} />
+        ) : spyQ.isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <PaperVsSpyCard data={null} />
+        )}
+      </div>
+
+      <EquityCurveCard
+        period={period}
+        setPeriod={setPeriod}
+        timeframe={timeframe}
+      />
 
       <Card className="mt-4">
         <CardHeader>
           <CardTitle>Positions</CardTitle>
-          <CardDescription>
-            {data
-              ? `${data.n_positions} open ${data.n_positions === 1 ? "position" : "positions"} ${connected ? "· streaming" : "· last poll"}`
-              : "Loading positions…"}
+          <CardDescription className="flex flex-wrap items-center gap-3 text-[11px]">
+            <span>
+              {data
+                ? `${data.n_positions} open ${data.n_positions === 1 ? "position" : "positions"} ${connected ? "· streaming" : "· last poll"}`
+                : "Loading positions…"}
+            </span>
+            {recsQ.data ? (
+              <span className="text-muted-foreground">
+                stops/targets from{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  {recsQ.data.analysis_path ?? "fallback bands"}
+                </code>
+              </span>
+            ) : null}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -299,9 +354,12 @@ export default function PortfolioPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Ticker</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Shares</TableHead>
                   <TableHead className="text-right">Avg Cost</TableHead>
                   <TableHead className="text-right">Mark</TableHead>
+                  <TableHead className="text-right">Stop</TableHead>
+                  <TableHead className="text-right">Target</TableHead>
                   <TableHead className="text-right">Mkt Value</TableHead>
                   <TableHead className="text-right">Unrl P&amp;L $</TableHead>
                   <TableHead className="text-right">Unrl P&amp;L %</TableHead>
@@ -309,7 +367,9 @@ export default function PortfolioPage() {
               </TableHeader>
               <TableBody>
                 {livePositions.map((p) => {
+                  const rec = recByTicker.get(p.ticker);
                   const isLive = prices[p.ticker] !== undefined;
+                  const fallback = rec?.source === "fallback_8pct";
                   return (
                     <TableRow key={p.ticker} mono>
                       <TableCell>
@@ -317,6 +377,9 @@ export default function PortfolioPage() {
                           <span className="font-mono text-foreground">
                             {p.ticker}
                           </span>
+                          {rec ? (
+                            <BasketActionBadge inBasket={rec.in_todays_basket} />
+                          ) : null}
                           <a
                             href={`https://www.tradingview.com/symbols/${encodeURIComponent(p.ticker)}/`}
                             target="_blank"
@@ -328,6 +391,13 @@ export default function PortfolioPage() {
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {rec ? (
+                          <PositionStatusBadge status={rec.status} />
+                        ) : (
+                          <span className="text-muted-foreground/60 text-[10px]">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         {fmtNumber(p.shares, 0)}
@@ -343,6 +413,32 @@ export default function PortfolioPage() {
                         title={isLive ? "Live tick" : "Last poll"}
                       >
                         {fmtUSD(p.current_price)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right text-bearish",
+                          fallback && "italic opacity-70",
+                        )}
+                        title={
+                          fallback
+                            ? "Fallback −8% band (ticker not in current strategy)"
+                            : "Strategy stop"
+                        }
+                      >
+                        {rec ? fmtUSD(rec.stop_loss) : "—"}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right text-bullish",
+                          fallback && "italic opacity-70",
+                        )}
+                        title={
+                          fallback
+                            ? "Fallback +10% band (ticker not in current strategy)"
+                            : "Strategy target"
+                        }
+                      >
+                        {rec ? fmtUSD(rec.target) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
                         {fmtUSD(p.market_value)}
@@ -372,6 +468,37 @@ export default function PortfolioPage() {
   );
 }
 
+// ─── Positions-at-risk callout ───────────────────────────────────────────────
+
+function PositionsAtRiskCallout({
+  positions,
+}: {
+  positions: PositionRecommendation[];
+}) {
+  if (positions.length === 0) return null;
+  return (
+    <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="h-4 w-4 text-amber-500" />
+        <p className="text-sm font-medium text-amber-500">
+          {positions.length} {positions.length === 1 ? "position" : "positions"} at risk
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {positions.map((p) => (
+          <div
+            key={p.ticker}
+            className="flex items-center gap-1.5 rounded border border-border bg-background/60 px-2 py-1"
+          >
+            <span className="font-mono text-sm font-semibold">{p.ticker}</span>
+            <PositionStatusBadge status={p.status} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Equity curve card ────────────────────────────────────────────────────────
 
 function EquityCurveCard({
@@ -384,8 +511,8 @@ function EquityCurveCard({
   timeframe: Timeframe;
 }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.portfolio.history({ period, timeframe }),
-    queryFn: () => api.portfolio.history({ period, timeframe }),
+    queryKey: qk.portfolio.history({ period, timeframe, includeSpy: true }),
+    queryFn: () => api.portfolio.history({ period, timeframe, includeSpy: true }),
   });
 
   const points = data?.points ?? [];
@@ -394,9 +521,14 @@ function EquityCurveCard({
   const sinceStart =
     latestEquity != null && base != null ? latestEquity - base : null;
 
-  const descriptionText = data
-    ? `${period} window · ${timeframe} bars · `
-    : "Loading…";
+  // Alpha-since-start: latest portfolio equity minus latest SPY equity,
+  // both normalized to base_value. Equivalent to portfolio_return − spy_return
+  // scaled by base, so positive = outperforming.
+  const lastSpy = points.length > 0 ? points[points.length - 1].spy_equity : null;
+  const alphaSinceStart =
+    latestEquity != null && lastSpy != null ? latestEquity - lastSpy : null;
+
+  const showSpy = data?.spy_status === "ok";
 
   return (
     <Card className="mt-4">
@@ -404,14 +536,29 @@ function EquityCurveCard({
         <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
           Equity curve
         </CardTitle>
-        <CardDescription className="text-muted-foreground font-mono text-xs">
+        <CardDescription className="text-muted-foreground font-mono text-xs flex flex-wrap gap-3">
           {data ? (
             <>
-              {descriptionText}
-              <span className={cn(pnlColorClass(sinceStart))}>
-                {fmtUSD(sinceStart)}
+              <span>{period} window · {timeframe} bars</span>
+              <span>
+                <span className={cn(pnlColorClass(sinceStart))}>
+                  {fmtUSD(sinceStart)}
+                </span>
+                {" since start"}
               </span>
-              {" since start"}
+              {showSpy && alphaSinceStart != null ? (
+                <span>
+                  α{" "}
+                  <span className={cn(pnlColorClass(alphaSinceStart))}>
+                    {fmtUSD(alphaSinceStart)}
+                  </span>
+                  {" vs SPY"}
+                </span>
+              ) : data?.spy_status === "unavailable" ? (
+                <span className="text-muted-foreground/60">
+                  (SPY overlay unavailable)
+                </span>
+              ) : null}
             </>
           ) : (
             "Loading…"
@@ -461,9 +608,9 @@ function EquityCurveChart({ history }: { history: PortfolioHistory }) {
   const timeframe = history.timeframe as Timeframe;
   const intraday = isIntraday(timeframe);
   const fmt = intraday ? INTRADAY_TIME_FMT : DAILY_DATE_FMT;
+  const showSpy = history.spy_status === "ok";
 
   const tickFormatter = (v: number | string) => {
-    // API gives epoch seconds — Date wants ms.
     const dt = new Date(Number(v) * 1000);
     return Number.isNaN(dt.getTime()) ? String(v) : fmt.format(dt);
   };
@@ -511,9 +658,37 @@ function EquityCurveChart({ history }: { history: PortfolioHistory }) {
           domain={["auto", "auto"]}
         />
         <Tooltip content={<EquityTooltip />} cursor={{ stroke: CHART_GRID }} />
+        {showSpy ? (
+          <Legend
+            verticalAlign="top"
+            height={20}
+            wrapperStyle={{
+              fontFamily: "var(--font-geist-mono)",
+              fontSize: 10,
+              color: CHART_AXIS,
+            }}
+            iconType="line"
+          />
+        ) : null}
+        {showSpy ? (
+          <Area
+            type="monotone"
+            dataKey="spy_equity"
+            name="SPY (normalized)"
+            stroke={CHART_AXIS}
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            fill="transparent"
+            isAnimationActive={false}
+            dot={false}
+            activeDot={false}
+            connectNulls
+          />
+        ) : null}
         <Area
           type="monotone"
           dataKey="equity"
+          name="Paper account"
           stroke={CHART_TOKEN.primary}
           strokeWidth={1.5}
           fill={CHART_TOKEN.primary}
@@ -527,8 +702,6 @@ function EquityCurveChart({ history }: { history: PortfolioHistory }) {
   );
 }
 
-// Recharts hands the tooltip raw payload — format the date, tone the P&L
-// against the bullish/bearish tokens, render the structured panel here.
 function EquityTooltip(props: {
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: EquityPoint }>;
@@ -541,6 +714,7 @@ function EquityTooltip(props: {
   const dateLabel = Number.isNaN(dt.getTime())
     ? String(row.timestamp)
     : TOOLTIP_FULL_FMT.format(dt);
+  const alpha = row.spy_equity != null ? row.equity - row.spy_equity : null;
   return (
     <div className="bg-card border border-border px-2.5 py-1.5 font-mono text-[11px] leading-tight">
       <div className="text-muted-foreground tracking-wider uppercase text-[10px]">
@@ -552,6 +726,16 @@ function EquityTooltip(props: {
       <div className={cn("tabular-nums", pnlColorClass(row.profit_loss))}>
         P&amp;L {fmtUSD(row.profit_loss)} ({fmtPct(row.profit_loss_pct, 2, true)})
       </div>
+      {row.spy_equity != null ? (
+        <>
+          <div className="tabular-nums text-muted-foreground mt-1">
+            SPY {fmtUSD(row.spy_equity)}
+          </div>
+          <div className={cn("tabular-nums", pnlColorClass(alpha))}>
+            α {fmtUSD(alpha)}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
