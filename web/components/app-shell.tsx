@@ -71,9 +71,9 @@ const NAV: NavLink[] = [
   },
   {
     href: "/buy-signals",
-    label: "BUY now",
+    label: "Today's actions",
     icon: TrendingUp,
-    description: "Live BUY+ signals across every strategy",
+    description: "NEW BUY / KEEP / EXIT with stops, sanity, earnings",
   },
   {
     href: "/backtests",

@@ -684,6 +684,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pipeline/today-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Actions
+         * @description Merged execution view powering /buy-signals. Set-diff today's
+         *     picks against current holdings + join each row with its analysis
+         *     plan + AI sanity verdict + (for held tickers) live state.
+         */
+        get: operations["get_today_actions_api_pipeline_today_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pipeline/recent": {
         parameters: {
             query?: never;
@@ -2059,6 +2081,102 @@ export interface components {
             detail: string;
         };
         /**
+         * TodayActionItem
+         * @description One row in the /today-actions table. Carries everything the user
+         *     needs to actually click Buy/Sell on Alpaca: ticker, action, target
+         *     sizing, stop, target, plus live position state and any pre-trade
+         *     warnings (sanity verdict, near-earnings flag, near-stop status).
+         */
+        TodayActionItem: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "NEW_BUY" | "KEEP" | "EXIT";
+            /** Sector */
+            sector?: string | null;
+            /** Composite Z */
+            composite_z?: number | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Target Shares */
+            target_shares?: number | null;
+            /** Position Size Usd */
+            position_size_usd?: number | null;
+            /** Stop Loss */
+            stop_loss?: number | null;
+            /** Target */
+            target?: number | null;
+            /** Expected Return Pct */
+            expected_return_pct?: number | null;
+            /** Time Exit Date */
+            time_exit_date?: string | null;
+            /** Days To Earnings */
+            days_to_earnings?: number | null;
+            /** Rationale */
+            rationale?: string | null;
+            /** Current Shares */
+            current_shares?: number | null;
+            /** Current Price */
+            current_price?: number | null;
+            /** Market Value */
+            market_value?: number | null;
+            /** Unrealized Pnl Usd */
+            unrealized_pnl_usd?: number | null;
+            /** Unrealized Pnl Pct */
+            unrealized_pnl_pct?: number | null;
+            /** Position Status */
+            position_status?: ("HOLDING" | "STOP_HIT" | "NEAR_STOP" | "TARGET_HIT" | "NEAR_TARGET") | null;
+            /** Sanity Verdict */
+            sanity_verdict?: ("KEEP" | "FLAG" | "VETO") | null;
+            /** Sanity Reason */
+            sanity_reason?: string | null;
+            /** Sanity Evidence */
+            sanity_evidence?: string | null;
+        };
+        /** TodayActionsResponse */
+        TodayActionsResponse: {
+            /** Picks Date */
+            picks_date?: string | null;
+            /**
+             * Sources
+             * @description Filenames consulted, keyed by role: picks / analysis / sanity. Null when the file didn't exist; FE surfaces the gap so the user knows what's stale.
+             */
+            sources?: {
+                [key: string]: string | null;
+            };
+            /**
+             * N Picks Today
+             * @default 0
+             */
+            n_picks_today: number;
+            /**
+             * N Positions
+             * @default 0
+             */
+            n_positions: number;
+            /** New Buys */
+            new_buys?: components["schemas"]["TodayActionItem"][];
+            /** Keeps */
+            keeps?: components["schemas"]["TodayActionItem"][];
+            /** Exits */
+            exits?: components["schemas"]["TodayActionItem"][];
+            /**
+             * N At Risk
+             * @description Held positions with status != HOLDING (urgent action).
+             * @default 0
+             */
+            n_at_risk: number;
+            /**
+             * N Sanity Flagged
+             * @description Picks the AI sanity check flagged FLAG or VETO.
+             * @default 0
+             */
+            n_sanity_flagged: number;
+        };
+        /**
          * TopPick
          * @description Compact per-pick row for the dashboard hero card. Mirrors the
          *     fields the per-stock rationale chips need without dragging the full
@@ -3018,6 +3136,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BriefingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_today_actions_api_pipeline_today_actions_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to the freshest picks file on disk. */
+                picks_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayActionsResponse"];
                 };
             };
             /** @description Validation Error */

@@ -22,6 +22,8 @@ export const qk = {
   pipeline: {
     all: ["pipeline"] as const,
     recent: (limit?: number) => ["pipeline", "recent", limit ?? 5] as const,
+    todayActions: (picksDate?: string) =>
+      ["pipeline", "today-actions", picksDate ?? "latest"] as const,
   },
 
   scans: {

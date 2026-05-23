@@ -88,6 +88,8 @@ export type PositionStatus =
 export type PaperVsSpySnapshot = Schemas["PaperVsSpySnapshot"];
 export type PipelineRecentResponse = Schemas["PipelineRecentResponse"];
 export type PipelineRecentRun = Schemas["PipelineRecentRun"];
+export type TodayActionsResponse = Schemas["TodayActionsResponse"];
+export type TodayActionItem = Schemas["TodayActionItem"];
 
 export type ScanRequest = Schemas["ScanRequest"];
 export type ScanResponse = Schemas["ScanResponse"];
@@ -199,6 +201,14 @@ export const api = {
       const qs = q.toString();
       return request<PipelineRecentResponse>(
         `/api/pipeline/recent${qs ? `?${qs}` : ""}`,
+      );
+    },
+    todayActions: (picksDate?: string) => {
+      const q = new URLSearchParams();
+      if (picksDate) q.set("picks_date", picksDate);
+      const qs = q.toString();
+      return request<TodayActionsResponse>(
+        `/api/pipeline/today-actions${qs ? `?${qs}` : ""}`,
       );
     },
   },

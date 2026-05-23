@@ -1473,6 +1473,59 @@
         }
       }
     },
+    "/api/pipeline/today-actions": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Get Today Actions",
+        "description": "Merged execution view powering /buy-signals. Set-diff today's\npicks against current holdings + join each row with its analysis\nplan + AI sanity verdict + (for held tickers) live state.",
+        "operationId": "get_today_actions_api_pipeline_today_actions_get",
+        "parameters": [
+          {
+            "name": "picks_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "YYYY-MM-DD. Defaults to the freshest picks file on disk.",
+              "title": "Picks Date"
+            },
+            "description": "YYYY-MM-DD. Defaults to the freshest picks file on disk."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayActionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/pipeline/recent": {
       "get": {
         "tags": [
@@ -4609,6 +4662,343 @@
         ],
         "title": "TimeStop",
         "description": "Triple-barrier time stop \u2014 forced exit N calendar days after entry."
+      },
+      "TodayActionItem": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "NEW_BUY",
+              "KEEP",
+              "EXIT"
+            ],
+            "title": "Action"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "composite_z": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composite Z"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "target_shares": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Shares"
+          },
+          "position_size_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Size Usd"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "expected_return_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Return Pct"
+          },
+          "time_exit_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Exit Date"
+          },
+          "days_to_earnings": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Earnings"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "current_shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Shares"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "market_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "unrealized_pnl_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl Usd"
+          },
+          "unrealized_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl Pct"
+          },
+          "position_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "HOLDING",
+                  "STOP_HIT",
+                  "NEAR_STOP",
+                  "TARGET_HIT",
+                  "NEAR_TARGET"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Status"
+          },
+          "sanity_verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "KEEP",
+                  "FLAG",
+                  "VETO"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sanity Verdict"
+          },
+          "sanity_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sanity Reason"
+          },
+          "sanity_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sanity Evidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "action"
+        ],
+        "title": "TodayActionItem",
+        "description": "One row in the /today-actions table. Carries everything the user\nneeds to actually click Buy/Sell on Alpaca: ticker, action, target\nsizing, stop, target, plus live position state and any pre-trade\nwarnings (sanity verdict, near-earnings flag, near-stop status)."
+      },
+      "TodayActionsResponse": {
+        "properties": {
+          "picks_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picks Date"
+          },
+          "sources": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Sources",
+            "description": "Filenames consulted, keyed by role: picks / analysis / sanity. Null when the file didn't exist; FE surfaces the gap so the user knows what's stale."
+          },
+          "n_picks_today": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Picks Today",
+            "default": 0
+          },
+          "n_positions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Positions",
+            "default": 0
+          },
+          "new_buys": {
+            "items": {
+              "$ref": "#/components/schemas/TodayActionItem"
+            },
+            "type": "array",
+            "title": "New Buys"
+          },
+          "keeps": {
+            "items": {
+              "$ref": "#/components/schemas/TodayActionItem"
+            },
+            "type": "array",
+            "title": "Keeps"
+          },
+          "exits": {
+            "items": {
+              "$ref": "#/components/schemas/TodayActionItem"
+            },
+            "type": "array",
+            "title": "Exits"
+          },
+          "n_at_risk": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N At Risk",
+            "description": "Held positions with status != HOLDING (urgent action).",
+            "default": 0
+          },
+          "n_sanity_flagged": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Sanity Flagged",
+            "description": "Picks the AI sanity check flagged FLAG or VETO.",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "TodayActionsResponse"
       },
       "TopPick": {
         "properties": {
