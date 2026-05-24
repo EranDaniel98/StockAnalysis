@@ -1,14 +1,10 @@
-"""30-day paper-validation harness.
+"""Paper-validation snapshot store.
 
-Built around one boring loop: snapshot the Alpaca account daily, persist
-to ``data/validation.db``, then at day 30+ diff cumulative live-paper
-performance against the minimal_baseline backtest. The diff is the gate
-that decides whether real capital advances to Phase 2 of the safety
-ladder.
-
-This package owns the snapshot persistence + comparison math. The
-scheduling is operator-driven (Windows Task Scheduler / cron / manual);
-see scripts/validation_daily.py for the daily entrypoint.
+Persists daily Alpaca account snapshots to ``data/validation.db`` for
+later comparison against any chosen backtest baseline. The analyzer-era
+Phase-2 capital-safety gate (``scripts/validation_report.py``) was
+retired alongside ``minimal_baseline`` in 2026-05-24; this package now
+provides only the snapshot/comparison primitives for future callers.
 """
 
 from src.validation.store import (
