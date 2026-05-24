@@ -1,6 +1,6 @@
 # MVTP Report — minimal_baseline
 
-**Verdict (auto-gates only): FAIL**  (5/8 auto-gates passed)
+**Verdict (auto-gates only): FAIL**  (3/8 auto-gates passed)
 
 > A PASS here means the auto-gates passed. Manual gates below still need eyeballing before risking capital.
 
@@ -12,52 +12,65 @@
 - **Starting capital:** $10,000
 - **Pipeline version:** `2026-05-15-survivorship-haircut`
 - **PIT fundamentals:** `True`
-- **Trades (full window):** 286
+- **Trades (full window):** 254
 
 ## OOS headline numbers
 
 | Metric | Value (point estimate) | 95% CI |
 |---|---|---|
-| OOS Sharpe | 1.84 | — |
-| OOS Sortino | 2.39 | — |
-| OOS total return | 24.24% | — |
-| SPY return (matched) | 13.04% | — |
-| Alpha vs SPY (matched) | 11.2% | — |
-| OOS max drawdown | -9.06% | — |
-| OOS Calmar | 4.0 | — |
-| OOS win rate | 44.4% | — |
-| OOS trades | 99 | — |
+| OOS Sharpe | 2.89 | [0.66, 5.93] |
+| OOS Sortino | 5.63 | — |
+| OOS total return | 31.83% | [6.58, 83.11] |
+| SPY return (matched) | 13.21% | — |
+| Alpha vs SPY (matched) | 18.62% | — |
+| OOS max drawdown | -4.39% | — |
+| OOS Calmar | 10.09 | — |
+| OOS win rate | 46.9% | [33.33, 60.42] |
+| OOS trades | 96 | — |
+
+_CIs from 500 block-bootstrap resamples on the OOS window (block_size=5). The Sharpe gate now uses both CI bounds, not the point estimate._
 
 ## Walk-forward CV (review #5)
 
-- Folds: 5, mean Sharpe = 1.86, min = 0.45, max = 2.63
+- Folds: 5, mean Sharpe = 2.28, min = -0.61, max = 4.38
 - Threshold (mean Sharpe): 0.5
-- **Gate:** PASS — all folds OK
+- **Gate:** FAIL — min fold Sharpe -0.61 <= 0 — at least one fold lost money
 
 | Fold | Range | Trades | Status | Sharpe | Return % | Max DD % |
 |---|---|---|---|---|---|---|
-| 0 | 2024-05-13→2024-10-06 | 38 | ok | 2.3 | 17.62 | -6.78 |
-| 1 | 2024-10-06→2025-03-01 | 68 | ok | 1.81 | 12.32 | -5.15 |
-| 2 | 2025-03-01→2025-07-25 | 46 | ok | 0.45 | 2.15 | -10.24 |
-| 3 | 2025-07-25→2025-12-18 | 67 | ok | 2.12 | 14.81 | -5.72 |
-| 4 | 2025-12-18→2026-05-13 | 67 | ok | 2.63 | 19.26 | -9.06 |
+| 0 | 2024-05-13→2024-10-06 | 39 | ok | 1.57 | 12.51 | -7.37 |
+| 1 | 2024-10-06→2025-03-01 | 46 | ok | 2.72 | 19.58 | -4.91 |
+| 2 | 2025-03-01→2025-07-25 | 51 | ok | -0.61 | -4.92 | -13.06 |
+| 3 | 2025-07-25→2025-12-18 | 56 | ok | 3.34 | 16.96 | -3.36 |
+| 4 | 2025-12-18→2026-05-13 | 62 | ok | 4.38 | 25.62 | -4.39 |
 
 ## Concentration sensitivity (top-5 winners removed)
 
-_Not applicable: unknown._
+- **Window:** OOS (96 trades)
+- **Headline Sharpe:** 2.89  → **Stripped Sharpe:** 1.96  = **drop 0.93**
+- **Top-5 contribution:** 45.73% of total P&L ($1,851 of $4,047)
+- **Gate (drop <= 0.4):** **FAIL**
+
+| # | Ticker | Entry | Exit | P&L | P&L % |
+|---|---|---|---|---|---|
+| 1 | CIEN | 2026-03-09 | 2026-03-25 | $439.31 | +50.56% |
+| 2 | SNDK | 2026-04-13 | 2026-05-04 | $372.83 | +42.98% |
+| 3 | ECG | 2026-03-02 | 2026-05-05 | $372.78 | +39.12% |
+| 4 | CIEN | 2026-03-30 | 2026-05-11 | $360.19 | +43.80% |
+| 5 | MU | 2026-03-30 | 2026-04-27 | $305.89 | +42.15% |
 
 ## Acceptance gates (review item #7)
 
 | # | Gate | Result | Detail |
 |---|---|---|---|
-| 1 | OOS Sharpe within [0.7, 1.5] | **FAIL** | Sharpe = 1.84 [CI: n/a]. Re-run backtest with the bootstrap-CI-emitting engine to get the CI gate. |
-| 2 | Alpha vs SPY (matched, annualized) within [+2%, +8%] | **PASS** | OOS alpha = 11.2%, annualized = 5.6%/yr over 2.0y. Alpha > 8%/yr on retail long-only US is a red flag for survivorship / lookahead. |
-| 3 | OOS max drawdown >= -20.0% | **PASS** | OOS max DD = -9.06%. |
-| 4 | OOS trade count >= 200 | **FAIL** | OOS trades = 99. Below 200 = Sharpe CI is wide; consider extending the window or running on a denser universe. |
-| 5 | Walk-forward CV passes (all folds > 0 + mean >= threshold) | **PASS** | folds=5, mean Sharpe=1.86, min Sharpe=0.45, reason: all folds OK |
+| 1 | OOS Sharpe within [0.7, 1.5] | **FAIL** | Sharpe = 2.89 [95% CI 0.66, 5.93]. Gate now uses the CI: both bounds must lie in [0.7, 1.5]. Lower bound < 0.7 = no edge; upper bound > 1.5 = suspect (likely leakage). |
+| 2 | Alpha vs SPY (matched, annualized) within [+2%, +8%] | **FAIL** | OOS alpha = 18.62%, annualized = 9.31%/yr over 2.0y. Alpha > 8%/yr on retail long-only US is a red flag for survivorship / lookahead. |
+| 3 | OOS max drawdown >= -20.0% | **PASS** | OOS max DD = -4.39%. |
+| 4 | OOS trade count >= 200 | **FAIL** | OOS trades = 96. Below 200 = Sharpe CI is wide; consider extending the window or running on a denser universe. |
+| 5 | Walk-forward CV passes (all folds > 0 + mean >= threshold) | **FAIL** | folds=5, mean Sharpe=2.28, min Sharpe=-0.61, reason: min fold Sharpe -0.61 <= 0 — at least one fold lost money |
 | 6 | Pipeline version >= 2026-05-15 | **PASS** | pipeline_version='2026-05-15-survivorship-haircut'; required post-silent-50-fix (2026-05-15). |
 | 7 | Survivorship-bias guard active (severity != bypassed) | **PASS** | survivorship_bias.severity='haircut_estimated'. 'haircut_estimated' is the strongest non-PIT signal; 'bypassed' would mean the operator opted out of the guard. |
-| 8 | Top-5 trades removed: Sharpe drop <= 0.4 | **FAIL** | Cannot evaluate: concentration_sensitivity unavailable. With <10 trades the metric is noise; extend the window or accept that this gate cannot pass. |
+| 8 | Top-5 trades removed: Sharpe drop <= 0.4 | **FAIL** | Headline OOS Sharpe = 2.89, stripped (top-5 winners removed) = 1.96, drop = 0.93. Top-5 trades accounted for 45.73% of total P&L. Threshold: drop <= 0.4. Drop > 0.4 = edge is concentrated in a few lucky trades; live performance is unlikely to replicate. |
 
 ### Manual gates (review qualitatively)
 
