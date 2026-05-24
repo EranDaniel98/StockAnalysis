@@ -1,40 +1,96 @@
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
-dist/
-build/
-.eggs/
 *.egg
-.env
-data/cache.db
-data/*.db
-data/*.html
-data/*.json
-# Phase 0 Stream D — Parquet OHLCV store (generated from migration script)
-data/ohlcv/
-# Phase 4 — trained model artifacts (joblib + manifest); registry row is the source of truth
-data/models/
-# Phase 6 — backup snapshots (timestamped pg_dump + tarballs); never under version control
-backups/
-# Phase 6 — structlog JSON output
-logs/
-# Phase 6 — pytest-cov data file (regenerated each run)
-.coverage
-.coverage.*
-htmlcov/
+.eggs/
+build/
+dist/
 .venv/
 venv/
 env/
+
+# --- Secrets ---
+.env
+.env.local
+
+# --- Logs & coverage ---
 *.log
+logs/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Editor / OS / tooling cruft ---
 .idea/
 .vscode/
 *.swp
 *.swo
-# Playwright MCP scratchspace (snapshots, console logs)
-.playwright-mcp/
-# Editor / migration backups
 *.bak
-# Vendored third-party source (cloned ad-hoc for spikes / experiments).
-# Reproducible via the clone command in scripts/spike_*.py headers.
+.playwright-mcp/
+
+# --- Local data stores (regenerable from migrations / pipelines) ---
+data/cache.db
+data/*.db
+data/*.html
+data/*.json
+data/*.err
+# Parquet OHLCV store (migration script)
+data/ohlcv/
+# Trained ML artifacts; registry is source of truth
+data/models/
+# Pickled fetch cache
+data/cache/
+# Frozen backtest snapshots
+data/snapshots/
+# Earnings-history cache
+data/earnings_history/
+# IC-panel scratch
+data/ic_panels/
+# Backtest run outputs
+data/backtests/
+# Hyperparameter sweep batteries
+data/sweep_*/
+# Auto-rotating daily picks
+data/daily_picks/
+# CLI-level local cache
+.cache/
+
+# --- Backups (pg_dump snapshots) — never under VCS ---
+backups/
+
+# --- Vendored spike clones (reproducible via spike script headers) ---
 vendor/
+
+# --- Daily-rotating reports (regenerable via scripts.run_daily_pipeline) ---
+reports/morning_briefing_*.md
+reports/morning_briefing_*.json
+reports/exit_plan_*.md
+reports/exit_plan_*.json
+reports/position_monitor_*.md
+reports/position_monitor_*.json
+reports/portfolio_analysis_*.md
+reports/portfolio_analysis_*.json
+reports/watchlist_*.md
+reports/watchlist_*.json
+reports/stress_test_*.md
+reports/stress_test_*.json
+reports/ai_sanity_check_*.md
+reports/ai_sanity_check_*.json
+reports/paper_vs_spy.json
+reports/kill_switch.json
+
+# --- Per-run paper portfolio (auto-synced from Alpaca on `paper sync`) ---
+config/portfolio.yaml
+
+# --- Generated API artifacts ---
+api-openapi.json
+
+# --- Frontend build artifacts ---
+web/.next/
+web/node_modules/
+web/tsconfig.tsbuildinfo
+
+# --- Misc local scratch ---
+tmp/

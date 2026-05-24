@@ -1,0 +1,18 @@
+# Template for config/portfolio.yaml.
+# The live file is gitignored and is auto-overwritten by `paper sync` from Alpaca.
+# To bootstrap a fresh checkout, copy this file to portfolio.yaml and let the
+# next `paper sync` populate real holdings + cash.
+
+total_cash_available: 0.0
+holdings: []
+
+# Example structure once populated:
+#
+# total_cash_available: 10000.00
+# holdings:
+#   - ticker: AAPL
+#     shares: 10.0
+#     avg_price: 190.50
+#   - ticker: MSFT
+#     shares: 5.0
+#     avg_price: 410.25
