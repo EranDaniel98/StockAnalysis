@@ -26,7 +26,6 @@ Usage
         --top-decile 0.10 \\
         --rebalance-days 21 \\
         --cost-bps 5 \\
-        --starting-cash 10000 \\
         --output data/factors/momentum_v1_<snap>.json
 """
 
@@ -92,7 +91,13 @@ def _parse_args() -> argparse.Namespace:
                         "Pass 21 for monthly, 252 for annual.)")
     p.add_argument("--cost-bps", type=float, default=5.0,
                    help="One-way transaction cost in basis points (default 5).")
-    p.add_argument("--starting-cash", type=float, default=10_000.0)
+    # Large by design — NOT a capital assumption. Returns / Sharpe / bps-costs
+    # are all scale-invariant; integer-share sizing is the one thing that is
+    # not. At the old $10k default, capital spread over 15-500 names left a
+    # large slice in rounding-cash (a 500-name equal-weight book went ~all-cash,
+    # beta 0.01), silently dampening returns + beta. $100M keeps per-name
+    # rounding < 0.1% for any realistic universe. Override for cash-sizing tests.
+    p.add_argument("--starting-cash", type=float, default=100_000_000.0)
     p.add_argument("--strategy-label", default="momentum_12_1+regime",
                    help="Label printed in the output; useful when sweeping.")
     p.add_argument("--no-regime-filter", action="store_true",
