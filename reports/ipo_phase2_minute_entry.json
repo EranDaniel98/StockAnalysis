@@ -1,0 +1,114 @@
+{
+  "phase": 2,
+  "test": "reachable-entry decay of range_rev edge (liquid IPOs)",
+  "window": "2021-2025",
+  "n_liquid": 409,
+  "n_with_minute": 408,
+  "median_runup_cross_to_+5min": 0.0004,
+  "by_entry": {
+    "auction (UNREACHABLE)": {
+      "full_liquid_median": 0.0,
+      "full_liquid_hit_gt0": 0.485,
+      "range_rev_ic": {
+        "n_cohorts": 17,
+        "ic_mean": 0.1451,
+        "ci95": [
+          0.0094,
+          0.2803
+        ],
+        "ci_excludes_0": true
+      },
+      "range_rev_quintiles_median": {
+        "by_quintile": [
+          -0.0158,
+          0.0,
+          0.0,
+          -0.0095,
+          0.0348
+        ],
+        "q5": 0.0348,
+        "q1": -0.0158,
+        "spread": 0.0506,
+        "n": 406
+      }
+    },
+    "+5min": {
+      "full_liquid_median": -0.0018,
+      "full_liquid_hit_gt0": 0.48,
+      "range_rev_ic": {
+        "n_cohorts": 17,
+        "ic_mean": 0.0153,
+        "ci95": [
+          -0.1129,
+          0.1404
+        ],
+        "ci_excludes_0": false
+      },
+      "range_rev_quintiles_median": {
+        "by_quintile": [
+          -0.0032,
+          0.0,
+          -0.01,
+          -0.0072,
+          0.0249
+        ],
+        "q5": 0.0249,
+        "q1": -0.0032,
+        "spread": 0.0281,
+        "n": 406
+      }
+    },
+    "+15min": {
+      "full_liquid_median": -0.0019,
+      "full_liquid_hit_gt0": 0.468,
+      "range_rev_ic": {
+        "n_cohorts": 17,
+        "ic_mean": 0.045,
+        "ci95": [
+          -0.0976,
+          0.1948
+        ],
+        "ci_excludes_0": false
+      },
+      "range_rev_quintiles_median": {
+        "by_quintile": [
+          -0.0028,
+          0.0,
+          -0.0104,
+          -0.0143,
+          0.0231
+        ],
+        "q5": 0.0231,
+        "q1": -0.0028,
+        "spread": 0.0258,
+        "n": 405
+      }
+    },
+    "+30min": {
+      "full_liquid_median": -0.0009,
+      "full_liquid_hit_gt0": 0.483,
+      "range_rev_ic": {
+        "n_cohorts": 17,
+        "ic_mean": 0.1046,
+        "ci95": [
+          -0.0389,
+          0.2501
+        ],
+        "ci_excludes_0": false
+      },
+      "range_rev_quintiles_median": {
+        "by_quintile": [
+          -0.0045,
+          -0.002,
+          -0.0106,
+          0.0,
+          0.0177
+        ],
+        "q5": 0.0177,
+        "q1": -0.0045,
+        "spread": 0.0222,
+        "n": 405
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+2026-05-16 09:37:30,371 [INFO] minimal_baseline: Universe russell_1000: 1002 tickers
+2026-05-16 09:37:30,444 [INFO] minimal_baseline: Loading snapshot 4504fcb65f549dae ...
+2026-05-16 09:37:30,974 [INFO] minimal_baseline: Snapshot loaded: window 2022-05-13 -> 2024-05-13, 972 tickers with prices, spy=True vix=True
+2026-05-16 09:37:34,953 [INFO] minimal_baseline: PIT loader active — 956 tickers indexed from EDGAR.
+2026-05-16 09:37:34,953 [WARNING] minimal_baseline: ABLATION: min_score override = 0.00 (strategy YAML was 55)
+2026-05-16 09:37:34,954 [WARNING] minimal_baseline: ABLATION: atr_stop_mult override = 99.00
+2026-05-16 09:37:34,954 [WARNING] minimal_baseline: ABLATION: max_hold_days override = 9999
+2026-05-16 09:37:34,954 [INFO] minimal_baseline: Backtest start: 2022-05-13 end: 2024-05-13 walk_forward_folds=5
+
+2026-05-16 10:06:14,750 [INFO] minimal_baseline: Wrote data\baseline\ablation_minimal_baseline_v2_all_mechanics_off_4504fcb65f549dae.json

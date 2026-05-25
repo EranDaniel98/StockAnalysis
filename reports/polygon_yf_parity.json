@@ -1,0 +1,51 @@
+{
+  "gate": "polygon_vs_yfinance_parity",
+  "period": "2y",
+  "coverage": {
+    "polygon": 31,
+    "yfinance": 31,
+    "common": 31
+  },
+  "close_parity": {
+    "tickers_compared": 31,
+    "median_rel_diff": 0.007496,
+    "p95_rel_diff": 0.051948,
+    "max_rel_diff": 0.089203,
+    "worst_tickers": {
+      "CVX": {
+        "overlap_days": 499,
+        "median_rel_diff": 0.041883,
+        "max_rel_diff": 0.089203
+      },
+      "PEP": {
+        "overlap_days": 499,
+        "median_rel_diff": 0.040057,
+        "max_rel_diff": 0.074652
+      },
+      "ABBV": {
+        "overlap_days": 499,
+        "median_rel_diff": 0.032578,
+        "max_rel_diff": 0.070089
+      },
+      "XOM": {
+        "overlap_days": 499,
+        "median_rel_diff": 0.031876,
+        "max_rel_diff": 0.067857
+      },
+      "KO": {
+        "overlap_days": 499,
+        "median_rel_diff": 0.028989,
+        "max_rel_diff": 0.059764
+      }
+    }
+  },
+  "momentum_parity": {
+    "n_names": 31,
+    "rank_ic": 0.996,
+    "pearson_raw": 0.9996,
+    "passes_cutover": true
+  },
+  "determinism": {
+    "spy_fetched_twice_identical": true
+  }
+}

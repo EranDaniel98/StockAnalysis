@@ -1,0 +1,8 @@
+2026-05-16 09:08:52,635 [INFO] minimal_baseline: Universe russell_1000: 1002 tickers
+2026-05-16 09:08:52,701 [INFO] minimal_baseline: Loading snapshot 4504fcb65f549dae ...
+2026-05-16 09:08:53,199 [INFO] minimal_baseline: Snapshot loaded: window 2022-05-13 -> 2024-05-13, 972 tickers with prices, spy=True vix=True
+2026-05-16 09:08:57,054 [INFO] minimal_baseline: PIT loader active — 956 tickers indexed from EDGAR.
+2026-05-16 09:08:57,054 [WARNING] minimal_baseline: ABLATION: max_hold_days override = 9999
+2026-05-16 09:08:57,057 [INFO] minimal_baseline: Backtest start: 2022-05-13 end: 2024-05-13 walk_forward_folds=5
+
+2026-05-16 09:37:29,023 [INFO] minimal_baseline: Wrote data\baseline\ablation_minimal_baseline_v2_no_time_stop_4504fcb65f549dae.json

@@ -72,7 +72,7 @@ class PostgresScoreRepository:
     async def get_scan(self, run_id: str) -> list[CompositeScore]:
         stmt = (
             select(ScanRun)
-            .where(ScanRun.universe_label == run_id)
+            .where(ScanRun.run_id == run_id)
             .order_by(desc(ScanRun.scan_timestamp))
             .limit(1)
         )
@@ -89,12 +89,17 @@ class PostgresScoreRepository:
         end: datetime,
     ) -> list[tuple[datetime, CompositeScore]]:
         """Scans every scan_run in [start, end] for matching strategy, then
-        filters the embedded JSONB recommendations array for this ticker.
+        filters the embedded JSONB recommendations array for this ticker
+        in Python.
 
-        This is intentionally simple. At >100k scan_runs we'd promote it to a
-        materialized view; for now it's a sequential scan + JSONB filter,
-        which Postgres handles fine via the GIN index on the JSONB column
-        (we'll add that in Phase 4 when ML training hits this hard)."""
+        Intentionally simple. The composite (strategy, scan_timestamp DESC)
+        index from migration 0011 makes the range filter cheap; the JSONB
+        filter remains a sequential per-row scan, which Postgres handles
+        fine at today's row counts. At >100k scan_runs promote to a
+        materialized view or a projection table indexed by (strategy,
+        ticker, scan_timestamp). NOTE: there is no GIN index on the
+        recommendations column today — a previous version of this comment
+        claimed otherwise."""
         stmt = (
             select(ScanRun)
             .where(ScanRun.strategy == strategy)

@@ -87,22 +87,24 @@ class AnthropicClient:
         subsequent calls within 5 min pay 0.1× input. For multi-turn tool
         loops this saves real money — the tool schemas are big.
         """
-        system_blocks: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": system,
-            }
-        ]
-        if cache_system:
-            system_blocks[0]["cache_control"] = {"type": "ephemeral"}
+        # An empty system string is a real use case (single-shot prompts
+        # where the user message is self-contained). Anthropic 400s on an
+        # empty text block, so omit ``system`` entirely in that case.
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": messages,
+            "tools": tools,
+        }
+        if system:
+            system_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": system}
+            ]
+            if cache_system:
+                system_blocks[0]["cache_control"] = {"type": "ephemeral"}
+            kwargs["system"] = system_blocks
 
-        message = await self._client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system_blocks,
-            messages=messages,
-            tools=tools,
-        )
+        message = await self._client.messages.create(**kwargs)
 
         content = [_block_to_dict(b) for b in message.content]
         usage = {

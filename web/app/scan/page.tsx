@@ -1,343 +1,184 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Loader2, Play, X } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  ExternalLink,
+  Loader2,
+  Play,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
-import { ScanProgress } from "@/components/scan-progress";
-import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { api, type ScanResultItem } from "@/lib/api/client";
+import { api, type PipelineRecentRun } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { useScanStream } from "@/lib/api/use-scan-stream";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import {
+  PIPELINE_STEPS,
+  type PipelineStep,
+} from "@/lib/api/pipeline-stream";
+import {
+  usePipelineStream,
+  type StepState,
+} from "@/lib/api/use-pipeline-stream";
+import { fmtRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STRATEGIES = [
-  "swing_trading",
-  "short_term_momentum",
-  "long_term_growth",
-  "value_investing",
-  "dividend_income",
-];
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
-type FormShape = {
-  strategy: string;
-  universe: "themes" | "russell_1000" | "value_cohort" | "watchlist";
-  budget: string;
-  theme: string;
-  top: string;
-  live_signals: boolean;
-};
-
-const UNIVERSES: ReadonlyArray<FormShape["universe"]> = [
-  "themes",
-  "russell_1000",
-  "value_cohort",
-  "watchlist",
-];
-
-// ─── Score / action variant mapping ──────────────────────────────────────────
-// Bands per the reskin contract: >=75 bullish, >=55 default outline,
-// <45 bearish, else neutral. Action variants follow the BUY/SELL/HOLD
-// semantics directly.
-
-type BadgeVariant =
-  | "default"
-  | "secondary"
-  | "destructive"
-  | "outline"
-  | "ghost"
-  | "link"
-  | "bullish"
-  | "bearish"
-  | "neutral";
-
-function scoreVariant(score: number): BadgeVariant {
-  if (score >= 75) return "bullish";
-  if (score >= 55) return "outline";
-  if (score < 45) return "bearish";
-  return "neutral";
+function todayUtcIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function actionVariant(action: string): BadgeVariant {
-  if (action === "STRONG BUY" || action === "BUY") return "bullish";
-  if (action === "STRONG SELL" || action === "SELL") return "bearish";
-  return "neutral";
+function formatElapsed(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds - m * 60);
+  return `${m}m${s.toString().padStart(2, "0")}s`;
 }
 
-function scoreToneClass(score: number): string {
-  if (score >= 75) return "text-bullish";
-  if (score < 45) return "text-bearish";
-  if (score >= 55) return "text-foreground";
-  return "text-muted-foreground";
+function useTickEverySecond(active: boolean): number {
+  // Returns Date.now() ticking once per second while ``active``. Used to
+  // re-render the running step's live elapsed counter without rebuilding
+  // the whole table on every state update.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
 }
 
-type ActionGrade = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL";
-type GradeFilter = "ALL" | ActionGrade;
-
-const ALL_GRADES: ReadonlyArray<ActionGrade> = [
-  "STRONG BUY",
-  "BUY",
-  "HOLD",
-  "SELL",
-  "STRONG SELL",
-];
-
-function gradeChipTone(grade: GradeFilter): string {
-  if (grade === "STRONG BUY" || grade === "BUY") return "text-bullish";
-  if (grade === "SELL" || grade === "STRONG SELL") return "text-bearish";
-  if (grade === "HOLD") return "text-neutral";
-  return "text-muted-foreground";
-}
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ScanPage() {
   const qc = useQueryClient();
-  const { state: streamState, start: startStream, abort, reset } = useScanStream();
+  const { state, start, abort, reset } = usePipelineStream();
+  const [picksDate, setPicksDate] = useState<string>(todayUtcIso());
+  const [topN, setTopN] = useState<number>(15);
 
-  const { register, handleSubmit, watch, setValue } = useForm<FormShape>({
-    defaultValues: {
-      strategy: "swing_trading",
-      universe: "themes",
-      budget: "",
-      theme: "",
-      top: "10",
-      live_signals: true,
-    },
+  const recentQ = useQuery({
+    queryKey: qk.pipeline.recent(5),
+    queryFn: () => api.pipeline.recent(5),
+    refetchInterval: state.active ? false : 30_000,
   });
 
-  const resultQuery = useQuery({
-    queryKey: streamState.complete
-      ? qk.scans.detail(streamState.complete.run_id)
-      : ["scans", "detail", "_idle"],
-    queryFn: () => api.scans.get(streamState.complete!.run_id),
-    enabled: streamState.complete !== null,
-  });
+  // After a successful run, invalidate everything that depends on picks/
+  // briefing files so the rest of the UI catches up.
+  useEffect(() => {
+    if (state.done && state.done.exit_code === 0) {
+      toast.success("Daily pipeline completed");
+      qc.invalidateQueries({ queryKey: qk.pipeline.all });
+      qc.invalidateQueries({ queryKey: qk.dashboard.briefing() });
+      qc.invalidateQueries({ queryKey: qk.portfolio.recommendations() });
+      qc.invalidateQueries({ queryKey: qk.portfolio.spySnapshot() });
+    } else if (state.done && state.done.exit_code !== 0) {
+      toast.error("Pipeline finished with failures — see step ladder");
+    }
+  }, [state.done, qc]);
 
   useEffect(() => {
-    if (streamState.complete) {
-      toast.success(`Scan complete — ${streamState.complete.n_results} candidates`);
-      qc.invalidateQueries({ queryKey: qk.scans.all });
-    }
-  }, [streamState.complete, qc]);
+    if (state.error) toast.error(state.error);
+  }, [state.error]);
 
-  useEffect(() => {
-    if (streamState.error) {
-      toast.error(streamState.error);
-    }
-  }, [streamState.error]);
+  const tickNow = useTickEverySecond(state.active);
 
-  const historyQuery = useQuery({
-    queryKey: qk.scans.list({ limit: 10 }),
-    queryFn: () => api.scans.list({ limit: 10 }),
-    // Suppress refetch on focus during an active scan to avoid stomping on
-    // the progress UI with a re-render of stale data.
-    enabled: !streamState.active,
-  });
-
-  function onSubmit(values: FormShape) {
-    startStream({
-      strategy: values.strategy,
-      budget: values.budget ? Number(values.budget) : null,
-      // Explicit universe wins; theme only applies inside the themes universe.
-      universe: values.universe,
-      theme: values.universe === "themes" && values.theme ? values.theme : null,
-      sector: null,
-      top: values.top ? Number(values.top) : null,
-      fresh: false,
-      live_signals: values.live_signals,
+  const onRun = () => {
+    start({
+      picksDate: picksDate || null,
+      topN: topN > 0 ? topN : 15,
     });
-  }
-
-  const strategy = watch("strategy");
-  const universe = watch("universe");
-  const liveSignals = watch("live_signals");
-  const showProgress =
-    streamState.active || streamState.complete || streamState.error;
+  };
 
   return (
     <>
       <PageHeader
-        title="Scan"
-        description="Trigger a market scan. Progress streams from the backend over SSE."
+        title="Daily pipeline"
+        description="Re-run the full pipeline (picks → analysis → exit plan → briefing → AI sanity → paper-vs-SPY). One run at a time."
       />
 
-      {/* ── Dense control strip (no card padding, single hairline row) ── */}
+      {/* Control strip — date / top-N / Run button */}
       <form
-        onSubmit={handleSubmit(onSubmit)}
+        onSubmit={(e) => { e.preventDefault(); onRun(); }}
         className="border border-border rounded-md bg-card p-3 mb-4"
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1.2fr_1.2fr_0.8fr_0.6fr_auto] md:items-end">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.4fr_0.7fr_auto] md:items-end">
           <div className="space-y-1">
             <Label
-              htmlFor="strategy"
+              htmlFor="picks-date"
               className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
             >
-              Strategy
-            </Label>
-            <Select
-              value={strategy}
-              onValueChange={(v) => v && setValue("strategy", v)}
-            >
-              <SelectTrigger
-                id="strategy"
-                className="w-full font-mono text-xs h-8"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STRATEGIES.map((s) => (
-                  <SelectItem key={s} value={s} className="font-mono text-xs">
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <Label
-              htmlFor="universe"
-              className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
-            >
-              Universe
-            </Label>
-            <Select
-              value={universe}
-              onValueChange={(v) =>
-                v && setValue("universe", v as FormShape["universe"])
-              }
-            >
-              <SelectTrigger
-                id="universe"
-                className="w-full font-mono text-xs h-8"
-                title={
-                  universe === "russell_1000"
-                    ? "1002 tickers — full Russell 1000; 5-15 min scan"
-                    : universe === "value_cohort"
-                      ? "value_cohort tickers from sectors.yaml"
-                      : universe === "watchlist"
-                        ? "watchlist tickers from portfolio.yaml"
-                        : "themes universe (~67 tickers, fast)"
-                }
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {UNIVERSES.map((u) => (
-                  <SelectItem key={u} value={u} className="font-mono text-xs">
-                    {u}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <Label
-              htmlFor="theme"
-              className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
-            >
-              Theme filter
+              Picks date
             </Label>
             <Input
-              id="theme"
-              placeholder={
-                universe === "themes"
-                  ? "all · or e.g. artificial_intelligence"
-                  : `n/a — using ${universe}`
-              }
-              className="font-mono text-xs"
-              disabled={universe !== "themes"}
-              {...register("theme")}
+              id="picks-date"
+              type="date"
+              value={picksDate}
+              onChange={(e) => setPicksDate(e.target.value)}
+              className="font-mono text-xs tabular-nums h-8"
+              disabled={state.active}
             />
           </div>
 
           <div className="space-y-1">
             <Label
-              htmlFor="budget"
-              className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
-            >
-              Budget USD
-            </Label>
-            <Input
-              id="budget"
-              type="number"
-              min={0}
-              step={100}
-              placeholder="10000"
-              className="font-mono text-xs tabular-nums"
-              {...register("budget")}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label
-              htmlFor="top"
+              htmlFor="top-n"
               className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase"
             >
               Top N
             </Label>
             <Input
-              id="top"
+              id="top-n"
               type="number"
               min={1}
-              max={200}
-              className="font-mono text-xs tabular-nums"
-              {...register("top")}
+              max={50}
+              value={topN}
+              onChange={(e) => setTopN(Number(e.target.value) || 15)}
+              className="font-mono text-xs tabular-nums h-8"
+              disabled={state.active}
             />
           </div>
 
           <div className="flex gap-2">
             <Button
               type="submit"
-              disabled={streamState.active}
+              disabled={state.active}
               size="sm"
               className="font-mono text-[11px] tracking-wider uppercase h-8"
             >
-              {streamState.active ? (
+              {state.active ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Play className="mr-1.5 h-3.5 w-3.5" />
               )}
-              {streamState.active ? "Scanning" : "Start Scan"}
+              {state.active ? "Running" : "Run pipeline"}
             </Button>
-            {streamState.active ? (
+            {state.active ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={abort}
-                aria-label="Cancel scan"
+                aria-label="Cancel pipeline"
                 className="h-8"
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
-            ) : showProgress ? (
+            ) : state.done || state.error ? (
               <Button
                 type="button"
                 variant="outline"
@@ -350,364 +191,185 @@ export default function ScanPage() {
             ) : null}
           </div>
         </div>
-        <div className="mt-2 flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-          <label className="inline-flex items-center gap-1.5 cursor-pointer hover:text-foreground transition-colors">
-            <input
-              type="checkbox"
-              className="accent-primary h-3 w-3"
-              checked={liveSignals}
-              onChange={(e) => setValue("live_signals", e.target.checked)}
-              disabled={streamState.active}
-            />
-            <span>Live signals (analyst + options)</span>
-          </label>
-          {universe === "russell_1000" ? (
-            <span className="text-primary/70">
-              · russell_1000: ~5min without live, ~25min with live
-            </span>
-          ) : null}
-        </div>
+        <p className="mt-2 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          {state.active
+            ? `running ${state.currentStep ?? "…"} · started ${state.startedAt ? fmtRelativeTime(new Date(state.startedAt).toISOString()) : "just now"}`
+            : "pipeline runs scripts.run_daily_pipeline server-side · 9 steps · ~5-10 min"}
+        </p>
       </form>
 
-      {/* ── Live progress (during/after scan) ── */}
-      {showProgress ? (
-        <div className="mb-4">
-          <ScanProgress state={streamState} />
-        </div>
-      ) : null}
-
-      {/* ── Scoreboard + results, or empty state, or history ── */}
-      {streamState.complete ? (
-        <ResultsSection
-          runId={streamState.complete.run_id}
-          strategy={streamState.complete.strategy}
-          nResults={streamState.complete.n_results}
-          query={resultQuery}
+      {/* Active run state: step ladder. Otherwise: recent runs. */}
+      {state.active || state.done || state.error ? (
+        <StepLadderCard
+          state={state}
+          tickNow={tickNow}
+          picksDate={picksDate}
         />
-      ) : !showProgress ? (
-        <RecentScans query={historyQuery} />
-      ) : null}
-    </>
-  );
-}
-
-// ─── Results: scoreboard + dense table ───────────────────────────────────────
-
-function ResultsSection({
-  runId,
-  strategy,
-  nResults,
-  query,
-}: {
-  runId: string;
-  strategy: string;
-  nResults: number;
-  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof api.scans.get>>>>;
-}) {
-  const results = query.data?.results ?? [];
-
-  const stats = useMemo(() => {
-    let strongBuys = 0;
-    let buyOrHold = 0;
-    for (const r of results) {
-      if (r.action === "STRONG BUY") strongBuys += 1;
-      if (r.action === "STRONG BUY" || r.action === "BUY" || r.action === "HOLD")
-        buyOrHold += 1;
-    }
-    return { strongBuys, buyOrHold };
-  }, [results]);
-
-  // Per-grade counts power the chip labels so the user sees "(N)" before
-  // clicking. Zero-count chips stay clickable — filtering to empty is a
-  // legitimate way to confirm "no STRONG SELL in this run."
-  const gradeCounts = useMemo(() => {
-    const counts: Record<ActionGrade, number> = {
-      "STRONG BUY": 0,
-      "BUY": 0,
-      "HOLD": 0,
-      "SELL": 0,
-      "STRONG SELL": 0,
-    };
-    for (const r of results) {
-      const a = r.action as ActionGrade;
-      if (a in counts) counts[a] += 1;
-    }
-    return counts;
-  }, [results]);
-
-  const [gradeFilter, setGradeFilter] = useState<GradeFilter>("ALL");
-  const filteredResults =
-    gradeFilter === "ALL"
-      ? results
-      : results.filter((r) => r.action === gradeFilter);
-
-  return (
-    <>
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 mb-4">
-        <ScoreboardTile
-          label="Total Scanned"
-          value={query.data ? String(query.data.n_candidates) : "—"}
-          sub={
-            query.data ? `${query.data.n_results} above threshold` : undefined
-          }
-          subTone="muted"
-          isLoading={query.isLoading}
-        />
-        <ScoreboardTile
-          label="Strong Buys"
-          value={query.isLoading ? "—" : String(stats.strongBuys)}
-          sub={
-            query.isLoading
-              ? undefined
-              : stats.strongBuys > 0
-                ? "high-conviction signals"
-                : "none this run"
-          }
-          subTone={stats.strongBuys > 0 ? "bullish" : "muted"}
-          isLoading={query.isLoading}
-        />
-        <ScoreboardTile
-          label="Buys + Holds"
-          value={query.isLoading ? "—" : String(stats.buyOrHold)}
-          sub={
-            query.isLoading
-              ? undefined
-              : results.length > 0
-                ? `of ${results.length} candidates`
-                : undefined
-          }
-          subTone="muted"
-          isLoading={query.isLoading}
-        />
-        <ScoreboardTile
-          label="Strategy"
-          value={
-            <span className="font-mono text-base tracking-tight">
-              {strategy}
-            </span>
-          }
-          sub={`run ${runId.slice(0, 8)} · ${nResults} returned`}
-          subTone="muted"
-        />
-      </div>
-
-      <div className="border border-border rounded-md bg-card">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-            Candidates
-          </div>
-          <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-            {gradeFilter === "ALL"
-              ? `${results.length} rows`
-              : `${filteredResults.length} of ${results.length}`}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1 border-b border-border px-3 py-1.5">
-          <GradeChip
-            label="ALL"
-            count={results.length}
-            active={gradeFilter === "ALL"}
-            tone="text-muted-foreground"
-            onClick={() => setGradeFilter("ALL")}
-          />
-          {ALL_GRADES.map((g) => (
-            <GradeChip
-              key={g}
-              label={g}
-              count={gradeCounts[g]}
-              active={gradeFilter === g}
-              tone={gradeChipTone(g)}
-              onClick={() => setGradeFilter(g)}
-            />
-          ))}
-        </div>
-        <div className="px-1">
-          {query.error ? (
-            <div className="p-3">
-              <ErrorState error={query.error} />
-            </div>
-          ) : query.isLoading ? (
-            <div className="space-y-1 p-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-6 w-full" />
-              ))}
-            </div>
-          ) : (
-            <ResultsTable results={filteredResults} />
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function GradeChip({
-  label,
-  count,
-  active,
-  tone,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  tone: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border rounded transition-colors",
-        active
-          ? `bg-muted/40 border-border ${tone}`
-          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30",
+      ) : (
+        <RecentRunsCard query={recentQ} />
       )}
-    >
-      {label} <span className="opacity-60">({count})</span>
-    </button>
+    </>
   );
 }
 
-function ResultsTable({ results }: { results: ScanResultItem[] }) {
-  if (results.length === 0) {
-    return (
-      <p className="text-muted-foreground py-8 text-center font-mono text-xs tracking-wider uppercase">
-        No matching candidates.
-      </p>
-    );
-  }
+// ─── Step ladder (active + done states) ─────────────────────────────────────
+
+function StepLadderCard({
+  state, tickNow, picksDate,
+}: {
+  state: ReturnType<typeof usePipelineStream>["state"];
+  tickNow: number;
+  picksDate: string;
+}) {
+  const nOk = Object.values(state.steps).filter((s) => s.status === "ok").length;
+  const nFailed = Object.values(state.steps).filter((s) => s.status === "failed").length;
+  const totalElapsed = state.done?.total_elapsed_s
+    ?? (state.startedAt ? (tickNow - state.startedAt) / 1000 : 0);
+
+  const summary = state.done
+    ? state.done.exit_code === 0
+      ? `${nOk}/${PIPELINE_STEPS.length} steps OK in ${formatElapsed(totalElapsed)}`
+      : `Pipeline finished with ${nFailed} failed step${nFailed === 1 ? "" : "s"} in ${formatElapsed(totalElapsed)}`
+    : state.error
+      ? `Error: ${state.error}`
+      : `Running step ${state.currentStep ?? "…"} · ${formatElapsed(totalElapsed)} elapsed`;
+
+  const summaryTone = state.done
+    ? state.done.exit_code === 0 ? "text-bullish" : "text-bearish"
+    : state.error
+      ? "text-bearish"
+      : "text-foreground";
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Ticker</TableHead>
-          <TableHead>Action</TableHead>
-          <TableHead className="text-right">Score</TableHead>
-          <TableHead className="text-right">Conf.</TableHead>
-          <TableHead className="text-right">Bull/Bear</TableHead>
-          <TableHead>Sub-scores</TableHead>
-          <TableHead>Sector</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {results.map((r) => (
-          <TableRow key={r.ticker} mono>
-            <TableCell>
-              <div className="flex items-center gap-1.5">
-                <Link
-                  href={`/stocks/${r.ticker}`}
-                  className="font-mono text-primary hover:underline underline-offset-2"
-                  title="View trade plan"
-                >
-                  {r.ticker}
-                </Link>
-                <a
-                  href={`https://www.tradingview.com/symbols/${encodeURIComponent(r.ticker)}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground/60 hover:text-primary transition-colors"
-                  title={`Open ${r.ticker} chart on TradingView`}
-                  aria-label={`Open ${r.ticker} chart on TradingView (new tab)`}
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-            </TableCell>
-            <TableCell>
-              <Badge variant={actionVariant(r.action)}>{r.action}</Badge>
-            </TableCell>
-            <TableCell className="text-right">
-              <Badge variant={scoreVariant(r.composite_score)}>
-                {fmtNumber(r.composite_score, 1)}
-              </Badge>
-            </TableCell>
-            <TableCell
-              className={cn(
-                "text-right font-mono text-[11px] tracking-wider uppercase",
-                r.confidence === "high"
-                  ? "text-bullish"
-                  : r.confidence === "low"
-                    ? "text-bearish"
-                    : "text-muted-foreground",
-              )}
-            >
-              {r.confidence}
-            </TableCell>
-            <TableCell className="text-right tabular-nums">
-              <span className="text-bullish">{r.bullish_signals}</span>
-              <span className="text-muted-foreground/40 mx-0.5">/</span>
-              <span className="text-bearish">{r.bearish_signals}</span>
-            </TableCell>
-            <TableCell className="min-w-[200px]">
-              <SubScoreInline sub={r.sub_scores ?? {}} />
-            </TableCell>
-            <TableCell className="text-muted-foreground text-xs">
-              {r.sector}
-            </TableCell>
-          </TableRow>
+    <div className="border border-border rounded-md bg-card">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+          Pipeline run
+        </div>
+        <div className={cn("font-mono text-[10px] tracking-wider uppercase", summaryTone)}>
+          {summary}
+        </div>
+      </div>
+
+      <ol className="divide-y divide-border">
+        {PIPELINE_STEPS.map((step) => (
+          <StepRow
+            key={step}
+            step={step}
+            stepState={state.steps[step]}
+            isCurrent={state.currentStep === step}
+            tickNow={tickNow}
+          />
         ))}
-      </TableBody>
-    </Table>
-  );
-}
+      </ol>
 
-/**
- * Inline ASCII-bar style sub-score row. Each entry rendered as
- * `LABEL [████------] 68` in monospace; bar segments are 10 wide so the
- * column stays compact at text-xs even with 6 entries.
- */
-function SubScoreInline({ sub }: { sub: Record<string, number | undefined> }) {
-  const entries = Object.entries(sub).slice(0, 6);
-  if (entries.length === 0) {
-    return <span className="text-muted-foreground/40 font-mono">—</span>;
-  }
-  return (
-    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px]">
-      {entries.map(([k, v]) => {
-        const score = v ?? 0;
-        const filled = Math.max(0, Math.min(10, Math.round(score / 10)));
-        const bar = "█".repeat(filled) + "░".repeat(10 - filled);
-        const tone =
-          score >= 70
-            ? "text-bullish"
-            : score < 40
-              ? "text-bearish"
-              : "text-muted-foreground";
-        return (
-          <div key={k} className="flex items-center gap-1.5 tabular-nums">
-            <span className="text-muted-foreground/70 w-14 truncate uppercase tracking-wider">
-              {k.slice(0, 6)}
-            </span>
-            <span className={cn("tracking-tighter", tone)}>{bar}</span>
-            <span className="text-foreground w-6 text-right">
-              {v == null ? "—" : v.toFixed(0)}
-            </span>
-          </div>
-        );
-      })}
+      {/* Post-run: quick jumps */}
+      {state.done && state.done.exit_code === 0 ? (
+        <div className="border-t border-border px-3 py-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground mr-2">Jump to:</span>
+          <Link
+            href="/factors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border hover:bg-muted/50 transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" /> /factors
+          </Link>
+          <Link
+            href="/factors/briefing"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border hover:bg-muted/50 transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" /> /factors/briefing
+          </Link>
+          <Link
+            href="/portfolio"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border hover:bg-muted/50 transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" /> /portfolio
+          </Link>
+          <span className="text-muted-foreground/60 ml-auto text-[11px]">
+            picks for {picksDate}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-// ─── Recent scans (idle / empty state combined) ──────────────────────────────
+function StepRow({
+  step, stepState, isCurrent, tickNow,
+}: {
+  step: PipelineStep;
+  stepState: StepState;
+  isCurrent: boolean;
+  tickNow: number;
+}) {
+  const liveElapsedS = useMemo(() => {
+    if (stepState.elapsedS != null) return stepState.elapsedS;
+    if (stepState.status === "running" && stepState.startedAt) {
+      return (tickNow - stepState.startedAt) / 1000;
+    }
+    return null;
+  }, [stepState.elapsedS, stepState.status, stepState.startedAt, tickNow]);
 
-function RecentScans({
+  return (
+    <li className="px-3 py-2 grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 text-sm">
+      <StepIcon status={stepState.status} />
+      <span
+        className={cn(
+          "font-mono",
+          isCurrent && "text-foreground font-medium",
+          !isCurrent && stepState.status === "pending" && "text-muted-foreground/70",
+          stepState.status === "failed" && "text-bearish",
+          stepState.status === "ok" && "text-foreground",
+        )}
+      >
+        {step}
+      </span>
+      {stepState.status === "failed" && stepState.tail?.length ? (
+        <details className="text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground transition-colors">
+            tail ({stepState.tail.length})
+          </summary>
+          <pre className="mt-1 max-h-40 overflow-auto bg-muted/30 p-2 rounded text-[10px] leading-tight">
+            {stepState.tail.join("\n")}
+          </pre>
+        </details>
+      ) : (
+        <span />
+      )}
+      <span className="font-mono text-[11px] tabular-nums text-muted-foreground min-w-[60px] text-right">
+        {liveElapsedS != null ? formatElapsed(liveElapsedS) : "—"}
+        {stepState.exitCode != null && stepState.exitCode !== 0 ? (
+          <span className="ml-1 text-bearish">[{stepState.exitCode}]</span>
+        ) : null}
+      </span>
+    </li>
+  );
+}
+
+function StepIcon({ status }: { status: StepState["status"] }) {
+  if (status === "ok") return <CheckCircle2 className="h-4 w-4 text-bullish" />;
+  if (status === "failed") return <AlertCircle className="h-4 w-4 text-bearish" />;
+  if (status === "running")
+    return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
+  return <Circle className="h-4 w-4 text-muted-foreground/40" />;
+}
+
+// ─── Recent runs (idle state) ───────────────────────────────────────────────
+
+function RecentRunsCard({
   query,
 }: {
-  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof api.scans.list>>>>;
+  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof api.pipeline.recent>>>>;
 }) {
   if (query.isLoading) {
     return (
-      <div className="border border-border rounded-md bg-card p-3 space-y-1">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-6 w-full" />
+      <div className="border border-border rounded-md bg-card p-3 space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-8 w-full" />
         ))}
       </div>
     );
   }
-
   if (query.error) {
     return (
       <div className="border border-border rounded-md bg-card p-3">
@@ -715,13 +377,13 @@ function RecentScans({
       </div>
     );
   }
-
-  if (!query.data || query.data.length === 0) {
+  const runs = query.data?.runs ?? [];
+  if (!query.data || runs.length === 0) {
     return (
       <div className="border border-border rounded-md bg-card p-8 text-center">
         <p className="font-mono text-xs text-muted-foreground">
-          No scan yet. Configure strategy + universe above and press{" "}
-          <span className="text-primary">[ Start Scan ]</span>.
+          No prior runs found. Press{" "}
+          <span className="text-primary">[ Run pipeline ]</span> to create one.
         </p>
       </div>
     );
@@ -731,50 +393,80 @@ function RecentScans({
     <div className="border border-border rounded-md bg-card">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-          Recent scans
+          Recent runs
         </div>
-        <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-          last {query.data.length}
-        </div>
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Refresh recent runs"
+          title="Refresh"
+        >
+          <RefreshCw className={cn("h-3 w-3", query.isFetching && "animate-spin")} />
+        </button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>When</TableHead>
-            <TableHead>Strategy</TableHead>
-            <TableHead>Top ticker</TableHead>
-            <TableHead className="text-right">Top score</TableHead>
-            <TableHead className="text-right">Candidates</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {query.data.map((s) => (
-            <TableRow key={s.run_id} mono>
-              <TableCell className="text-muted-foreground text-xs">
-                {fmtDate(s.scan_timestamp)}
-              </TableCell>
-              <TableCell>
-                <span className="text-foreground">{s.strategy}</span>
-              </TableCell>
-              <TableCell>
-                <span className="text-foreground">{s.top_ticker ?? "—"}</span>
-              </TableCell>
-              <TableCell className="text-right">
-                {s.top_score != null ? (
-                  <span className={scoreToneClass(s.top_score)}>
-                    {fmtNumber(s.top_score, 1)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/40">—</span>
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {s.n_candidates}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <ul className="divide-y divide-border">
+        {runs.map((run) => (
+          <RecentRunRow key={run.picks_date} run={run} />
+        ))}
+      </ul>
     </div>
+  );
+}
+
+function RecentRunRow({ run }: { run: PipelineRecentRun }) {
+  // Each row maps the per-artifact booleans to dim/coloured checks.
+  // A missing artifact = step never ran or failed — surface so the user
+  // can re-run for that date.
+  return (
+    <li className="px-3 py-2 grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 text-sm">
+      <span className="font-mono tabular-nums text-foreground">
+        {run.picks_date}
+      </span>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <ArtifactChip label="picks" ok={run.n_picks > 0} detail={`${run.n_picks} names`} />
+        <ArtifactChip label="analysis" ok={run.has_analysis} />
+        <ArtifactChip label="exit" ok={run.has_exit_plan} />
+        <ArtifactChip label="briefing" ok={run.has_briefing} />
+        <ArtifactChip label="sanity" ok={run.has_sanity_check} />
+      </div>
+      <span
+        className="text-[10px] font-mono text-muted-foreground"
+        title={run.picks_generated_at}
+      >
+        {fmtRelativeTime(run.picks_generated_at)}
+      </span>
+      {run.has_briefing ? (
+        <Link
+          href="/factors/briefing"
+          className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
+        >
+          open <ExternalLink className="h-3 w-3" />
+        </Link>
+      ) : (
+        <span />
+      )}
+    </li>
+  );
+}
+
+function ArtifactChip({
+  label, ok, detail,
+}: {
+  label: string;
+  ok: boolean;
+  detail?: string;
+}) {
+  return (
+    <Badge
+      variant={ok ? "bullish" : "neutral"}
+      className={cn(
+        "text-[9px] font-mono uppercase tracking-wider px-1.5",
+        !ok && "opacity-50",
+      )}
+      title={ok ? `${label} produced${detail ? ` (${detail})` : ""}` : `${label} missing`}
+    >
+      {ok ? "✓" : "·"} {label}
+    </Badge>
   );
 }

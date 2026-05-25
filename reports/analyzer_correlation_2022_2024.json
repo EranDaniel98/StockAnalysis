@@ -1,0 +1,132 @@
+{
+  "ran_at": "2026-05-15T23:44:59.549027+00:00",
+  "window": {
+    "start": "2022-05-13",
+    "end": "2024-05-13"
+  },
+  "panel_rows": 97406,
+  "columns": [
+    "technical",
+    "fundamental",
+    "statistical",
+    "pattern",
+    "trend",
+    "alpha158"
+  ],
+  "dropped_constant": [],
+  "pearson": {
+    "technical": {
+      "technical": 1.0,
+      "fundamental": 0.0426,
+      "statistical": 0.7306,
+      "pattern": -0.1409,
+      "trend": 0.1416,
+      "alpha158": -0.016
+    },
+    "fundamental": {
+      "technical": 0.0426,
+      "fundamental": 1.0,
+      "statistical": 0.0499,
+      "pattern": -0.0082,
+      "trend": 0.0275,
+      "alpha158": -0.0009
+    },
+    "statistical": {
+      "technical": 0.7306,
+      "fundamental": 0.0499,
+      "statistical": 1.0,
+      "pattern": -0.1386,
+      "trend": 0.1494,
+      "alpha158": -0.0801
+    },
+    "pattern": {
+      "technical": -0.1409,
+      "fundamental": -0.0082,
+      "statistical": -0.1386,
+      "pattern": 1.0,
+      "trend": -0.0443,
+      "alpha158": -0.2332
+    },
+    "trend": {
+      "technical": 0.1416,
+      "fundamental": 0.0275,
+      "statistical": 0.1494,
+      "pattern": -0.0443,
+      "trend": 1.0,
+      "alpha158": -0.2058
+    },
+    "alpha158": {
+      "technical": -0.016,
+      "fundamental": -0.0009,
+      "statistical": -0.0801,
+      "pattern": -0.2332,
+      "trend": -0.2058,
+      "alpha158": 1.0
+    }
+  },
+  "spearman": {
+    "technical": {
+      "technical": 1.0,
+      "fundamental": 0.0402,
+      "statistical": 0.7301,
+      "pattern": -0.1427,
+      "trend": 0.1491,
+      "alpha158": -0.0187
+    },
+    "fundamental": {
+      "technical": 0.0402,
+      "fundamental": 1.0,
+      "statistical": 0.0389,
+      "pattern": -0.008,
+      "trend": 0.0378,
+      "alpha158": -0.0022
+    },
+    "statistical": {
+      "technical": 0.7301,
+      "fundamental": 0.0389,
+      "statistical": 1.0,
+      "pattern": -0.1375,
+      "trend": 0.1633,
+      "alpha158": -0.0893
+    },
+    "pattern": {
+      "technical": -0.1427,
+      "fundamental": -0.008,
+      "statistical": -0.1375,
+      "pattern": 1.0,
+      "trend": -0.0439,
+      "alpha158": -0.2259
+    },
+    "trend": {
+      "technical": 0.1491,
+      "fundamental": 0.0378,
+      "statistical": 0.1633,
+      "pattern": -0.0439,
+      "trend": 1.0,
+      "alpha158": -0.2136
+    },
+    "alpha158": {
+      "technical": -0.0187,
+      "fundamental": -0.0022,
+      "statistical": -0.0893,
+      "pattern": -0.2259,
+      "trend": -0.2136,
+      "alpha158": 1.0
+    }
+  },
+  "redundant_pearson": [
+    {
+      "a": "technical",
+      "b": "statistical",
+      "corr": 0.7305501491377848
+    }
+  ],
+  "redundant_spearman": [
+    {
+      "a": "technical",
+      "b": "statistical",
+      "corr": 0.7300745665700455
+    }
+  ],
+  "redundancy_threshold": 0.7
+}

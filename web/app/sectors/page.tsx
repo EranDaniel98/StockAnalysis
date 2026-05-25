@@ -1,16 +1,64 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { Briefcase } from "lucide-react";
+import Link from "next/link";
 import { useMemo } from "react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type SectorMetric } from "@/lib/api/client";
+import {
+  api,
+  type SectorMetric,
+  type TodayActionItem,
+} from "@/lib/api/client";
+import { qk } from "@/lib/api/keys";
 import { fmtPct, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+// Maps the pick.sector strings the analyzer emits to SPDR Select Sector
+// ETF tickers. Several sectors share a name with the ETF (Technology,
+// Energy, Real Estate, Industrials, Utilities, Consumer Cyclical) and
+// fall through the default-ticker map below; only the renames live here.
+const SECTOR_NAME_TO_ETF: Record<string, string> = {
+  "Basic Materials": "XLB",
+  "Materials": "XLB",
+  "Financial Services": "XLF",
+  "Financial": "XLF",
+  "Healthcare": "XLV",
+  "Health Care": "XLV",
+  "Consumer Cyclical": "XLY",
+  "Consumer Discretionary": "XLY",
+  "Consumer Defensive": "XLP",
+  "Consumer Staples": "XLP",
+  "Communication Services": "XLC",
+  "Communication": "XLC",
+  "Technology": "XLK",
+  "Industrials": "XLI",
+  "Energy": "XLE",
+  "Real Estate": "XLRE",
+  "Utilities": "XLU",
+};
+
+type BasketPick = { ticker: string; sector: string | null | undefined };
+
+function picksByEtfTicker(
+  picks: BasketPick[],
+): Map<string, BasketPick[]> {
+  const out = new Map<string, BasketPick[]>();
+  for (const p of picks) {
+    if (!p.sector) continue;
+    const etf = SECTOR_NAME_TO_ETF[p.sector];
+    if (!etf) continue;
+    if (!out.has(etf)) out.set(etf, []);
+    out.get(etf)!.push(p);
+  }
+  return out;
+}
 
 // ±5% caps the heatmap saturation so a single melt-up day doesn't wash the grid.
 function intensity(pct: number | null | undefined): number {
@@ -120,7 +168,16 @@ function SectorSpark({ history }: { history: number[] }) {
   );
 }
 
-function SectorTile({ s }: { s: SectorMetric }) {
+function SectorTile({
+  s, basketPicks,
+}: {
+  s: SectorMetric;
+  basketPicks: BasketPick[];
+}) {
+  const tone =
+    basketPicks.length === 0 ? "muted"
+    : (s.return_5d_pct ?? 0) >= 0 ? "aligned"
+    : "fighting";
   return (
     <Card
       className="border border-border overflow-hidden"
@@ -156,8 +213,71 @@ function SectorTile({ s }: { s: SectorMetric }) {
           <ReturnRow label="5d" pct={s.return_5d_pct} emphasis />
           <ReturnRow label="21d" pct={s.return_21d_pct} />
         </div>
+        <BasketBadge picks={basketPicks} tone={tone} />
       </CardContent>
     </Card>
+  );
+}
+
+/** Inline chip + ticker list — shows how today's basket maps onto this
+ *  sector. ``tone='aligned'`` when sector is up and we're long it,
+ *  'fighting' when sector is down and we're still long, 'muted' when
+ *  the basket has nothing in this sector. */
+function BasketBadge({
+  picks, tone,
+}: {
+  picks: BasketPick[];
+  tone: "aligned" | "fighting" | "muted";
+}) {
+  if (picks.length === 0) {
+    return (
+      <div className="pt-1 mt-1 border-t border-border/40 flex items-center justify-between">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
+          basket
+        </span>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
+          0 picks
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="pt-1 mt-1 border-t border-border/40 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1">
+          <Briefcase className="h-2.5 w-2.5" />
+          basket
+        </span>
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-wider",
+            tone === "aligned" && "border-bullish/40 text-bullish bg-bullish/5",
+            tone === "fighting" && "border-bearish/40 text-bearish bg-bearish/5",
+          )}
+          title={
+            tone === "aligned"
+              ? "Sector up + basket long here — momentum aligned"
+              : tone === "fighting"
+              ? "Sector down but basket still long here — drawdown risk"
+              : "Basket has no picks in this sector"
+          }
+        >
+          {picks.length} {picks.length === 1 ? "pick" : "picks"}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {picks.map((p) => (
+          <Link
+            key={p.ticker}
+            href={`/stocks/${encodeURIComponent(p.ticker)}`}
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-background/60 hover:bg-muted/50 transition-colors"
+          >
+            {p.ticker}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -203,8 +323,39 @@ export default function SectorsPage() {
     refetchInterval: 5 * 60_000,
   });
 
+  // Pull today's factor basket so we can overlay per-sector exposure on
+  // each ETF tile. Failure is non-fatal — page still works without it.
+  const basketQuery = useQuery({
+    queryKey: qk.pipeline.todayActions(),
+    queryFn: () => api.pipeline.todayActions(),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
   const sectors = data?.sectors ?? [];
   const summary = useMemo(() => summarise(sectors), [sectors]);
+
+  // Build full basket (new_buys + keeps) and bucket by ETF ticker.
+  // Exits are excluded — they're scheduled to leave, so they no longer
+  // count as 'current exposure' for the rotation overlay.
+  const basketByEtf = useMemo(() => {
+    const b = basketQuery.data;
+    if (!b) return new Map<string, BasketPick[]>();
+    const all: TodayActionItem[] = [
+      ...(b.new_buys ?? []),
+      ...(b.keeps ?? []),
+    ];
+    return picksByEtfTicker(
+      all.map((it) => ({ ticker: it.ticker, sector: it.sector })),
+    );
+  }, [basketQuery.data]);
+
+  const basketTotal = useMemo(() => {
+    let n = 0;
+    for (const arr of basketByEtf.values()) n += arr.length;
+    return n;
+  }, [basketByEtf]);
+  const basketCovered = basketByEtf.size;
 
   const breadthTone: "bullish" | "bearish" | "neutral" =
     summary.total === 0
@@ -301,9 +452,23 @@ export default function SectorsPage() {
       ) : data ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           {sectors.map((s) => (
-            <SectorTile key={s.ticker} s={s} />
+            <SectorTile
+              key={s.ticker}
+              s={s}
+              basketPicks={basketByEtf.get(s.ticker) ?? []}
+            />
           ))}
         </div>
+      ) : null}
+
+      {basketQuery.data ? (
+        <p className="mt-4 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          Basket overlay: {basketTotal} picks across {basketCovered} of{" "}
+          {sectors.length} sectors
+          {basketQuery.data.picks_date ? (
+            <> · picks for {basketQuery.data.picks_date}</>
+          ) : null}
+        </p>
       ) : null}
     </>
   );

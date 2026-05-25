@@ -1,0 +1,274 @@
+{
+  "spike": "ipo_first_day",
+  "source": "polygon/massive",
+  "window": "2021-2025",
+  "coverage": {
+    "ipos_priced": 2107,
+    "after_filters_with_day1": 801,
+    "pct": 38.0
+  },
+  "unconditional": {
+    "gap_offer_to_open (UNREACHABLE)": {
+      "n": 801,
+      "mean": 5.0493,
+      "median": 0.0329,
+      "hit_gt0": 0.551,
+      "std": 47.2532
+    },
+    "open_to_close (TRADEABLE)": {
+      "n": 801,
+      "mean": 0.2726,
+      "median": -0.015,
+      "hit_gt0": 0.421,
+      "std": 5.9552
+    },
+    "offer_to_close (target=gap+oc)": {
+      "n": 801,
+      "mean": 30.9819,
+      "median": 0.0164,
+      "hit_gt0": 0.528,
+      "std": 773.7765
+    },
+    "by_year_open_close": {
+      "2021": {
+        "n": 207,
+        "mean": 0.0085,
+        "median": 0.0,
+        "hit_gt0": 0.469,
+        "std": 0.1822
+      },
+      "2022": {
+        "n": 73,
+        "mean": 0.323,
+        "median": -0.0379,
+        "hit_gt0": 0.384,
+        "std": 2.753
+      },
+      "2023": {
+        "n": 124,
+        "mean": 0.1752,
+        "median": -0.0228,
+        "hit_gt0": 0.411,
+        "std": 1.641
+      },
+      "2024": {
+        "n": 198,
+        "mean": 0.8699,
+        "median": -0.0149,
+        "hit_gt0": 0.404,
+        "std": 11.7857
+      },
+      "2025": {
+        "n": 199,
+        "mean": -0.0046,
+        "median": -0.0226,
+        "hit_gt0": 0.407,
+        "std": 0.3315
+      }
+    }
+  },
+  "rank_ic": {
+    "offer_close": {
+      "range_rev": {
+        "n_cohorts": 42,
+        "ic_mean": 0.2475,
+        "t_stat": 5.18,
+        "ci95": [
+          0.1565,
+          0.3405
+        ],
+        "ci_excludes_0": true
+      },
+      "log_size": {
+        "n_cohorts": 42,
+        "ic_mean": 0.0052,
+        "t_stat": 0.1,
+        "ci95": [
+          -0.0983,
+          0.1049
+        ],
+        "ci_excludes_0": false
+      },
+      "hotness": {
+        "n_cohorts": 41,
+        "ic_mean": -0.1581,
+        "t_stat": -3.68,
+        "ci95": [
+          -0.2396,
+          -0.0729
+        ],
+        "ci_excludes_0": true
+      },
+      "age": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0244,
+        "t_stat": 0.54,
+        "ci95": [
+          -0.0624,
+          0.1073
+        ],
+        "ci_excludes_0": false
+      },
+      "vc": {
+        "n_cohorts": 33,
+        "ic_mean": 0.1565,
+        "t_stat": 2.49,
+        "ci95": [
+          0.0419,
+          0.279
+        ],
+        "ci_excludes_0": true
+      }
+    },
+    "open_close": {
+      "range_rev": {
+        "n_cohorts": 42,
+        "ic_mean": 0.1288,
+        "t_stat": 3.19,
+        "ci95": [
+          0.0503,
+          0.2034
+        ],
+        "ci_excludes_0": true
+      },
+      "log_size": {
+        "n_cohorts": 42,
+        "ic_mean": 0.1387,
+        "t_stat": 2.84,
+        "ci95": [
+          0.041,
+          0.2332
+        ],
+        "ci_excludes_0": true
+      },
+      "hotness": {
+        "n_cohorts": 41,
+        "ic_mean": -0.1977,
+        "t_stat": -5.7,
+        "ci95": [
+          -0.2626,
+          -0.1267
+        ],
+        "ci_excludes_0": true
+      },
+      "age": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0615,
+        "t_stat": 1.1,
+        "ci95": [
+          -0.048,
+          0.1632
+        ],
+        "ci_excludes_0": false
+      },
+      "vc": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0658,
+        "t_stat": 0.98,
+        "ci95": [
+          -0.0603,
+          0.1912
+        ],
+        "ci_excludes_0": false
+      }
+    }
+  },
+  "quintile_median_range_rev": {
+    "offer_close": {
+      "by_quintile_median": [
+        -0.0625,
+        0.0,
+        0.0008,
+        0.0175,
+        0.2619
+      ],
+      "q1_low": -0.0625,
+      "q5_high": 0.2619,
+      "spread_median": 0.3244,
+      "monotonic": true,
+      "n": 794
+    },
+    "open_close": {
+      "by_quintile_median": [
+        -0.0424,
+        -0.0222,
+        -0.0058,
+        -0.0231,
+        0.0213
+      ],
+      "q1_low": -0.0424,
+      "q5_high": 0.0213,
+      "spread_median": 0.0636,
+      "monotonic": false,
+      "n": 794
+    }
+  },
+  "ALL_operating": {
+    "n": 801,
+    "open_close_median": {
+      "n": 801,
+      "mean": 0.2726,
+      "median": -0.015,
+      "hit_gt0": 0.421,
+      "std": 5.9552
+    },
+    "range_rev_ic_open_close": {
+      "n_cohorts": 42,
+      "ic_mean": 0.1288,
+      "t_stat": 3.19,
+      "ci95": [
+        0.0502,
+        0.2069
+      ],
+      "ci_excludes_0": true
+    },
+    "range_rev_quintiles_open_close": {
+      "by_quintile_median": [
+        -0.0424,
+        -0.0222,
+        -0.0058,
+        -0.0231,
+        0.0213
+      ],
+      "q1_low": -0.0424,
+      "q5_high": 0.0213,
+      "spread_median": 0.0636,
+      "monotonic": false,
+      "n": 794
+    }
+  },
+  "LIQUID_only (>=$50M, >=$5)": {
+    "n": 409,
+    "open_close_median": {
+      "n": 409,
+      "mean": 0.4612,
+      "median": 0.0,
+      "hit_gt0": 0.491,
+      "std": 8.2337
+    },
+    "range_rev_ic_open_close": {
+      "n_cohorts": 17,
+      "ic_mean": 0.1658,
+      "t_stat": 2.21,
+      "ci95": [
+        0.0286,
+        0.311
+      ],
+      "ci_excludes_0": true
+    },
+    "range_rev_quintiles_open_close": {
+      "by_quintile_median": [
+        -0.0158,
+        0.0,
+        0.0,
+        -0.008,
+        0.0339
+      ],
+      "q1_low": -0.0158,
+      "q5_high": 0.0339,
+      "spread_median": 0.0497,
+      "monotonic": false,
+      "n": 407
+    }
+  }
+}

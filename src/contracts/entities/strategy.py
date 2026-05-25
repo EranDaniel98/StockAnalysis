@@ -77,3 +77,9 @@ class StrategyConfig(BaseModel):
     min_market_cap: float = 0
     prefer_profitable: bool = False
     use_consensus_scaling: bool = False
+    # Strategy-level data filter. When true, the recommender refuses
+    # any ticker whose fundamentals report no dividend (yield None or
+    # <= 0). Closes the integrity gap where dividend_income could rank
+    # a non-dividend stock #1 because the dividend sub-score returned
+    # None and its weight redistributed to other categories.
+    requires_dividend: bool = False

@@ -23,6 +23,30 @@ from src.execution.alpaca import (
     AlpacaDuplicateOrderError,
     make_client_order_id,
 )
+from src.execution.safety_gates import (
+    CircuitBreakerThresholds,
+    SessionState,
+    TradingSafetyGate,
+)
+
+
+def _permissive_gate() -> TradingSafetyGate:
+    """Trading-enabled gate with all circuit breakers disabled. Used by
+    idempotency tests so the gate doesn't intercept submissions before
+    we get a chance to test duplicate detection."""
+    return TradingSafetyGate(
+        trading_enabled=True,
+        thresholds=CircuitBreakerThresholds(),
+    )
+
+
+def _permissive_session() -> SessionState:
+    return SessionState(
+        starting_equity=100_000.0,
+        current_equity=100_000.0,
+        peak_equity=100_000.0,
+        open_position_count=0,
+    )
 
 
 # --- make_client_order_id --------------------------------------------------
@@ -68,6 +92,10 @@ def _make_client_with_apierror(payload: dict, status_code: int) -> AlpacaClient:
         json.dumps(payload), http_error=http_error
     )
     client._client = inner
+    # Install a permissive safety gate so the duplicate-detection tests
+    # exercise the broker-rejection path rather than getting refused at
+    # the pre-submit gate.
+    client._safety_gate = _permissive_gate()
     return client
 
 
@@ -83,6 +111,7 @@ def test_bracket_duplicate_coid_raises_typed_error():
             take_profit_price=200.0,
             stop_loss_price=180.0,
             client_order_id="sn-swing_trading-AAPL-2026-05-15",
+            session_state=_permissive_session(),
         )
 
 
@@ -96,6 +125,7 @@ def test_market_duplicate_coid_raises_typed_error():
             ticker="AAPL",
             qty=1,
             client_order_id="sn-bootstrap-AAPL-2026-05-15",
+            session_state=_permissive_session(),
         )
 
 
@@ -112,4 +142,5 @@ def test_non_duplicate_apierror_propagates_unchanged():
             take_profit_price=200.0,
             stop_loss_price=180.0,
             client_order_id="sn-swing_trading-AAPL-2026-05-15",
+            session_state=_permissive_session(),
         )

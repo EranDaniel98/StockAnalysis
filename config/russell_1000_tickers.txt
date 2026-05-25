@@ -1,3 +1,7 @@
+# captured: 2026-05-13
+# source: iShares IWB holdings via scripts/fetch_russell_1000.py
+# review item #4: backtests with end_date > captured pass an explicit
+# --accept-survivorship guard or LookaheadGuardError is raised.
 A
 AA
 AAL

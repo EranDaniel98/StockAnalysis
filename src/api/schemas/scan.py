@@ -1,85 +1,51 @@
-"""Scan request/response models.
+"""Scan-surface schemas.
 
-These mirror the legacy recommendation dict shape (src/scoring/recommender.py)
-so the existing scan pipeline can emit them without translation. Phase 4 will
-narrow these once the ML scorer replaces the hand-tuned composite.
+After the 5-engine → factor-pipeline migration the only schema the API
+still emits here is ``BuySignal`` (returned by ``GET /api/scans/factor-picks``).
+The legacy ``ScanRequest`` / ``ScanResponse`` / ``ScanResultItem`` /
+``ScanSummary`` / ``SanityCheckTriggerRequest`` models were tied to the
+deleted ``POST /api/scans`` route and went with it 2026-05-23.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-DEFAULT_STRATEGY = "swing_trading"
+from src.api.schemas.sanity import SanityCheck
 
 
-Universe = Literal["themes", "russell_1000", "value_cohort", "watchlist"]
+class BuySignal(BaseModel):
+    """One ticker with a current BUY+ signal from today's factor picks.
 
-
-class ScanRequest(BaseModel):
-    strategy: str = Field(default=DEFAULT_STRATEGY)
-    budget: float | None = Field(default=None, gt=0)
-    universe: Universe | None = Field(
-        default=None,
-        description=(
-            "Ticker universe. 'themes' (default) uses the configured theme "
-            "set (~67 tickers, fast). 'russell_1000' scans the full "
-            "Russell-1000 holdings (~1000 tickers, slow — ~15-30min with "
-            "live_signals=True). 'value_cohort' / 'watchlist' use the "
-            "configured lists. When omitted, falls back to 'themes' OR a "
-            "theme/sector filter if provided."
-        ),
-    )
-    theme: str | None = None
-    sector: str | None = None
-    top: int | None = Field(default=None, gt=0, le=200)
-    fresh: bool = Field(default=False, description="Bypass cache, fetch live data")
-    live_signals: bool = Field(
-        default=True,
-        description=(
-            "Fetch yfinance-backed analyst_revisions + options_skew. "
-            "Disable on large universes (russell_1000) for speed."
-        ),
-    )
-
-
-class ScanResultItem(BaseModel):
-    """One recommendation row in a scan response. Permissive shape — accepts
-    the existing recommender dict; web layer narrows what it renders."""
+    Returned by ``GET /api/scans/factor-picks`` after the picks-reader
+    maps ``data/daily_picks/YYYY-MM-DD.json`` into a UI-friendly shape.
+    ``consensus_count`` is always ``1`` after the legacy cross-strategy
+    pooling was removed; the field is kept for FE component compatibility.
+    """
 
     ticker: str
-    action: Literal["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
-    composite_score: float = Field(ge=0, le=100)
-    confidence: str
-    sub_scores: dict[str, float] = Field(default_factory=dict)
-    reasoning: list[str] = Field(default_factory=list)
-    bullish_signals: int = 0
-    bearish_signals: int = 0
-    breakdown: list[dict[str, Any]] = Field(default_factory=list)
-    risk_management: dict[str, Any] = Field(default_factory=dict)
+    name: str = ""
     sector: str = "Unknown"
     industry: str = "Unknown"
-    name: str = ""
     market_cap: Optional[float] = None
 
+    action: Literal["STRONG BUY", "BUY"]
+    composite_score: float = Field(ge=0, le=100)
+    confidence: str
 
-class ScanResponse(BaseModel):
-    run_id: str
     strategy: str
     scan_timestamp: datetime
-    n_candidates: int
-    n_results: int
-    results: list[ScanResultItem]
-
-
-class ScanSummary(BaseModel):
-    """Lighter representation for the GET /api/scans list view."""
-
     run_id: str
-    strategy: str
-    scan_timestamp: datetime
-    n_candidates: int
-    top_ticker: str | None = None
-    top_score: float | None = None
+
+    consensus_count: int = Field(ge=1)
+    consensus_strategies: list[str] = Field(default_factory=list)
+
+    sub_scores: dict[str, float] = Field(default_factory=dict)
+
+    earnings_announcement_ts: Optional[float] = None
+    earnings_call_ts: Optional[float] = None
+
+    sanity_check: Optional[SanityCheck] = None

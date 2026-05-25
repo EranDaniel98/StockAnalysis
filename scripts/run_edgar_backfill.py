@@ -20,7 +20,15 @@ import asyncio
 import logging
 import sys
 
-from src.market_data.edgar.ingest import run_backfill
+from dotenv import load_dotenv
+
+# Load .env before the EDGAR client gets imported -- it reads
+# STOCKNEW_EDGAR_USER_AGENT at construction time and aborts on the
+# placeholder default. Running this script via `uv run python -m`
+# doesn't auto-load .env without this.
+load_dotenv()
+
+from src.market_data.edgar.ingest import run_backfill  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("run_edgar_backfill")

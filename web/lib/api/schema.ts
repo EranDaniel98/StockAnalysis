@@ -115,8 +115,60 @@ export interface paths {
          *     ``period`` is Alpaca's window shorthand (1D / 1W / 1M / 3M / 6M / 1A).
          *     ``timeframe`` is the bar size; intraday timeframes are silently
          *     downgraded to 1D for windows > 1W (Alpaca rejects them otherwise).
+         *
+         *     When ``include_spy=true``, each point also carries a synthetic
+         *     ``spy_equity`` value derived from yfinance SPY closes, normalized so
+         *     the window's first point matches ``base_value`` — both lines share
+         *     the same y-axis and the visual gap is alpha.
          */
         get: operations["get_history_api_portfolio_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolio/spy-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Spy Snapshot
+         * @description Returns the latest ``reports/paper_vs_spy.json`` snapshot. Refreshed
+         *     by ``scripts/paper_vs_spy_snapshot.py`` (last step of the daily
+         *     pipeline). 404 when the file doesn't exist yet.
+         */
+        get: operations["get_spy_snapshot_api_portfolio_spy_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolio/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recommendations
+         * @description Per-position stop/target/status overlay sourced from the latest
+         *     portfolio_analysis JSON + today's picks file. Lets the FE render the
+         *     action/strategy columns on /portfolio without re-reading reports.
+         *
+         *     Held positions outside the current basket get fallback ±8% / +10%
+         *     bands so the table never has empty cells; ``source`` flags which.
+         */
+        get: operations["get_recommendations_api_portfolio_recommendations_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -147,6 +199,103 @@ export interface paths {
          *     responsive. Phase 1.7 adds /api/stream/scan-progress for live updates.
          */
         post: operations["trigger_scan_api_scans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scans/latest-buys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest Buys
+         * @description Union of BUY+ rows from the latest scan per strategy.
+         *
+         *     Pulls the most-recent scan_run per strategy, filters each to BUY+ rows,
+         *     and deduplicates by ticker — attributing each ticker to the strategy
+         *     that produced its highest composite_score. ``consensus_count`` reports
+         *     how many strategies' latest runs agreed on the BUY+ rating for that
+         *     ticker, so the FE can highlight cross-strategy conviction.
+         *
+         *     Returns rows sorted by composite_score desc, consensus_count desc as
+         *     tiebreak. Empty list when no recent scan has any BUY+ rows (not an
+         *     error — the system simply isn't ringing the bell right now).
+         */
+        get: operations["latest_buys_api_scans_latest_buys_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scans/factor-picks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Factor Picks
+         * @description Today's composite-factor picks (PIT S&P 500, m+q+v rank-blend).
+         *
+         *     Reads from ``data/daily_picks/YYYY-MM-DD.json`` — the source the
+         *     paper trader uses to place real (paper) orders. This is the
+         *     canonical "what does the system want to BUY?" surface for the
+         *     factor strategy. Sanity-check verdicts (cached against the
+         *     synthetic ``factor:<strategy>:<as_of>`` run_id) are attached when
+         *     present so the web UI can render the same brake-light pattern as
+         *     the composite-path /latest-buys endpoint.
+         *
+         *     Returns an empty list when no picks file exists (system not yet
+         *     bootstrapped) or when the file is malformed — by design, since
+         *     the scoring-path /latest-buys endpoint is a viable fallback for
+         *     the FE.
+         */
+        get: operations["factor_picks_api_scans_factor_picks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scans/sanity-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Sanity Check
+         * @description Run the pre-trade AI sanity check over the current BuySignal set.
+         *
+         *     Reuses ``latest_buys`` to assemble the candidate set (same DISTINCT
+         *     ON / integrity-gate filtering), then runs the check on each row in
+         *     parallel, upserts results into the ``sanity_checks`` table, and
+         *     returns the refreshed BuySignal list with ``sanity_check``
+         *     populated.
+         *
+         *     Cost: ~$0.005/ticker on the live path (claude-sonnet-4-6); mock
+         *     path is free. The check is asymmetric — it can downgrade BUYs to
+         *     CAUTION or REJECT but never upgrade them.
+         *
+         *     Idempotency: ``force_refresh=false`` skips tickers that already
+         *     have a cached check for their run_id. Set ``force_refresh=true``
+         *     to overwrite (e.g. after re-running with the live model).
+         */
+        post: operations["trigger_sanity_check_api_scans_sanity_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -492,305 +641,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/analytics/calibration": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Score Calibration
-         * @description Score-vs-realized-return calibration.
-         *
-         *     Buckets every closed paper trade by its composite_score band and reports
-         *     n_trades + avg / median pnl_pct + win_rate per bucket. The goal: confirm
-         *     that higher composite scores really do produce higher realized returns
-         *     — and surface drift early if they stop doing so.
-         */
-        get: operations["score_calibration_api_analytics_calibration_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/analytics/trades-summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Trades Summary
-         * @description Aggregate analytics across every closed paper trade.
-         *
-         *     Read-only — pulls all closed trades + their parent recommendation (for
-         *     strategy attribution) in one query, then computes everything in memory.
-         *     The trade table is unlikely to outgrow this scope for personal use; if
-         *     it ever does, the per-section work each isolates cleanly.
-         */
-        get: operations["trades_summary_api_analytics_trades_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/trades": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Trades
-         * @description Closed paper trades, newest exit first. Filter by ticker, score
-         *     floor, or whether the row already has notes.
-         */
-        get: operations["list_trades_api_trades_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/trades/{trade_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update Trade Notes
-         * @description Replace the notes field. ``null`` clears the entry.
-         */
-        patch: operations["update_trade_notes_api_trades__trade_id__patch"];
-        trace?: never;
-    };
-    "/api/ml/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Ml Models
-         * @description List registered model versions + drift status for the latest of each name.
-         *
-         *     Filter to a single ``model_name`` to see its history. Without a filter,
-         *     you get the full registry (newest first) plus a "latest per name" view
-         *     that mirrors what the ensemble would use right now.
-         */
-        get: operations["list_ml_models_api_ml_models_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/ask": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask
-         * @description Kick off one synchronous research run. Returns the completed
-         *     (or failed / budget_exceeded) run row inline.
-         *
-         *     The orchestrator never raises on tool failures — those are threaded
-         *     back into the transcript. We do raise 503 if the ANTHROPIC_API_KEY
-         *     is missing so the UI can prompt for setup.
-         */
-        post: operations["ask_api_research_ask_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/ask/stream": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask Stream
-         * @description Stream the agent's mid-run thoughts over SSE.
-         *
-         *     Events (named):
-         *       - ``started``         {run_id, question}
-         *       - ``turn_start``      {turn}
-         *       - ``assistant_text``  {turn, text}   any prose the model emits
-         *                                             alongside a tool call
-         *       - ``tool_call``       {turn, tool, input}
-         *       - ``tool_result``     {turn, tool, is_error, summary}
-         *       - ``usage``           {turn, input_tokens, output_tokens, cost_usd}
-         *       - ``final_answer``    {text}
-         *       - ``complete``        {run_id, status}
-         *       - ``error``           {detail, kind}
-         *
-         *     Client disconnects cancel the worker task — the partial run row
-         *     stays in the DB with whatever transcript it had at the time.
-         */
-        post: operations["ask_stream_api_research_ask_stream_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Runs */
-        get: operations["list_runs_api_research_runs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/runs/{run_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Run */
-        get: operations["get_run_api_research_runs__run_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Notifications
-         * @description Recent filings the background monitor surfaced. Newest first.
-         */
-        get: operations["list_notifications_api_research_notifications_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications/{notification_id}/summarize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Summarize Notification
-         * @description Kick off an agent run to summarize one filing.
-         *
-         *     Uses ``search_filings`` under the hood — the filing's chunks are
-         *     already in the corpus (the monitor ingested them at detection
-         *     time). Result is cached on ``filing_notifications.summary`` so
-         *     repeat clicks return instantly.
-         */
-        post: operations["summarize_notification_api_research_notifications__notification_id__summarize_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/notifications/stream": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Stream Notifications
-         * @description SSE channel: live filing notifications. Events are named
-         *     ``notification`` with the persisted row's slim shape.
-         *
-         *     No ``status`` event on the channel — the EventMonitor is either
-         *     running (background task alive) or not (env-disabled); the API
-         *     surface for that lives at ``GET /api/research/monitor/status``.
-         */
-        get: operations["stream_notifications_api_research_notifications_stream_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/research/monitor/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Monitor Status
-         * @description Lightweight liveness probe for the /research/feed page header.
-         */
-        get: operations["monitor_status_api_research_monitor_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/dashboard": {
         parameters: {
             query?: never;
@@ -809,6 +659,222 @@ export interface paths {
          *     collision) and capped at ``cross_strategy_top_n``.
          */
         get: operations["get_dashboard_api_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dashboard/briefing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Briefing */
+        get: operations["get_briefing_api_dashboard_briefing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/today-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Actions
+         * @description Merged execution view powering /buy-signals. Set-diff today's
+         *     picks against current holdings + join each row with its analysis
+         *     plan + AI sanity verdict + (for held tickers) live state.
+         */
+        get: operations["get_today_actions_api_pipeline_today_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recent
+         * @description List the last ``limit`` pipeline-style runs by inspecting disk
+         *     artifacts. Each entry says which downstream files exist so the FE
+         *     can show a per-step completion mark.
+         */
+        get: operations["get_recent_api_pipeline_recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pipeline/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Pipeline
+         * @description Spawn ``scripts.run_daily_pipeline`` and stream per-step progress.
+         *
+         *     SSE event types:
+         *       - ``ready``           {steps:[...]}    sent once before subprocess starts
+         *       - ``step_started``    {step, ts}       new step begins
+         *       - ``step_completed``  {step, exit_code, elapsed_s, tail:[...]}
+         *       - ``heartbeat``       {}               keepalive every ~1s during quiet stretches
+         *       - ``done``            {exit_code, total_elapsed_s, steps:{name: exit_code}}
+         *       - ``error``           {detail}         setup error or 409 conflict
+         */
+        get: operations["stream_pipeline_api_pipeline_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factor-backtests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Factor Backtests
+         * @description Compact list of every factor-backtest artifact on disk.
+         *     Sorted newest-first by file mtime so the freshest results lead.
+         */
+        get: operations["list_factor_backtests_api_factor_backtests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factor-backtests/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Factor Backtest
+         * @description Full payload for one artifact. Returns 404 when the slug doesn't
+         *     map to any sweep/ab file on disk.
+         */
+        get: operations["get_factor_backtest_api_factor_backtests__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ic-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ic Reports
+         * @description Compact list of every analyzer_ic_*.json on disk, newest first.
+         *
+         *     Each row tells the FE which dimensions a report covers — factors,
+         *     horizons, regime split — so the list view can group/filter without
+         *     loading the full payload.
+         */
+        get: operations["list_ic_reports_api_ic_reports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ic-reports/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ic Report
+         * @description Full per-factor (and per-regime, when present) breakdown.
+         */
+        get: operations["get_ic_report_api_ic_reports__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Executions
+         * @description Compact per-day summary, newest first.
+         */
+        get: operations["list_executions_api_executions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{date_str}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Execution
+         * @description Full detail for one execution day. URL accepts the picks_date
+         *     in YYYY-MM-DD form (matches the filename).
+         */
+        get: operations["get_execution_api_executions__date_str__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -839,6 +905,35 @@ export interface components {
             long_market_value: number;
             /** Pattern Day Trader */
             pattern_day_trader: boolean;
+        };
+        /**
+         * ActionCounts
+         * @description Set difference between today's picks and current paper positions.
+         *     Mirrors the NEW BUY / KEEP / EXIT lists in the morning briefing
+         *     markdown so the dashboard can headline the rebalance shape.
+         */
+        ActionCounts: {
+            /** N New Buys */
+            n_new_buys: number;
+            /** N Keep */
+            n_keep: number;
+            /** N Exit */
+            n_exit: number;
+            /**
+             * New Buy Tickers
+             * @description Picks not currently held — fresh entries.
+             */
+            new_buy_tickers?: string[];
+            /**
+             * Keep Tickers
+             * @description Picks already held — basket retains the position.
+             */
+            keep_tickers?: string[];
+            /**
+             * Exit Tickers
+             * @description Currently-held tickers that dropped out of today's picks.
+             */
+            exit_tickers?: string[];
         };
         /** BacktestRequest */
         BacktestRequest: {
@@ -882,9 +977,9 @@ export interface components {
             cash: number;
             /**
              * Hold Days
-             * @default 90
+             * @description Calendar days a position can hold before forced exit (triple-barrier time stop). None → resolve from the strategy's `time_stop_days` field, falling back to 90.
              */
-            hold_days: number;
+            hold_days?: number | null;
             /**
              * Earnings Blackout
              * @default 3
@@ -984,34 +1079,153 @@ export interface components {
             /** Oos Max Drawdown Pct */
             oos_max_drawdown_pct?: number | null;
         };
-        /** CalibrationBucket */
-        CalibrationBucket: {
-            /** Label */
-            label: string;
-            /** Lower */
-            lower: number;
-            /** Upper */
-            upper: number;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct?: number | null;
-            /** Median Pnl Pct */
-            median_pnl_pct?: number | null;
-            /** Win Rate */
-            win_rate?: number | null;
-        };
-        /** CumulativePnlPoint */
-        CumulativePnlPoint: {
+        /** BriefingResponse */
+        BriefingResponse: {
             /**
-             * Date
-             * Format: date
+             * Picks Date
+             * @description Date of the picks file underlying this briefing. Null when no picks have been generated yet for today.
              */
-            date: string;
-            /** Cumulative Pnl */
-            cumulative_pnl: number;
-            /** N Trades */
-            n_trades: number;
+            picks_date?: string | null;
+            /**
+             * Gate Status
+             * @description Overall pre-trade gate verdict. 'fail' means refuse the rebalance; 'warn' means proceed with caution; 'ok' means drift checks clean; 'no_picks' means today's picks file is missing (briefing degrades to position alerts only).
+             * @enum {string}
+             */
+            gate_status: "ok" | "warn" | "fail" | "no_picks";
+            /**
+             * Gate Message
+             * @description One-line summary of why the gate failed/warned, or 'all drift checks passed' on OK.
+             */
+            gate_message: string;
+            /**
+             * Recommendation
+             * @description Single sentence: what the system thinks the operator should do this morning.
+             */
+            recommendation: string;
+            /** Drift Checks */
+            drift_checks?: components["schemas"]["DriftCheckOut"][];
+            /** Factor Coverage */
+            factor_coverage?: components["schemas"]["FactorCoverage"][];
+            /**
+             * N Picks
+             * @default 0
+             */
+            n_picks: number;
+            /** Position Alerts */
+            position_alerts?: components["schemas"]["PositionAlert"][];
+            /**
+             * N Stops Hit
+             * @default 0
+             */
+            n_stops_hit: number;
+            /**
+             * N Targets Hit
+             * @default 0
+             */
+            n_targets_hit: number;
+            /**
+             * N Near Stop
+             * @default 0
+             */
+            n_near_stop: number;
+            /**
+             * N Positions
+             * @default 0
+             */
+            n_positions: number;
+            /**
+             * Top Picks
+             * @description Top-N picks by composite rank, projected for the dashboard hero card. Empty when no picks file exists for the date.
+             */
+            top_picks?: components["schemas"]["TopPick"][];
+            /** @description NEW BUY / KEEP / EXIT counts from set-diff of today's picks vs current paper positions. Null when picks or positions couldn't be resolved. */
+            action_counts?: components["schemas"]["ActionCounts"] | null;
+            /**
+             * Paper Equity Usd
+             * @description Live paper-account equity. Null when Alpaca is unreachable.
+             */
+            paper_equity_usd?: number | null;
+            /**
+             * Unrealized Pl Usd
+             * @description Sum of unrealized P&L across held positions.
+             */
+            unrealized_pl_usd?: number | null;
+            /**
+             * Unrealized Pl Pct
+             * @description unrealized_pl_usd / paper_equity_usd * 100.
+             */
+            unrealized_pl_pct?: number | null;
+            /**
+             * Picks Generated At
+             * @description Filesystem mtime of the picks JSON. Surfaces pipeline freshness without an extra API call.
+             */
+            picks_generated_at?: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+        };
+        /**
+         * BuySignal
+         * @description One ticker with a current BUY+ signal from the latest scan per strategy.
+         *
+         *     Deduped across strategies: each ticker appears once, attributed to the
+         *     strategy that produced its highest composite_score. ``consensus_count``
+         *     counts how many strategies' latest runs all flagged this ticker as
+         *     BUY+ — high consensus = stronger conviction.
+         */
+        BuySignal: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Sector
+             * @default Unknown
+             */
+            sector: string;
+            /**
+             * Industry
+             * @default Unknown
+             */
+            industry: string;
+            /** Market Cap */
+            market_cap?: number | null;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "STRONG BUY" | "BUY";
+            /** Composite Score */
+            composite_score: number;
+            /** Confidence */
+            confidence: string;
+            /** Strategy */
+            strategy: string;
+            /**
+             * Scan Timestamp
+             * Format: date-time
+             */
+            scan_timestamp: string;
+            /** Run Id */
+            run_id: string;
+            /** Consensus Count */
+            consensus_count: number;
+            /** Consensus Strategies */
+            consensus_strategies?: string[];
+            /** Sub Scores */
+            sub_scores?: {
+                [key: string]: number;
+            };
+            /** Earnings Announcement Ts */
+            earnings_announcement_ts?: number | null;
+            /** Earnings Call Ts */
+            earnings_call_ts?: number | null;
+            sanity_check?: components["schemas"]["SanityCheck"] | null;
         };
         /**
          * DashboardPick
@@ -1183,6 +1397,21 @@ export interface components {
              */
             verdict: string;
         };
+        /**
+         * DriftCheckOut
+         * @description One drift-detector check, flattened for the FE.
+         */
+        DriftCheckOut: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "fail";
+            /** Message */
+            message: string;
+        };
         /** EquityPoint */
         EquityPoint: {
             /** Timestamp */
@@ -1193,104 +1422,496 @@ export interface components {
             profit_loss: number;
             /** Profit Loss Pct */
             profit_loss_pct?: number | null;
+            /**
+             * Spy Equity
+             * @description Synthetic SPY equity at this timestamp, normalized so that the first point of the window equals ``base_value``. Lets the FE plot a same-axis alpha line. Null when ``include_spy=false`` or SPY data couldn't be fetched.
+             */
+            spy_equity?: number | null;
         };
-        /** ExitReasonStat */
-        ExitReasonStat: {
-            /** Reason */
-            reason: string;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
+        /** ExecutionDetail */
+        ExecutionDetail: {
+            /**
+             * Date
+             * Format: date
+             * @description picks_date from the log file.
+             */
+            date: string;
+            /** Executed At Utc */
+            executed_at_utc?: string | null;
+            /** Strategy */
+            strategy: string;
+            /** Long Short Mode */
+            long_short_mode?: boolean | null;
+            /** Equity At Start */
+            equity_at_start?: number | null;
+            /** Long Capital */
+            long_capital?: number | null;
+            /** Short Capital */
+            short_capital?: number | null;
+            /**
+             * N Longs
+             * @default 0
+             */
+            n_longs: number;
+            /**
+             * N Shorts
+             * @default 0
+             */
+            n_shorts: number;
+            /**
+             * N Submitted
+             * @default 0
+             */
+            n_submitted: number;
+            /**
+             * N Skipped
+             * @default 0
+             */
+            n_skipped: number;
+            /**
+             * N Failed
+             * @default 0
+             */
+            n_failed: number;
+            /**
+             * Sanity Applied
+             * @default false
+             */
+            sanity_applied: boolean;
+            /**
+             * Sanity Long Rejected
+             * @default 0
+             */
+            sanity_long_rejected: number;
+            /**
+             * Sanity Long Cautioned
+             * @default 0
+             */
+            sanity_long_cautioned: number;
+            /** Order Style */
+            order_style?: string | null;
+            sanity_gate?: components["schemas"]["SanityGate"] | null;
+            /** Submitted */
+            submitted?: components["schemas"]["SubmittedOrder"][];
+            /** Skipped */
+            skipped?: components["schemas"]["SkippedOrder"][];
+            /** Failed */
+            failed?: components["schemas"]["FailedOrder"][];
         };
         /**
-         * FilingNotificationItem
-         * @description Row from filing_notifications — what the /research/feed page lists.
+         * ExecutionSummary
+         * @description One row in the executions list view.
          */
-        FilingNotificationItem: {
-            /** Id */
-            id: number;
+        ExecutionSummary: {
+            /**
+             * Date
+             * Format: date
+             * @description picks_date from the log file.
+             */
+            date: string;
+            /** Executed At Utc */
+            executed_at_utc?: string | null;
+            /** Strategy */
+            strategy: string;
+            /** Long Short Mode */
+            long_short_mode?: boolean | null;
+            /** Equity At Start */
+            equity_at_start?: number | null;
+            /** Long Capital */
+            long_capital?: number | null;
+            /** Short Capital */
+            short_capital?: number | null;
+            /**
+             * N Longs
+             * @default 0
+             */
+            n_longs: number;
+            /**
+             * N Shorts
+             * @default 0
+             */
+            n_shorts: number;
+            /**
+             * N Submitted
+             * @default 0
+             */
+            n_submitted: number;
+            /**
+             * N Skipped
+             * @default 0
+             */
+            n_skipped: number;
+            /**
+             * N Failed
+             * @default 0
+             */
+            n_failed: number;
+            /**
+             * Sanity Applied
+             * @default false
+             */
+            sanity_applied: boolean;
+            /**
+             * Sanity Long Rejected
+             * @default 0
+             */
+            sanity_long_rejected: number;
+            /**
+             * Sanity Long Cautioned
+             * @default 0
+             */
+            sanity_long_cautioned: number;
+            /** Order Style */
+            order_style?: string | null;
+        };
+        /**
+         * FactorBacktestDetail
+         * @description Detail view extends the summary with the curve + folds + a sample
+         *     of trades. Full payload (raw JSON) is also exposed for power users.
+         */
+        FactorBacktestDetail: {
+            /**
+             * Slug
+             * @description Filename minus .json — usable as a URL segment.
+             */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "sweep" | "ab";
+            /** Strategy */
+            strategy: string;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Universe Label */
+            universe_label?: string | null;
+            /** N Tickers */
+            n_tickers?: number | null;
+            /** Top Decile */
+            top_decile?: number | null;
+            /** Rebalance Days */
+            rebalance_days?: number | null;
+            /** Regime Filter Enabled */
+            regime_filter_enabled?: boolean | null;
+            /** N Trades */
+            n_trades?: number | null;
+            /** N Rebalances */
+            n_rebalances?: number | null;
+            /** Total Return Pct */
+            total_return_pct?: number | null;
+            /** Cagr Pct */
+            cagr_pct?: number | null;
+            /** Ann Sharpe */
+            ann_sharpe?: number | null;
+            /** Max Drawdown Pct */
+            max_drawdown_pct?: number | null;
+            /** Spy Total Return Pct */
+            spy_total_return_pct?: number | null;
+            /** Spy Ann Sharpe */
+            spy_ann_sharpe?: number | null;
+            /** Alpha Vs Spy Pct */
+            alpha_vs_spy_pct?: number | null;
+            /** Wf Passed */
+            wf_passed?: boolean | null;
+            /** Wf Mean Sharpe */
+            wf_mean_sharpe?: number | null;
+            /** Wf Min Sharpe */
+            wf_min_sharpe?: number | null;
+            /** N Folds */
+            n_folds?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description File mtime as UTC datetime. When the run was last written.
+             */
+            created_at: string;
+            /** Walk Forward Folds */
+            walk_forward_folds?: components["schemas"]["WalkForwardFold"][];
+            /**
+             * Equity Curve
+             * @description (date_iso, equity) pairs over the run window.
+             */
+            equity_curve?: [
+                string,
+                number
+            ][];
+            /**
+             * Spy Equity Curve
+             * @description Real SPY daily closes over the backtest window, normalized so the first point equals the strategy's starting cash. Fetched from yfinance per-request; empty list when yfinance fetch fails.
+             */
+            spy_equity_curve?: [
+                string,
+                number
+            ][];
+            /**
+             * Rebalance Log
+             * @description Per-rebalance summary (size, tickers, turnover).
+             */
+            rebalance_log?: {
+                [key: string]: unknown;
+            }[];
+            /** Trades Sample */
+            trades_sample?: {
+                [key: string]: unknown;
+            }[];
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * FactorBacktestSummary
+         * @description Compact row for the list view. Each field is best-effort — the
+         *     sweep JSON contains them all but A/B files vary; missing fields
+         *     surface as null rather than failing the request.
+         */
+        FactorBacktestSummary: {
+            /**
+             * Slug
+             * @description Filename minus .json — usable as a URL segment.
+             */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "sweep" | "ab";
+            /** Strategy */
+            strategy: string;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Universe Label */
+            universe_label?: string | null;
+            /** N Tickers */
+            n_tickers?: number | null;
+            /** Top Decile */
+            top_decile?: number | null;
+            /** Rebalance Days */
+            rebalance_days?: number | null;
+            /** Regime Filter Enabled */
+            regime_filter_enabled?: boolean | null;
+            /** N Trades */
+            n_trades?: number | null;
+            /** N Rebalances */
+            n_rebalances?: number | null;
+            /** Total Return Pct */
+            total_return_pct?: number | null;
+            /** Cagr Pct */
+            cagr_pct?: number | null;
+            /** Ann Sharpe */
+            ann_sharpe?: number | null;
+            /** Max Drawdown Pct */
+            max_drawdown_pct?: number | null;
+            /** Spy Total Return Pct */
+            spy_total_return_pct?: number | null;
+            /** Spy Ann Sharpe */
+            spy_ann_sharpe?: number | null;
+            /** Alpha Vs Spy Pct */
+            alpha_vs_spy_pct?: number | null;
+            /** Wf Passed */
+            wf_passed?: boolean | null;
+            /** Wf Mean Sharpe */
+            wf_mean_sharpe?: number | null;
+            /** Wf Min Sharpe */
+            wf_min_sharpe?: number | null;
+            /** N Folds */
+            n_folds?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description File mtime as UTC datetime. When the run was last written.
+             */
+            created_at: string;
+        };
+        /**
+         * FactorCoverage
+         * @description How many of today's picks have a non-null rank for one factor.
+         *     A drop vs the rolling baseline is the canary for an ingest break.
+         */
+        FactorCoverage: {
+            /** Factor */
+            factor: string;
+            /** Covered */
+            covered: number;
+            /** Total */
+            total: number;
+            /** Pct */
+            pct: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "fail";
+        };
+        /** FailedOrder */
+        FailedOrder: {
             /** Ticker */
             ticker: string;
-            /** Form */
-            form: string;
-            /** Accession No */
-            accession_no: string;
-            /** Filing Date */
-            filing_date: string;
-            /** Primary Document */
-            primary_document?: string | null;
-            /**
-             * Detected At
-             * Format: date-time
-             */
-            detected_at: string;
-            /** Research Run Id */
-            research_run_id?: number | null;
-            /** Summary */
-            summary?: string | null;
-        };
-        /** FoldMetric */
-        FoldMetric: {
-            /** Fold */
-            fold: number;
-            /** Train Start */
-            train_start: string;
-            /** Train End */
-            train_end: string;
-            /** Test Start */
-            test_start: string;
-            /** Test End */
-            test_end: string;
-            /** N Train */
-            n_train: number;
-            /** N Test */
-            n_test: number;
-            /** Ic Pearson */
-            ic_pearson: number;
-            /** Ic Spearman */
-            ic_spearman: number;
-            /** Hit Rate */
-            hit_rate: number;
+            /** Side */
+            side?: string | null;
+            /** Error */
+            error?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** HoldTimeBucket */
-        HoldTimeBucket: {
-            /** Label */
-            label: string;
-            /** Lower */
-            lower: number;
-            /** Upper */
-            upper: number;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct?: number | null;
-            /** Win Rate */
-            win_rate?: number | null;
-        };
         /**
-         * MLModelsResponse
-         * @description List view at /api/ml/models.
+         * IcCellMetrics
+         * @description One (factor, horizon) cell — the alphalens raw stats.
          */
-        MLModelsResponse: {
-            /** Models */
-            models?: components["schemas"]["ModelVersionRow"][];
+        IcCellMetrics: {
+            /** Ic Mean */
+            ic_mean: number;
+            /** Ic Std */
+            ic_std: number;
+            /** Ic Ir */
+            ic_ir: number;
+            /** T Stat */
+            t_stat: number;
+            /** P Value */
+            p_value: number;
+            /** N Periods */
+            n_periods: number;
+            /** Top Minus Bottom Pct */
+            top_minus_bottom_pct: number;
+        };
+        /** IcFactorRow */
+        IcFactorRow: {
+            /** Factor */
+            factor: string;
+            /** N Observations */
+            n_observations: number;
+            /** By Horizon */
+            by_horizon?: {
+                [key: string]: components["schemas"]["IcCellMetrics"];
+            };
+        };
+        /** IcReportDetail */
+        IcReportDetail: {
             /**
-             * Latest
-             * @description One row per distinct model_name — the version the ensemble would use right now.
+             * Slug
+             * @description Filename minus .json — URL slug.
              */
-            latest?: components["schemas"]["ModelVersionRow"][];
-            /** Drift */
-            drift?: components["schemas"]["ModelDriftSnapshot"][];
+            slug: string;
+            /** Universe */
+            universe: string;
+            /** Strategy */
+            strategy: string;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Periods */
+            periods?: number[];
+            /** Quantiles */
+            quantiles: number;
+            /**
+             * Bonferroni K
+             * @description Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k.
+             */
+            bonferroni_k: number;
+            /**
+             * Panel Rows
+             * @description Rows in the (date, ticker) panel underlying this report.
+             */
+            panel_rows: number;
+            /** N Factors */
+            n_factors: number;
+            /**
+             * Horizons
+             * @description Per-horizon labels actually present in the report.
+             */
+            horizons?: string[];
+            /**
+             * Regime Split
+             * @description Split key when this is a regime-conditional report (e.g. 'vix').
+             */
+            regime_split?: string | null;
+            /**
+             * Regimes
+             * @description Regime bucket names when regime_split is set.
+             */
+            regimes?: string[];
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
+            /**
+             * Per Factor
+             * @description Unconditional per-factor rows. Empty on regime reports.
+             */
+            per_factor?: components["schemas"]["IcFactorRow"][];
+            /**
+             * Per Regime
+             * @description factor rows keyed by regime bucket; empty on unconditional reports.
+             */
+            per_regime?: {
+                [key: string]: components["schemas"]["IcFactorRow"][];
+            };
+        };
+        /** IcReportSummary */
+        IcReportSummary: {
+            /**
+             * Slug
+             * @description Filename minus .json — URL slug.
+             */
+            slug: string;
+            /** Universe */
+            universe: string;
+            /** Strategy */
+            strategy: string;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Periods */
+            periods?: number[];
+            /** Quantiles */
+            quantiles: number;
+            /**
+             * Bonferroni K
+             * @description Number of independent tests for multiple-comparison correction. Adjusted significance = raw p * bonferroni_k.
+             */
+            bonferroni_k: number;
+            /**
+             * Panel Rows
+             * @description Rows in the (date, ticker) panel underlying this report.
+             */
+            panel_rows: number;
+            /** N Factors */
+            n_factors: number;
+            /**
+             * Horizons
+             * @description Per-horizon labels actually present in the report.
+             */
+            horizons?: string[];
+            /**
+             * Regime Split
+             * @description Split key when this is a regime-conditional report (e.g. 'vix').
+             */
+            regime_split?: string | null;
+            /**
+             * Regimes
+             * @description Regime bucket names when regime_split is set.
+             */
+            regimes?: string[];
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
         };
         /**
          * MarketRegime
@@ -1323,99 +1944,6 @@ export interface components {
             vix_avg_20d?: number | null;
             /** Notes */
             notes?: string[];
-        };
-        /**
-         * ModelDriftSnapshot
-         * @description Latest drift status for one registered model.
-         */
-        ModelDriftSnapshot: {
-            /** Model Name */
-            model_name: string;
-            /** Version */
-            version: number;
-            /** Training Ic Mean */
-            training_ic_mean: number;
-            /** Training Ic Std */
-            training_ic_std: number;
-            /** Rolling Ic */
-            rolling_ic: number;
-            /** Z Score */
-            z_score: number;
-            /** Is Drifting */
-            is_drifting: boolean;
-            /** Window Days */
-            window_days: number;
-            /** N Observations */
-            n_observations: number;
-        };
-        /**
-         * ModelSummaryMetrics
-         * @description Headline aggregates over the walk-forward folds.
-         */
-        ModelSummaryMetrics: {
-            /**
-             * Mean Ic Pearson
-             * @default 0
-             */
-            mean_ic_pearson: number;
-            /**
-             * Mean Ic Spearman
-             * @default 0
-             */
-            mean_ic_spearman: number;
-            /**
-             * Mean Hit Rate
-             * @default 0
-             */
-            mean_hit_rate: number;
-            /**
-             * N Folds
-             * @default 0
-             */
-            n_folds: number;
-            /**
-             * Total Test Rows
-             * @default 0
-             */
-            total_test_rows: number;
-        };
-        /**
-         * ModelVersionRow
-         * @description One row from ``model_versions`` — for the API list view + /ml page.
-         */
-        ModelVersionRow: {
-            /** Id */
-            id: number;
-            /** Model Name */
-            model_name: string;
-            /** Version */
-            version: number;
-            /**
-             * Trained At
-             * Format: date-time
-             */
-            trained_at: string;
-            /**
-             * Train Window Start
-             * Format: date-time
-             */
-            train_window_start: string;
-            /**
-             * Train Window End
-             * Format: date-time
-             */
-            train_window_end: string;
-            /** Horizon Days */
-            horizon_days: number;
-            /** Factor Set */
-            factor_set: string;
-            /** Artifact Path */
-            artifact_path: string;
-            /** Notes */
-            notes?: string | null;
-            summary: components["schemas"]["ModelSummaryMetrics"];
-            /** Folds */
-            folds?: components["schemas"]["FoldMetric"][];
         };
         /**
          * OHLCBar
@@ -1485,40 +2013,88 @@ export interface components {
             /** Realized Pnl Pct */
             realized_pnl_pct?: number | null;
         };
-        /** PaperTradeItem */
-        PaperTradeItem: {
-            /** Id */
-            id: number;
-            /** Ticker */
-            ticker: string;
-            /** Qty */
-            qty: number;
-            /** Entry Price */
-            entry_price: number;
-            /** Exit Price */
-            exit_price: number;
+        /** PaperVsSpyPaperLeg */
+        PaperVsSpyPaperLeg: {
+            /** Starting Equity Usd */
+            starting_equity_usd: number;
+            /** Current Equity Usd */
+            current_equity_usd: number;
+            /** Pnl Usd */
+            pnl_usd: number;
+            /** Return Pct */
+            return_pct: number;
+        };
+        /**
+         * PaperVsSpySnapshot
+         * @description Mirror of ``reports/paper_vs_spy.json``. The Python snapshot
+         *     script writes this file on every daily-pipeline run; the FE reads
+         *     it via this endpoint so it doesn't have to share the filesystem.
+         */
+        PaperVsSpySnapshot: {
             /**
-             * Entry At
-             * Format: date-time
+             * Status
+             * @enum {string}
              */
-            entry_at: string;
+            status: "ok" | "not_configured" | "no_history" | "error";
+            /** Message */
+            message?: string | null;
+            /** Generated At Utc */
+            generated_at_utc: string;
+            /** Window Days */
+            window_days: number;
+            paper?: components["schemas"]["PaperVsSpyPaperLeg"] | null;
+            spy?: components["schemas"]["PaperVsSpySpyLeg"] | null;
+            /** Alpha Pct */
+            alpha_pct?: number | null;
+        };
+        /** PaperVsSpySpyLeg */
+        PaperVsSpySpyLeg: {
+            /** Starting Price */
+            starting_price: number;
+            /** Current Price */
+            current_price: number;
+            /** Return Pct */
+            return_pct: number;
+        };
+        /** PipelineRecentResponse */
+        PipelineRecentResponse: {
+            /** Runs */
+            runs?: components["schemas"]["PipelineRecentRun"][];
             /**
-             * Exit At
-             * Format: date-time
+             * In Flight
+             * @description True if a pipeline run is currently executing.
              */
-            exit_at: string;
-            /** Hold Days */
-            hold_days?: number | null;
-            /** Pnl */
-            pnl: number;
-            /** Pnl Pct */
-            pnl_pct: number;
-            /** Exit Reason */
-            exit_reason?: string | null;
-            /** Composite Score */
-            composite_score?: number | null;
-            /** Notes */
-            notes?: string | null;
+            in_flight: boolean;
+            /** In Flight Started At */
+            in_flight_started_at?: string | null;
+        };
+        /**
+         * PipelineRecentRun
+         * @description One historical pipeline-or-picks invocation, derived from disk
+         *     artifacts. Used by /scan to list the last few runs.
+         */
+        PipelineRecentRun: {
+            /**
+             * Picks Date
+             * Format: date
+             */
+            picks_date: string;
+            /**
+             * Picks Generated At
+             * Format: date-time
+             * @description Mtime of data/daily_picks/<date>.json — proxy for run time.
+             */
+            picks_generated_at: string;
+            /** N Picks */
+            n_picks: number;
+            /** Has Analysis */
+            has_analysis: boolean;
+            /** Has Briefing */
+            has_briefing: boolean;
+            /** Has Exit Plan */
+            has_exit_plan: boolean;
+            /** Has Sanity Check */
+            has_sanity_check: boolean;
         };
         /** PortfolioHistory */
         PortfolioHistory: {
@@ -1530,6 +2106,34 @@ export interface components {
             base_value?: number | null;
             /** Points */
             points?: components["schemas"]["EquityPoint"][];
+            /**
+             * Spy Status
+             * @description 'ok' = SPY normalized line included on every point; 'skipped' = include_spy=false; 'unavailable' = SPY fetch failed (yfinance down / DNS). FE should hide the SPY series when not 'ok'.
+             * @default skipped
+             * @enum {string}
+             */
+            spy_status: "ok" | "skipped" | "unavailable";
+        };
+        /** PortfolioRecommendations */
+        PortfolioRecommendations: {
+            /**
+             * As Of
+             * @description picks_date underlying these recommendations.
+             */
+            as_of?: string | null;
+            /**
+             * Analysis Path
+             * @description Filename of the portfolio_analysis JSON consulted.
+             */
+            analysis_path?: string | null;
+            /** Recommendations */
+            recommendations?: components["schemas"]["PositionRecommendation"][];
+            /**
+             * N At Risk
+             * @description Count of positions with status != HOLDING.
+             * @default 0
+             */
+            n_at_risk: number;
         };
         /** PortfolioStatus */
         PortfolioStatus: {
@@ -1562,97 +2166,232 @@ export interface components {
              */
             unrealized_pnl_pct: number;
         };
-        /** ResearchAskRequest */
-        ResearchAskRequest: {
-            /** Question */
-            question: string;
+        /**
+         * PositionAlert
+         * @description A held position that hit a stop, target, or is within 2% of either.
+         */
+        PositionAlert: {
+            /** Ticker */
+            ticker: string;
             /**
-             * Model
-             * @description Override default Sonnet 4.6
+             * Status
+             * @enum {string}
              */
+            status: "STOP_HIT" | "TARGET_HIT" | "NEAR_STOP" | "NEAR_TARGET";
+            /** Current Price */
+            current_price: number;
+            /** Avg Entry */
+            avg_entry: number;
+            /** Stop */
+            stop: number;
+            /** Target */
+            target: number;
+            /** Shares */
+            shares: number;
+            /** Pl Pct */
+            pl_pct: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "strategy" | "fallback_8pct";
+        };
+        /**
+         * PositionRecommendation
+         * @description Per-position recommended levels + basket-membership verdict.
+         *
+         *     Sourced from the most-recent ``portfolio_analysis_*.json``. When the
+         *     ticker is held but not in the analysis (legacy position from before
+         *     the current strategy), the response uses ``source='fallback_8pct'``
+         *     bands at ±8% / +10%.
+         */
+        PositionRecommendation: {
+            /** Ticker */
+            ticker: string;
+            /** Stop Loss */
+            stop_loss: number;
+            /** Target */
+            target: number;
+            /**
+             * Time Exit Date
+             * @description Quarter-end forced exit from the analysis JSON. Null when the ticker isn't in the current basket.
+             */
+            time_exit_date?: string | null;
+            /** Expected Return Pct */
+            expected_return_pct?: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "strategy" | "fallback_8pct";
+            /**
+             * In Todays Basket
+             * @description True when the ticker is in today's factor picks — i.e. the system would KEEP this position on rebalance. False = EXIT.
+             */
+            in_todays_basket: boolean;
+            /**
+             * Status
+             * @description Live classification vs the recommended levels. Mirrors scripts/position_monitor.py and src.api.routers.briefing._classify_position.
+             * @enum {string}
+             */
+            status: "HOLDING" | "STOP_HIT" | "NEAR_STOP" | "TARGET_HIT" | "NEAR_TARGET";
+        };
+        /**
+         * PositionSizing
+         * @description Per-trade position sizing output.
+         */
+        PositionSizing: {
+            /**
+             * Method
+             * @constant
+             */
+            method: "fixed_fractional";
+            /** Portfolio Value */
+            portfolio_value: number;
+            /** Recommended Shares */
+            recommended_shares: number;
+            /** Dollar Amount */
+            dollar_amount: number;
+            /** Pct Of Portfolio */
+            pct_of_portfolio: number;
+            /** Risk Per Trade */
+            risk_per_trade?: number | null;
+            /** Risk Pct */
+            risk_pct?: number | null;
+            /** Risk Budget Pct */
+            risk_budget_pct?: number | null;
+        };
+        /**
+         * RiskManagement
+         * @description Full risk envelope. All children are Optional so a recommendation
+         *     can omit individual blocks (e.g. ``risk_management={}`` when the
+         *     refusal gates fired) without violating the schema.
+         */
+        RiskManagement: {
+            /** Current Price */
+            current_price?: number | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            stop_loss?: components["schemas"]["StopLoss"] | null;
+            take_profit?: components["schemas"]["TakeProfit"] | null;
+            time_stop?: components["schemas"]["TimeStop"] | null;
+            position?: components["schemas"]["PositionSizing"] | null;
+            /** Risk Reward Ratio */
+            risk_reward_ratio?: number | null;
+        };
+        /**
+         * SanityCheck
+         * @description One pre-trade sanity-check result. Renders as a badge on the
+         *     /buy-signals row.
+         *
+         *     A REJECT means the LLM identified an obvious one-off catalyst that
+         *     explains the recent move and the BUY is likely to mean-revert. The
+         *     FE's "Hide rejected" filter operates on this field.
+         *
+         *     ``model_used`` and ``mocked`` exist so we can audit which checks
+         *     came from a real LLM call vs the placeholder mock. Real-money
+         *     constraint: every check that fed a decision must be auditable.
+         */
+        SanityCheck: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "OK" | "CAUTION" | "REJECT";
+            /** Reason */
+            reason: string;
+            /** Catalysts Found */
+            catalysts_found?: string[];
+            /** Confidence */
+            confidence: number;
+            /**
+             * Model Used
+             * @default mock
+             */
+            model_used: string;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /** Checked At */
+            checked_at?: string | null;
+        };
+        /**
+         * SanityCheckTriggerRequest
+         * @description Body for POST /api/scans/sanity-check.
+         *
+         *     Runs the sanity-check pass over the current BuySignal set and upserts
+         *     one row per (ticker, run_id). Returns the refreshed list with
+         *     ``sanity_check`` populated.
+         */
+        SanityCheckTriggerRequest: {
+            /**
+             * Strong Only
+             * @description When true, runs the check only on STRONG BUY rows. Default covers both STRONG BUY and BUY.
+             * @default false
+             */
+            strong_only: boolean;
+            /**
+             * Mode
+             * @description 'auto' uses the live LLM when ANTHROPIC_API_KEY is present and falls back to the mock otherwise. 'mock' forces the rule-based mock (no API key needed, no LLM cost). 'live' forces the real path and raises if the key is missing.
+             * @default auto
+             * @enum {string}
+             */
+            mode: "auto" | "mock" | "live";
+            /**
+             * Force Refresh
+             * @description When true, re-runs the check even if a cached result exists for this (ticker, run_id). Default uses cache.
+             * @default false
+             */
+            force_refresh: boolean;
+        };
+        /** SanityGate */
+        SanityGate: {
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /** Mode */
+            mode?: string | null;
+            /** Long Kept */
+            long_kept?: string[];
+            /** Long Rejected */
+            long_rejected?: string[];
+            /** Long Cautioned */
+            long_cautioned?: string[];
+            /** Short Kept */
+            short_kept?: string[];
+            /** Short Rejected */
+            short_rejected?: string[];
+            /** Short Cautioned */
+            short_cautioned?: string[];
+            /** Long Outcomes */
+            long_outcomes?: {
+                [key: string]: components["schemas"]["SanityGateOutcome"];
+            };
+            /** Short Outcomes */
+            short_outcomes?: {
+                [key: string]: components["schemas"]["SanityGateOutcome"];
+            };
+        };
+        /**
+         * SanityGateOutcome
+         * @description Per-ticker AI sanity verdict captured at execution time. Same shape
+         *     as the standalone ai_sanity_check_*.json per-pick rows.
+         */
+        SanityGateOutcome: {
+            /** Verdict */
+            verdict?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Model */
             model?: string | null;
-            /**
-             * Max Turns
-             * @default 8
-             */
-            max_turns: number;
-            /** Notes */
-            notes?: string | null;
-        };
-        /**
-         * ResearchRunDetail
-         * @description Detail view — adds tool_calls + (optionally) the transcript.
-         */
-        ResearchRunDetail: {
-            /** Id */
-            id: number;
-            /** Question */
-            question: string;
-            /** Model */
-            model: string;
-            /** Status */
-            status: string;
-            /** Final Answer */
-            final_answer?: string | null;
-            /** N Turns */
-            n_turns: number;
-            /** Input Tokens */
-            input_tokens: number;
-            /** Output Tokens */
-            output_tokens: number;
-            /** Estimated Cost Usd */
-            estimated_cost_usd: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /** Completed At */
-            completed_at?: string | null;
-            /** Error */
-            error?: string | null;
-            /** Tool Calls */
-            tool_calls?: components["schemas"]["ToolCallEntry"][];
-            /**
-             * Transcript
-             * @description Full Anthropic message list. Omitted unless include_transcript=true.
-             */
-            transcript?: {
-                [key: string]: unknown;
-            }[];
-        };
-        /**
-         * ResearchRunSummary
-         * @description List view — light shape, no transcript.
-         */
-        ResearchRunSummary: {
-            /** Id */
-            id: number;
-            /** Question */
-            question: string;
-            /** Model */
-            model: string;
-            /** Status */
-            status: string;
-            /** Final Answer */
-            final_answer?: string | null;
-            /** N Turns */
-            n_turns: number;
-            /** Input Tokens */
-            input_tokens: number;
-            /** Output Tokens */
-            output_tokens: number;
-            /** Estimated Cost Usd */
-            estimated_cost_usd: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /** Completed At */
-            completed_at?: string | null;
-            /** Error */
-            error?: string | null;
+            /** Mocked */
+            mocked?: boolean | null;
         };
         /** ScanRequest */
         ScanRequest: {
@@ -1709,6 +2448,14 @@ export interface components {
          * ScanResultItem
          * @description One recommendation row in a scan response. Permissive shape — accepts
          *     the existing recommender dict; web layer narrows what it renders.
+         *
+         *     Integrity fields (``score_valid``, ``error_count``, ``error_slots``,
+         *     ``analyzer_status``, ``instrument_warning``, ``insufficient_history``)
+         *     are surfaced so the FE can render a Data-Quality warning when the
+         *     composite was built from a degraded analyzer chain, a leveraged /
+         *     inverse ETF, or a ticker with too little history. The recommender
+         *     already forces ``action="HOLD"``/``confidence="None"`` in those
+         *     cases — these fields tell the operator WHY.
          */
         ScanResultItem: {
             /** Ticker */
@@ -1742,10 +2489,7 @@ export interface components {
             breakdown?: {
                 [key: string]: unknown;
             }[];
-            /** Risk Management */
-            risk_management?: {
-                [key: string]: unknown;
-            };
+            risk_management?: components["schemas"]["RiskManagement"];
             /**
              * Sector
              * @default Unknown
@@ -1763,6 +2507,47 @@ export interface components {
             name: string;
             /** Market Cap */
             market_cap?: number | null;
+            /**
+             * Score Valid
+             * @default true
+             */
+            score_valid: boolean;
+            /**
+             * Error Count
+             * @default 0
+             */
+            error_count: number;
+            /** Error Slots */
+            error_slots?: string[];
+            /** Analyzer Status */
+            analyzer_status?: {
+                [key: string]: string;
+            };
+            /** Instrument Warning */
+            instrument_warning?: ("leveraged_or_inverse_etf" | "non_stock_instrument") | null;
+            /** Instrument Warning Reason */
+            instrument_warning_reason?: string | null;
+            /**
+             * Insufficient History
+             * @default false
+             */
+            insufficient_history: boolean;
+            /** History Bars Available */
+            history_bars_available?: number | null;
+            /** History Bars Required */
+            history_bars_required?: number | null;
+            /** Strategy Filter Failed */
+            strategy_filter_failed?: "missing_dividend" | null;
+            /** Strategy Filter Reason */
+            strategy_filter_reason?: string | null;
+            /** Earnings Announcement Ts */
+            earnings_announcement_ts?: number | null;
+            /** Earnings Call Ts */
+            earnings_call_ts?: number | null;
+            /** Earnings Window Start */
+            earnings_window_start?: number | null;
+            /** Earnings Window End */
+            earnings_window_end?: number | null;
         };
         /**
          * ScanSummary
@@ -1784,20 +2569,6 @@ export interface components {
             top_ticker?: string | null;
             /** Top Score */
             top_score?: number | null;
-        };
-        /** ScoreCalibration */
-        ScoreCalibration: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /** N Total Trades */
-            n_total_trades: number;
-            /** Buckets */
-            buckets?: components["schemas"]["CalibrationBucket"][];
-            /** Notes */
-            notes?: string[];
         };
         /** SectorMetric */
         SectorMetric: {
@@ -1830,6 +2601,15 @@ export interface components {
             /** Sectors */
             sectors?: components["schemas"]["SectorMetric"][];
         };
+        /** SkippedOrder */
+        SkippedOrder: {
+            /** Ticker */
+            ticker: string;
+            /** Side */
+            side?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
         /** StockDetail */
         StockDetail: {
             /** Ticker */
@@ -1847,6 +2627,27 @@ export interface components {
              * @description Recent OHLC bars for charting. Window is controlled by the endpoint's `history_days` query param (default 120).
              */
             history?: components["schemas"]["OHLCBar"][];
+        };
+        /**
+         * StopLoss
+         * @description Stop-loss level + provenance. ``method`` is what the recommender
+         *     actually used (fallbacks rewrite it) — read the recommender code
+         *     if you're tempted to assume the requested method always survives.
+         */
+        StopLoss: {
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "atr" | "percentage" | "support";
+            /** Price */
+            price: number;
+            /** Pct From Current */
+            pct_from_current: number;
+            /** Detail */
+            detail: string;
+            /** Atr Multiplier */
+            atr_multiplier?: number | null;
         };
         /**
          * StrategyCard
@@ -1881,126 +2682,202 @@ export interface components {
             /** Sweep Universe */
             sweep_universe?: string | null;
         };
-        /** StrategyStat */
-        StrategyStat: {
-            /** Strategy */
-            strategy: string;
-            /** N Trades */
-            n_trades: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
-        };
         /**
-         * SummarizeNotificationResponse
-         * @description What ``POST /api/research/notifications/{id}/summarize`` returns:
-         *     the notification (now linked to a run) plus the run detail itself.
+         * SubmittedOrder
+         * @description One Alpaca order that landed (or was queued). Fields mirror the
+         *     JSON shape verbatim — every key is defensive Optional so older log
+         *     versions without long_short or sanity context still parse.
          */
-        SummarizeNotificationResponse: {
-            notification: components["schemas"]["FilingNotificationItem"];
-            run: components["schemas"]["ResearchRunDetail"];
-        };
-        /** TickerStat */
-        TickerStat: {
+        SubmittedOrder: {
             /** Ticker */
             ticker: string;
-            /** N Trades */
-            n_trades: number;
-            /** Total Pnl */
-            total_pnl: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-        };
-        /** ToolCallEntry */
-        ToolCallEntry: {
-            /** Tool */
-            tool: string;
-            /** Input */
-            input?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Is Error
-             * @default false
-             */
-            is_error: boolean;
-            /**
-             * Result Summary
-             * @default
-             */
-            result_summary: string;
-        };
-        /** TradeAnalytics */
-        TradeAnalytics: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            headline: components["schemas"]["TradeHeadline"];
-            /** Cumulative Pnl */
-            cumulative_pnl?: components["schemas"]["CumulativePnlPoint"][];
-            /** By Exit Reason */
-            by_exit_reason?: components["schemas"]["ExitReasonStat"][];
-            /** By Strategy */
-            by_strategy?: components["schemas"]["StrategyStat"][];
-            /** Hold Time Distribution */
-            hold_time_distribution?: components["schemas"]["HoldTimeBucket"][];
-            /** Top Winners */
-            top_winners?: components["schemas"]["TickerStat"][];
-            /** Top Losers */
-            top_losers?: components["schemas"]["TickerStat"][];
-            /** Notes */
-            notes?: string[];
+            /** Side */
+            side?: string | null;
+            /** Qty */
+            qty?: number | null;
+            /** Stop Loss */
+            stop_loss?: number | null;
+            /** Take Profit */
+            take_profit?: number | null;
+            /** Basis */
+            basis?: string | null;
+            /** Order Id */
+            order_id?: string | null;
+            /** Client Order Id */
+            client_order_id?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Submitted At */
+            submitted_at?: string | null;
         };
         /**
-         * TradeHeadline
-         * @description Top-line aggregate stats over all closed paper trades.
+         * TakeProfit
+         * @description Take-profit level + provenance.
+         *
+         *     Note the asymmetry with StopLoss: when method='resistance' fails
+         *     (no resistance ≥ min R/R), method is rewritten to 'risk_reward',
+         *     matching the StopLoss percentage fallback pattern. The FE should
+         *     branch on the FINAL method, not what was requested.
          */
-        TradeHeadline: {
-            /** N Trades */
-            n_trades: number;
-            /** N Winners */
-            n_winners: number;
-            /** N Losers */
-            n_losers: number;
-            /** N Breakeven */
-            n_breakeven: number;
-            /** Win Rate */
-            win_rate: number;
-            /** Total Pnl */
-            total_pnl: number;
-            /** Avg Pnl */
-            avg_pnl: number;
-            /** Avg Pnl Pct */
-            avg_pnl_pct: number;
-            /** Avg Win Pct */
-            avg_win_pct?: number | null;
-            /** Avg Loss Pct */
-            avg_loss_pct?: number | null;
-            /** Expectancy Pct */
-            expectancy_pct?: number | null;
-            /** Profit Factor */
-            profit_factor?: number | null;
-            /** Avg Hold Days */
-            avg_hold_days?: number | null;
-            /** Median Hold Days */
-            median_hold_days?: number | null;
-            /** Max Pnl Pct */
-            max_pnl_pct?: number | null;
-            /** Min Pnl Pct */
-            min_pnl_pct?: number | null;
-        };
-        /** TradeNotesUpdate */
-        TradeNotesUpdate: {
+        TakeProfit: {
             /**
-             * Notes
-             * @description Set to null/omit to clear; otherwise replaces the journal entry.
+             * Method
+             * @enum {string}
              */
-            notes?: string | null;
+            method: "risk_reward" | "atr" | "resistance";
+            /** Price */
+            price: number;
+            /** Pct From Current */
+            pct_from_current: number;
+            /** Detail */
+            detail: string;
+            /** Atr Multiplier */
+            atr_multiplier?: number | null;
+        };
+        /**
+         * TimeStop
+         * @description Triple-barrier time stop — forced exit N calendar days after entry.
+         */
+        TimeStop: {
+            /**
+             * Method
+             * @constant
+             */
+            method: "calendar";
+            /** Days */
+            days: number;
+            /** Exit Date */
+            exit_date: string;
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * TodayActionItem
+         * @description One row in the /today-actions table. Carries everything the user
+         *     needs to actually click Buy/Sell on Alpaca: ticker, action, target
+         *     sizing, stop, target, plus live position state and any pre-trade
+         *     warnings (sanity verdict, near-earnings flag, near-stop status).
+         */
+        TodayActionItem: {
+            /** Ticker */
+            ticker: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "NEW_BUY" | "KEEP" | "EXIT";
+            /** Sector */
+            sector?: string | null;
+            /** Composite Z */
+            composite_z?: number | null;
+            /** Mom Rank */
+            mom_rank?: number | null;
+            /** Qual Rank */
+            qual_rank?: number | null;
+            /** Val Rank */
+            val_rank?: number | null;
+            /** Pead Rank */
+            pead_rank?: number | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Target Shares */
+            target_shares?: number | null;
+            /** Position Size Usd */
+            position_size_usd?: number | null;
+            /** Stop Loss */
+            stop_loss?: number | null;
+            /** Target */
+            target?: number | null;
+            /** Expected Return Pct */
+            expected_return_pct?: number | null;
+            /** Time Exit Date */
+            time_exit_date?: string | null;
+            /** Days To Earnings */
+            days_to_earnings?: number | null;
+            /** Rationale */
+            rationale?: string | null;
+            /** Current Shares */
+            current_shares?: number | null;
+            /** Current Price */
+            current_price?: number | null;
+            /** Market Value */
+            market_value?: number | null;
+            /** Unrealized Pnl Usd */
+            unrealized_pnl_usd?: number | null;
+            /** Unrealized Pnl Pct */
+            unrealized_pnl_pct?: number | null;
+            /** Position Status */
+            position_status?: ("HOLDING" | "STOP_HIT" | "NEAR_STOP" | "TARGET_HIT" | "NEAR_TARGET") | null;
+            /** Sanity Verdict */
+            sanity_verdict?: ("KEEP" | "FLAG" | "VETO") | null;
+            /** Sanity Reason */
+            sanity_reason?: string | null;
+            /** Sanity Evidence */
+            sanity_evidence?: string | null;
+        };
+        /** TodayActionsResponse */
+        TodayActionsResponse: {
+            /** Picks Date */
+            picks_date?: string | null;
+            /**
+             * Sources
+             * @description Filenames consulted, keyed by role: picks / analysis / sanity. Null when the file didn't exist; FE surfaces the gap so the user knows what's stale.
+             */
+            sources?: {
+                [key: string]: string | null;
+            };
+            /**
+             * N Picks Today
+             * @default 0
+             */
+            n_picks_today: number;
+            /**
+             * N Positions
+             * @default 0
+             */
+            n_positions: number;
+            /** New Buys */
+            new_buys?: components["schemas"]["TodayActionItem"][];
+            /** Keeps */
+            keeps?: components["schemas"]["TodayActionItem"][];
+            /** Exits */
+            exits?: components["schemas"]["TodayActionItem"][];
+            /**
+             * N At Risk
+             * @description Held positions with status != HOLDING (urgent action).
+             * @default 0
+             */
+            n_at_risk: number;
+            /**
+             * N Sanity Flagged
+             * @description Picks the AI sanity check flagged FLAG or VETO.
+             * @default 0
+             */
+            n_sanity_flagged: number;
+        };
+        /**
+         * TopPick
+         * @description Compact per-pick row for the dashboard hero card. Mirrors the
+         *     fields the per-stock rationale chips need without dragging the full
+         *     factor-picks JSON into the briefing response.
+         */
+        TopPick: {
+            /** Rank */
+            rank: number;
+            /** Ticker */
+            ticker: string;
+            /** Z Score */
+            z_score?: number | null;
+            /** Sector */
+            sector?: string | null;
+            /** Mom Rank */
+            mom_rank?: number | null;
+            /** Qual Rank */
+            qual_rank?: number | null;
+            /** Val Rank */
+            val_rank?: number | null;
+            /** Pead Rank */
+            pead_rank?: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2014,6 +2891,17 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WalkForwardFold */
+        WalkForwardFold: {
+            /** Fold */
+            fold: number;
+            /** N Days */
+            n_days?: number | null;
+            /** Return Pct */
+            return_pct?: number | null;
+            /** Sharpe */
+            sharpe?: number | null;
         };
     };
     responses: never;
@@ -2133,6 +3021,8 @@ export interface operations {
             query?: {
                 period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
                 timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+                /** @description When true, overlay a same-axis SPY equity line. */
+                include_spy?: boolean;
             };
             header?: never;
             path?: never;
@@ -2156,6 +3046,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_spy_snapshot_api_portfolio_spy_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperVsSpySnapshot"];
+                };
+            };
+        };
+    };
+    get_recommendations_api_portfolio_recommendations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioRecommendations"];
                 };
             };
         };
@@ -2212,6 +3142,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_buys_api_scans_latest_buys_get: {
+        parameters: {
+            query?: {
+                /** @description When true, returns only STRONG BUY signals (filters out plain BUY). */
+                strong_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    factor_picks_api_scans_factor_picks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
+                };
+            };
+        };
+    };
+    trigger_sanity_check_api_scans_sanity_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SanityCheckTriggerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuySignal"][];
                 };
             };
             /** @description Validation Error */
@@ -2760,395 +3775,6 @@ export interface operations {
             };
         };
     };
-    score_calibration_api_analytics_calibration_get: {
-        parameters: {
-            query?: {
-                min_score?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoreCalibration"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    trades_summary_api_analytics_trades_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TradeAnalytics"];
-                };
-            };
-        };
-    };
-    list_trades_api_trades_get: {
-        parameters: {
-            query?: {
-                ticker?: string | null;
-                min_score?: number | null;
-                has_notes?: boolean | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaperTradeItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_trade_notes_api_trades__trade_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                trade_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TradeNotesUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaperTradeItem"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_ml_models_api_ml_models_get: {
-        parameters: {
-            query?: {
-                model_name?: string | null;
-                limit?: number;
-                window_days?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MLModelsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ask_api_research_ask_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchAskRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ask_stream_api_research_ask_stream_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchAskRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_runs_api_research_runs_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunSummary"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_run_api_research_runs__run_id__get: {
-        parameters: {
-            query?: {
-                include_transcript?: boolean;
-            };
-            header?: never;
-            path: {
-                run_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchRunDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_notifications_api_research_notifications_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                ticker?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FilingNotificationItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    summarize_notification_api_research_notifications__notification_id__summarize_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                notification_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SummarizeNotificationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stream_notifications_api_research_notifications_stream_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    monitor_status_api_research_monitor_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     get_dashboard_api_dashboard_get: {
         parameters: {
             query?: {
@@ -3168,6 +3794,322 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_briefing_api_dashboard_briefing_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to today's UTC date. */
+                picks_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_today_actions_api_pipeline_today_actions_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to the freshest picks file on disk. */
+                picks_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayActionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_recent_api_pipeline_recent_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRecentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_pipeline_api_pipeline_stream_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM-DD. Defaults to today's UTC date. */
+                picks_date?: string | null;
+                top_n?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_factor_backtests_api_factor_backtests_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by source: sweep | ab. Default returns both. */
+                kind?: ("sweep" | "ab") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorBacktestSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_factor_backtest_api_factor_backtests__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorBacktestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ic_reports_api_ic_reports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcReportSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ic_report_api_ic_reports__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcReportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_executions_api_executions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_execution_api_executions__date_str__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                date_str: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDetail"];
                 };
             };
             /** @description Validation Error */

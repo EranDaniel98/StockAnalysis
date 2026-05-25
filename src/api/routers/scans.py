@@ -1,141 +1,91 @@
-"""/api/scans — kick off, list, fetch market scans."""
+"""/api/scans — factor-pipeline picks read from disk.
+
+What used to live here:
+    POST /api/scans, GET /api/scans, GET /api/scans/{run_id},
+    GET /api/scans/latest-buys, POST /api/scans/sanity-check
+
+All of those drove the legacy 5-engine composite path: run an on-demand scan
+through ``src.scoring.service``, persist a ``ScanRun`` row, surface the
+results via the web UI. The FE has migrated to the factor pipeline
+(``scripts/run_daily_pipeline.py``) and stopped calling those endpoints
+months ago; they were deleted 2026-05-23.
+
+What remains is the single read-only surface the factor pipeline writes to:
+
+    GET /api/scans/factor-picks
+
+Returns ``list[BuySignal]`` shaped identically to the legacy ``/latest-buys``
+endpoint so the web layer can render with the same components.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.dependencies import get_config, get_db_session
-from src.api.schemas.scan import (
-    ScanRequest,
-    ScanResponse,
-    ScanResultItem,
-    ScanSummary,
-)
-from src.api.services.scan_runner import run_scan_sync
-from src.config_loader import Config
-from src.db.models import ScanRun
+from src.api.dependencies import get_db_session
+from src.api.schemas.sanity import SanityCheck
+from src.api.schemas.scan import BuySignal
+from src.api.services.factor_picks_reader import load_latest_factor_picks
+from src.db.models import SanityCheckRow
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _strategy_from_config(config: Config, name: str) -> dict:
-    try:
-        return config.get_strategy(name)
-    except KeyError:
-        raise HTTPException(status_code=400, detail=f"unknown strategy '{name}'")
+async def _load_cached_sanity_checks(
+    db: AsyncSession, run_ids: list[str],
+) -> dict[tuple[str, str], SanityCheck]:
+    """Return ``{(ticker, run_id): SanityCheck}`` for the given run_ids.
 
-
-@router.post("", response_model=ScanResponse)
-async def trigger_scan(
-    body: ScanRequest,
-    config: Config = Depends(get_config),
-    db: AsyncSession = Depends(get_db_session),
-) -> ScanResponse:
-    """Run a synchronous scan and persist the result.
-
-    Synchronous from the caller's perspective — blocks until the scan
-    completes. Heavy compute runs in a worker thread so the event loop stays
-    responsive. Phase 1.7 adds /api/stream/scan-progress for live updates.
+    Empty dict when none cached. Used by factor_picks to attach cached
+    sanity-check verdicts (written by ``scripts/ai_sanity_check.py``) to
+    each row.
     """
-    strategy = _strategy_from_config(config, body.strategy)
-
-    recs_raw = await asyncio.to_thread(
-        run_scan_sync,
-        config,
-        strategy,
-        universe=body.universe,
-        theme=body.theme,
-        sector=body.sector,
-        fresh=body.fresh,
-        live_signals=body.live_signals,
-    )
-
-    if body.top is not None:
-        recs_raw = recs_raw[: body.top]
-
-    results = [ScanResultItem.model_validate(r) for r in recs_raw]
-
-    run_id = str(uuid.uuid4())
-    scan_ts = datetime.now(timezone.utc)
-
-    row = ScanRun(
-        strategy=body.strategy,
-        scan_timestamp=scan_ts,
-        universe_label=run_id,
-        budget=body.budget,
-        n_candidates=len(results),
-        recommendations=[r.model_dump() for r in results],
-    )
-    db.add(row)
-    await db.commit()
-
-    return ScanResponse(
-        run_id=run_id,
-        strategy=body.strategy,
-        scan_timestamp=scan_ts,
-        n_candidates=len(results),
-        n_results=len(results),
-        results=results,
-    )
-
-
-@router.get("", response_model=list[ScanSummary])
-async def list_scans(
-    strategy: str | None = Query(default=None),
-    limit: int = Query(default=20, gt=0, le=200),
-    db: AsyncSession = Depends(get_db_session),
-) -> list[ScanSummary]:
-    """Most recent scan runs, newest first."""
-    stmt = select(ScanRun).order_by(desc(ScanRun.scan_timestamp)).limit(limit)
-    if strategy:
-        stmt = stmt.where(ScanRun.strategy == strategy)
+    if not run_ids:
+        return {}
+    stmt = select(SanityCheckRow).where(SanityCheckRow.run_id.in_(run_ids))
     rows = (await db.execute(stmt)).scalars().all()
-
-    summaries: list[ScanSummary] = []
-    for r in rows:
-        top = r.recommendations[0] if r.recommendations else None
-        summaries.append(
-            ScanSummary(
-                run_id=r.universe_label,
-                strategy=r.strategy,
-                scan_timestamp=r.scan_timestamp,
-                n_candidates=r.n_candidates,
-                top_ticker=top.get("ticker") if top else None,
-                top_score=top.get("composite_score") if top else None,
-            )
+    return {
+        (row.ticker, row.run_id): SanityCheck(
+            verdict=row.verdict,
+            reason=row.reason,
+            catalysts_found=list(row.catalysts_found or []),
+            confidence=row.confidence,
+            model_used=row.model_used,
+            mocked=row.mocked,
+            checked_at=row.checked_at.isoformat() if row.checked_at else None,
         )
-    return summaries
+        for row in rows
+    }
 
 
-@router.get("/{run_id}", response_model=ScanResponse)
-async def get_scan(
-    run_id: str,
+@router.get("/factor-picks", response_model=list[BuySignal])
+async def factor_picks(
     db: AsyncSession = Depends(get_db_session),
-) -> ScanResponse:
-    stmt = (
-        select(ScanRun)
-        .where(ScanRun.universe_label == run_id)
-        .order_by(desc(ScanRun.scan_timestamp))
-        .limit(1)
-    )
-    row = (await db.execute(stmt)).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="scan not found")
+) -> list[BuySignal]:
+    """Today's composite-factor picks (PIT S&P 500, m+q+v rank-blend).
 
-    results = [ScanResultItem.model_validate(r) for r in row.recommendations]
-    return ScanResponse(
-        run_id=row.universe_label,
-        strategy=row.strategy,
-        scan_timestamp=row.scan_timestamp,
-        n_candidates=row.n_candidates,
-        n_results=len(results),
-        results=results,
-    )
+    Reads from ``data/daily_picks/YYYY-MM-DD.json`` — the source the
+    paper trader uses to place real (paper) orders. This is the
+    canonical "what does the system want to BUY?" surface. Sanity-check
+    verdicts (cached against the synthetic ``factor:<strategy>:<as_of>``
+    run_id) are attached when present so the web UI can render
+    brake-light state on each row.
+
+    Returns an empty list when no picks file exists (system not yet
+    bootstrapped) or when the file is malformed.
+    """
+    signals = load_latest_factor_picks()
+    if not signals:
+        return []
+    run_ids = list({s.run_id for s in signals})
+    sanity_cache = await _load_cached_sanity_checks(db, run_ids)
+    for s in signals:
+        cached = sanity_cache.get((s.ticker, s.run_id))
+        if cached is not None:
+            s.sanity_check = cached
+    return signals

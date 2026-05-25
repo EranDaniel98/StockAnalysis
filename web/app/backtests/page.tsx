@@ -1,15 +1,19 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  XCircle,
+} from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { GitCompare } from "lucide-react";
 
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -19,382 +23,392 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api/client";
+import { api, type FactorBacktestSummary } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { fmtDate, fmtNumber, fmtPct, pnlColorClass } from "@/lib/format";
+import { fmtNumber, fmtPct, pnlColorClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const COMPARE_MIN = 2;
-const COMPARE_MAX = 5;
+// ─── helpers ────────────────────────────────────────────────────────────────
 
-function sharpeBadgeVariant(
-  sharpe: number | null | undefined,
-): "bullish" | "bearish" | "neutral" {
-  if (sharpe == null || Number.isNaN(sharpe)) return "neutral";
-  if (sharpe >= 1) return "bullish";
-  if (sharpe < 0) return "bearish";
-  return "neutral";
+type KindFilter = "all" | "sweep" | "ab";
+type WfFilter = "all" | "passed" | "failed";
+
+function alphaTone(a: number | null | undefined): string {
+  if (a == null) return "text-foreground";
+  if (a >= 2) return "text-bullish";
+  if (a <= -2) return "text-bearish";
+  return "text-foreground";
 }
 
-function shortWindow(start: string, end: string): string {
-  const s = new Date(start);
-  const e = new Date(end);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-    return `${start} -> ${end}`;
-  }
-  const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { year: "2-digit", month: "short" });
-  return `${fmt(s)} -> ${fmt(e)}`;
+function shortWindow(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string {
+  if (!start || !end) return "—";
+  const fmt = (s: string) => {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime())
+      ? s.slice(0, 7)
+      : d.toLocaleDateString(undefined, { year: "2-digit", month: "short" });
+  };
+  return `${fmt(start)} → ${fmt(end)}`;
 }
+
+function paramSummary(row: FactorBacktestSummary): string {
+  // Compact "d05·r63·regime_off" tag so the table fits more rows.
+  const parts: string[] = [];
+  if (row.top_decile != null) parts.push(`d${(row.top_decile * 100).toFixed(0).padStart(2, "0")}`);
+  if (row.rebalance_days != null) parts.push(`r${row.rebalance_days}`);
+  if (row.regime_filter_enabled === true) parts.push("regime");
+  return parts.join("·") || "—";
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function BacktestsPage() {
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const [wfFilter, setWfFilter] = useState<WfFilter>("all");
+
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.backtests.list({ limit: 30 }),
-    queryFn: () => api.backtests.list({ limit: 30 }),
+    queryKey: qk.factorBacktests.list({
+      kind: kindFilter === "all" ? undefined : kindFilter,
+      limit: 200,
+    }),
+    queryFn: () =>
+      api.factorBacktests.list({
+        kind: kindFilter === "all" ? undefined : kindFilter,
+        limit: 200,
+      }),
   });
 
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-
-  function toggle(id: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-        return next;
-      }
-      if (next.size >= COMPARE_MAX) return prev;
-      next.add(id);
-      return next;
-    });
-  }
+  const rows = useMemo(() => {
+    const all = data ?? [];
+    if (wfFilter === "all") return all;
+    if (wfFilter === "passed") return all.filter((r) => r.wf_passed === true);
+    return all.filter((r) => r.wf_passed === false);
+  }, [data, wfFilter]);
 
   const stats = useMemo(() => {
-    if (!data || data.length === 0) {
-      return {
-        total: 0,
-        latest: null as string | null,
-        bestSharpe: null as number | null,
-        strategies: 0,
-      };
-    }
-    let latest: string | null = null;
-    let bestSharpe: number | null = null;
+    const all = data ?? [];
+    let bestAlpha: number | null = null;
+    let bestAlphaSlug: string | null = null;
+    let passed = 0;
+    let failed = 0;
     const strategies = new Set<string>();
-    for (const bt of data) {
-      strategies.add(bt.strategy);
-      if (
-        bt.oos_sharpe != null &&
-        (bestSharpe == null || bt.oos_sharpe > bestSharpe)
-      ) {
-        bestSharpe = bt.oos_sharpe;
+    for (const r of all) {
+      strategies.add(r.strategy);
+      if (r.alpha_vs_spy_pct != null) {
+        if (bestAlpha == null || r.alpha_vs_spy_pct > bestAlpha) {
+          bestAlpha = r.alpha_vs_spy_pct;
+          bestAlphaSlug = r.slug;
+        }
       }
-      if (
-        bt.created_at &&
-        (latest == null ||
-          new Date(bt.created_at).getTime() > new Date(latest).getTime())
-      ) {
-        latest = bt.created_at;
-      }
+      if (r.wf_passed === true) passed += 1;
+      if (r.wf_passed === false) failed += 1;
     }
     return {
-      total: data.length,
-      latest,
-      bestSharpe,
+      total: all.length,
+      bestAlpha,
+      bestAlphaSlug,
+      passed,
+      failed,
       strategies: strategies.size,
     };
   }, [data]);
 
-  const compareReady = selected.size >= COMPARE_MIN;
-  const compareHref = compareReady
-    ? `/backtests/compare?ids=${[...selected].join(",")}`
-    : null;
-
   return (
     <>
       <PageHeader
-        title="Backtests"
-        description="Walk-forward simulation index. Trigger new runs from the CLI; select 2-5 rows and press [ Compare ] to overlay equity curves."
-        actions={
-          data ? (
-            <Badge variant="outline" className="font-mono">
-              {data.length} runs
-            </Badge>
-          ) : null
-        }
+        title="Factor backtests"
+        description="On-disk sweep + A/B results from scripts.run_factor_backtest. Click a row for walk-forward folds, equity curve, and SPY overlay."
       />
 
       {error ? <ErrorState error={error} /> : null}
 
-      {isLoading || !data ? (
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full" />
-            ))}
-          </div>
-          <Skeleton className="h-72 w-full" />
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* ── Scoreboard strip ───────────────────────────────────────── */}
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <ScoreboardTile
-              label="Total Runs"
-              value={String(stats.total)}
-              sub={stats.total === 0 ? "none yet" : "last 30 retained"}
-              subTone="muted"
-            />
-            <ScoreboardTile
-              label="Latest Run"
-              value={
-                stats.latest
-                  ? new Date(stats.latest).toLocaleDateString(undefined, {
-                      year: "2-digit",
-                      month: "short",
-                      day: "2-digit",
-                    })
-                  : "—"
-              }
-              sub={
-                stats.latest
-                  ? new Date(stats.latest).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : undefined
-              }
-              subTone="muted"
-            />
-            <ScoreboardTile
-              label="Best OOS Sharpe"
-              value={
-                <span
-                  className={cn(
-                    stats.bestSharpe == null
-                      ? ""
-                      : stats.bestSharpe >= 1
-                        ? "text-bullish"
-                        : stats.bestSharpe < 0
-                          ? "text-bearish"
-                          : "text-foreground",
-                  )}
-                >
-                  {stats.bestSharpe == null
-                    ? "—"
-                    : fmtNumber(stats.bestSharpe, 2)}
-                </span>
-              }
-              sub={
-                stats.bestSharpe == null
-                  ? "no signed runs"
-                  : stats.bestSharpe >= 1
-                    ? "edge confirmed"
-                    : stats.bestSharpe >= 0
-                      ? "marginal"
-                      : "no edge"
-              }
-              subTone={
-                stats.bestSharpe == null
-                  ? "muted"
-                  : stats.bestSharpe >= 1
-                    ? "bullish"
-                    : stats.bestSharpe < 0
-                      ? "bearish"
-                      : "neutral"
-              }
-            />
-            <ScoreboardTile
-              label="Strategies Tested"
-              value={String(stats.strategies)}
-              sub={
-                stats.strategies > 0
-                  ? `across ${stats.total} runs`
-                  : "no runs"
-              }
-              subTone="muted"
-            />
-          </div>
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <ScoreboardTile
+          label="Total runs"
+          value={isLoading ? "—" : String(stats.total)}
+          sub={`${stats.strategies} distinct variants`}
+          subTone="muted"
+          isLoading={isLoading}
+        />
+        <ScoreboardTile
+          label="Best α vs SPY"
+          tooltip="Highest alpha_vs_spy_pct across all on-disk results. Click the slug to drill in."
+          value={
+            isLoading ? "—" : stats.bestAlpha == null ? (
+              "—"
+            ) : (
+              <span className={cn("font-mono", alphaTone(stats.bestAlpha))}>
+                {fmtPct(stats.bestAlpha, 2, true)}
+              </span>
+            )
+          }
+          sub={
+            stats.bestAlphaSlug ? (
+              <Link
+                href={`/backtests/${encodeURIComponent(stats.bestAlphaSlug)}`}
+                className="font-mono text-[10px] hover:text-foreground transition-colors"
+              >
+                {stats.bestAlphaSlug}
+              </Link>
+            ) : "no signed alpha"
+          }
+          subTone={(stats.bestAlpha ?? 0) >= 2 ? "bullish" : "muted"}
+          isLoading={isLoading}
+        />
+        <ScoreboardTile
+          label="Walk-forward"
+          tooltip="walk_forward.passed flag per run: every fold's Sharpe > 0 (or whatever the script's gate is). Failed = at least one fold flunked."
+          value={
+            isLoading ? "—" : (
+              <span className="font-mono text-base">
+                <span className="text-bullish">{stats.passed}</span>
+                <span className="text-muted-foreground/60"> / </span>
+                <span className="text-bearish">{stats.failed}</span>
+              </span>
+            )
+          }
+          sub="passed / failed"
+          subTone="muted"
+          isLoading={isLoading}
+        />
+        <ScoreboardTile
+          label="Sweep | A/B"
+          tooltip="Runs by source directory. sweep = data/factors/sweep/, ab = reports/ab_*.json"
+          value={
+            isLoading ? "—" : (
+              <span className="font-mono text-base">
+                <span>{(data ?? []).filter((r) => r.kind === "sweep").length}</span>
+                <span className="text-muted-foreground/60"> | </span>
+                <span>{(data ?? []).filter((r) => r.kind === "ab").length}</span>
+              </span>
+            )
+          }
+          sub="parameter / experiment"
+          subTone="muted"
+          isLoading={isLoading}
+        />
+      </div>
 
-          {/* ── Runs table ────────────────────────────────────────────── */}
-          {data.length === 0 ? (
-            <div className="border-border rounded-md border bg-card px-3 py-12 text-center">
-              <p className="font-mono text-xs tracking-wider text-muted-foreground uppercase">
-                No backtest runs yet. Start one with{" "}
-                <code className="bg-muted rounded-sm px-1.5 py-0.5">
-                  python -m src.cli.main backtest --strategy swing_trading --years 3
-                </code>
-                .
-              </p>
-            </div>
-          ) : (
-            <div className="border-border rounded-md border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-                  Recent runs
-                </div>
-                <div className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
-                  {data.length} rows | select {COMPARE_MIN}-{COMPARE_MAX} to compare
-                </div>
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8"></TableHead>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Strategy</TableHead>
-                    <TableHead>Universe</TableHead>
-                    <TableHead>Window</TableHead>
-                    <TableHead className="text-right">Trades</TableHead>
-                    <TableHead className="text-right">OOS Sharpe</TableHead>
-                    <TableHead className="text-right">OOS Return</TableHead>
-                    <TableHead className="text-right">Max DD</TableHead>
-                    <TableHead className="text-right">Created</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.map((bt) => {
-                    const isSelected = selected.has(bt.id);
-                    const capReached =
-                      !isSelected && selected.size >= COMPARE_MAX;
-                    return (
-                      <TableRow
-                        key={bt.id}
-                        mono
-                        className={cn(
-                          "transition-colors hover:bg-muted/30",
-                          isSelected && "bg-muted/40",
-                        )}
-                      >
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggle(bt.id)}
-                            disabled={capReached}
-                            aria-label={`Select backtest ${bt.id} for comparison`}
-                            className="accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            href={`/backtests/${bt.id}`}
-                            className="text-foreground hover:underline"
-                          >
-                            #{bt.id}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="font-sans">
-                          <Link
-                            href={`/backtests/${bt.id}`}
-                            className="hover:underline"
-                          >
-                            <Badge
-                              variant={sharpeBadgeVariant(bt.oos_sharpe)}
-                              className="font-mono"
-                            >
-                              {bt.strategy}
-                            </Badge>
-                          </Link>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-[11px]">
-                          {bt.universe_label}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-[11px]">
-                          {shortWindow(bt.window_start, bt.window_end)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {bt.n_trades ?? "—"}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right",
-                            pnlColorClass(bt.oos_sharpe),
-                          )}
-                        >
-                          {fmtNumber(bt.oos_sharpe, 2)}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right",
-                            pnlColorClass(bt.oos_total_return_pct),
-                          )}
-                        >
-                          {fmtPct(bt.oos_total_return_pct, 1, true)}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right",
-                            pnlColorClass(-(bt.oos_max_drawdown_pct ?? 0)),
-                          )}
-                        >
-                          {fmtPct(bt.oos_max_drawdown_pct, 1)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground text-[11px]">
-                          {fmtDate(bt.created_at)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+      {/* Filter chips */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+          Source
+        </span>
+        <FilterChip
+          label="ALL"
+          active={kindFilter === "all"}
+          onClick={() => setKindFilter("all")}
+        />
+        <FilterChip
+          label="sweep"
+          active={kindFilter === "sweep"}
+          onClick={() => setKindFilter("sweep")}
+        />
+        <FilterChip
+          label="A/B"
+          active={kindFilter === "ab"}
+          onClick={() => setKindFilter("ab")}
+        />
+
+        <span className="ml-3 font-mono text-[10px] tracking-wider uppercase text-muted-foreground">
+          Walk-forward
+        </span>
+        <FilterChip
+          label="ALL"
+          active={wfFilter === "all"}
+          onClick={() => setWfFilter("all")}
+        />
+        <FilterChip
+          label="passed"
+          tone="bullish"
+          active={wfFilter === "passed"}
+          onClick={() => setWfFilter("passed")}
+        />
+        <FilterChip
+          label="failed"
+          tone="bearish"
+          active={wfFilter === "failed"}
+          onClick={() => setWfFilter("failed")}
+        />
+
+        <span className="ml-auto font-mono text-xs text-muted-foreground">
+          {rows.length}
+          {rows.length !== (data?.length ?? 0) ? (
+            <span className="text-muted-foreground/60">
+              {" "}/ {data?.length ?? 0}
+            </span>
+          ) : null}{" "}
+          {rows.length === 1 ? "run" : "runs"}
+        </span>
+      </div>
+
+      {/* Runs table */}
+      {isLoading ? (
+        <div className="mt-4 space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-7 w-full" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyState totalCount={data?.length ?? 0} />
+      ) : (
+        <div className="mt-4 border border-border rounded-md bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Slug</TableHead>
+                <TableHead>Strategy</TableHead>
+                <TableHead>Window</TableHead>
+                <TableHead>Params</TableHead>
+                <TableHead className="text-right">Sharpe</TableHead>
+                <TableHead className="text-right">α vs SPY</TableHead>
+                <TableHead className="text-right">Max DD</TableHead>
+                <TableHead className="text-right">WF</TableHead>
+                <TableHead className="text-right">Trades</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.slug} mono className="group">
+                  <TableCell>
+                    <Link
+                      href={`/backtests/${encodeURIComponent(r.slug)}`}
+                      className="flex items-center gap-1 font-mono text-foreground hover:text-primary"
+                    >
+                      {r.slug}
+                      <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-[11px]">
+                    {r.strategy}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-[11px]">
+                    {shortWindow(r.window_start, r.window_end)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-[11px]">
+                    {paramSummary(r)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-mono tabular-nums",
+                      pnlColorClass(r.ann_sharpe),
+                    )}
+                  >
+                    {fmtNumber(r.ann_sharpe, 2)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-mono tabular-nums",
+                      alphaTone(r.alpha_vs_spy_pct),
+                    )}
+                  >
+                    {fmtPct(r.alpha_vs_spy_pct, 2, true)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-mono tabular-nums",
+                      pnlColorClass(-(r.max_drawdown_pct ?? 0)),
+                    )}
+                  >
+                    {fmtPct(r.max_drawdown_pct, 1)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <WfChip passed={r.wf_passed} />
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums text-muted-foreground text-[11px]">
+                    {r.n_trades ?? "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
-
-      {/* ── Sticky compare bar ──────────────────────────────────────────── */}
-      {selected.size > 0 ? (
-        <div className="sticky bottom-3 mt-4 flex items-center justify-between gap-3 rounded-md border border-border bg-card/95 px-3 py-2 backdrop-blur">
-          <span className="font-mono text-[11px] tracking-wider uppercase text-muted-foreground">
-            Selected{" "}
-            <span
-              className={cn(
-                "text-foreground",
-                compareReady ? "text-bullish" : "",
-              )}
-            >
-              {selected.size}
-            </span>{" "}
-            / {COMPARE_MIN}-{COMPARE_MAX}
-            {selected.size >= COMPARE_MAX ? (
-              <span className="ml-2 text-bearish">cap reached</span>
-            ) : !compareReady ? (
-              <span className="ml-2">
-                pick {COMPARE_MIN - selected.size} more
-              </span>
-            ) : null}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="font-mono text-[11px] tracking-wider uppercase"
-              onClick={() => setSelected(new Set())}
-            >
-              Clear
-            </Button>
-            {compareHref ? (
-              <Link href={compareHref}>
-                <Button
-                  size="sm"
-                  className="font-mono text-[11px] tracking-wider uppercase"
-                >
-                  <GitCompare className="mr-1.5 h-3.5 w-3.5" />
-                  [ Compare {selected.size} ]
-                </Button>
-              </Link>
-            ) : (
-              <Button
-                size="sm"
-                disabled
-                className="font-mono text-[11px] tracking-wider uppercase"
-              >
-                [ Compare ]
-              </Button>
-            )}
-          </div>
-        </div>
-      ) : null}
     </>
+  );
+}
+
+// ─── small components ──────────────────────────────────────────────────────
+
+function FilterChip({
+  label, active, onClick, tone,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  tone?: "bullish" | "bearish";
+}) {
+  const activeClass =
+    tone === "bullish" ? "border-bullish text-bullish bg-bullish/10"
+    : tone === "bearish" ? "border-bearish text-bearish bg-bearish/10"
+    : "border-border text-foreground bg-muted/40";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded border transition-colors",
+        active
+          ? activeClass
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function WfChip({ passed }: { passed: boolean | null | undefined }) {
+  if (passed == null) {
+    return (
+      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider opacity-50">
+        —
+      </Badge>
+    );
+  }
+  if (passed) {
+    return (
+      <Badge
+        variant="bullish"
+        className="text-[9px] font-mono uppercase tracking-wider gap-1"
+      >
+        <CheckCircle2 className="h-2.5 w-2.5" />
+        pass
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="bearish"
+      className="text-[9px] font-mono uppercase tracking-wider gap-1"
+    >
+      <XCircle className="h-2.5 w-2.5" />
+      fail
+    </Badge>
+  );
+}
+
+function EmptyState({ totalCount }: { totalCount: number }) {
+  return (
+    <div className="mt-4 border border-border rounded-md bg-card p-12 text-center">
+      <AlertTriangle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+      <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+        {totalCount === 0 ? "No backtest artifacts" : "Nothing matches the filter"}
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Sweep results live in{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">data/factors/sweep/</code>{" "}
+        and A/B results in{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">reports/ab_*.json</code>.
+        Run{" "}
+        <code className="bg-muted px-1 py-0.5 rounded text-xs">
+          uv run python -m scripts.run_factor_backtest
+        </code>{" "}
+        to generate one.
+      </p>
+    </div>
   );
 }

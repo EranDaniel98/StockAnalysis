@@ -2,6 +2,33 @@
 # Trading & Investing Strategies
 # Each strategy defines its own scoring weights and parameters
 # =============================================================================
+#
+# Scoring envelope — IMPORTANT for tuning thresholds
+# --------------------------------------------------
+# A strategy's `weights` are applied to per-analyzer 0-100 sub-scores
+# yielding a weighted composite in [0, 100]. After that weighted sum,
+# src/scoring/engine.py applies three POST-COMPOSITE adjustments that
+# can lift or compress the score before it hits the buy/hold/sell
+# thresholds in settings.yaml -> scoring.thresholds:
+#
+#   1. PEAD bonus (additive, optional). When the PEAD analyzer fires a
+#      composite_bonus, it adds directly to the composite. Range is
+#      [-10, +10] depending on surprise magnitude and drift decay
+#      (src/scoring/analyzers/pead.py).
+#   2. Carver consensus scaling (multiplicative, opt-in via
+#      `use_consensus_scaling: true`). When sub-scores disagree, the
+#      composite is pulled toward 50. Empirical compression is up to
+#      ±60% on the distance from 50 (src/scoring/diversification.py).
+#   3. Signal-consensus nudge (additive, ±5). Each analyzer contributes
+#      at most one bullish + one bearish vote; the net consensus moves
+#      the composite by up to ±5.
+#
+# Net practical envelope: a weighted-sum composite of 60 can reach
+# ~80 with a strong PEAD beat + bullish consensus, or fall to ~40 with
+# the opposite mix. If you adjust scoring.thresholds, remember the
+# active strategies' weighted-sum range is typically [40, 70] and the
+# post-composite adjustments can shift any one pick by ±15.
+# =============================================================================
 
 default_strategy: "long_term_growth"
 
@@ -175,7 +202,126 @@ strategies:
     min_score: 70
     min_market_cap: 10_000_000_000
     prefer_profitable: true
+    # Hard gate: refuse tickers with no dividend. Before this flag,
+    # the dividend sub-score in src/scoring/analyzers/fundamental.py
+    # returned None for non-payers and the 0.05 dividend weight was
+    # silently redistributed to valuation / growth / profitability /
+    # analyst — so a non-dividend stock with strong other fundamentals
+    # could rank #1 BUY in *dividend_income*. SNDK ($0 div, fwd P/E 8.2,
+    # $208B cap) was the trigger case 2026-05-17.
+    requires_dividend: true
     # Time stop reverted to no-op (see swing_trading comment for the why).
     # Original 180d guarded against forced exits before ex-div dates;
     # restore only with clean-pipeline evidence.
+    time_stop_days: 365
+
+  # ---- minimal_baseline_v2 ----------------------------------------------
+  # Derived from the analyzer IC report on 2022-2024 (overnight loop
+  # 2026-05-16, commits fc1cb43 + f469d02). Findings:
+  #
+  #   * `fundamental` is the ONLY Bonferroni-significant analyzer at 5D
+  #     (IC +0.018, p < 0.0001).
+  #   * `technical` and `statistical` are 0.73 correlated cross-section
+  #     duplicates. minimal_baseline's combined 0.70 weight on them is
+  #     effectively voting one column twice, neither one significant
+  #     individually after Bonferroni correction.
+  #   * `pattern`, `trend`, `alpha158` carry zero/noise IC; correctly
+  #     stay at weight 0 here.
+  #
+  # v2 reweights: 0.60 fundamental + 0.40 statistical, technical = 0.
+  # The hypothesis is that lifting the only proven analyzer to a
+  # majority weight, while removing the redundant column, will preserve
+  # or improve alpha-vs-SPY-matched on the 2022-2024 OOS slice. If
+  # alpha collapses, the prior strategy's edge was carried by the
+  # technical/statistical noise correlation, not by signal.
+  #
+  # Statistical is preferred over technical because its raw IC (0.021)
+  # and IR (0.13) are slightly higher than technical's (0.014 / 0.09),
+  # and its t-stat (2.36) sits closer to the Bonferroni-significance
+  # cutoff than technical's (1.61).
+  #
+  # NOTE: this is a HYPOTHESIS strategy, not a green-lit one. It must
+  # be backtested on 2022-2024 OOS Sharpe + alpha-vs-SPY-matched and
+  # compared head-to-head with minimal_baseline before any capital
+  # deployment. The yfinance non-determinism finding
+  # ([[project-yfinance-nondeterminism]]) means the comparison should
+  # be averaged over 3+ independent pulls to clear noise.
+  # ---- minimal_baseline_v3 ----------------------------------------------
+  # Tightened in light of the EXTENDED IC report (5/11/23/44D horizons,
+  # overnight loop 2026-05-16) which extended the 5D-only finding:
+  #
+  #   At the strategy's 35.9-day avg-hold horizon (44D bucket):
+  #     - fundamental IC = +0.041, Bonferroni-p < 0.0001 (MODEST)
+  #     - technical    IC = -0.015 (NOISE, ANTI-predictive)
+  #     - statistical  IC = -0.016 (NOISE, ANTI-predictive)
+  #     - composite    IC = +0.008, top-bottom -0.91% (NOISE)
+  #
+  # v2's plan (0.60 fundamental + 0.40 statistical) is questionable
+  # because statistical goes anti-predictive at 44D. v3 takes the
+  # extreme: 100% fundamental. This is the cleanest test of hypothesis
+  # A (fundamental is doing all the alpha work alone). If v3 preserves
+  # or beats v1/v2 alpha-vs-SPY-matched on 2022-2024 OOS, then we have
+  # proof that the composite was inflating noise into a positive
+  # backtest by accident.
+  #
+  # If v3 collapses, the alpha is being carried elsewhere (entry
+  # filters, stops, sizing) and the score IC results are misleading.
+  minimal_baseline_v3:
+    description: "Pure-fundamental control: weight 1.0 on the only Bonferroni-significant analyzer at the strategy's hold horizon (44D IC +0.041)."
+    time_horizon: "5-30 days"
+    weights:
+      fundamental: 1.0
+      technical: 0.0
+      statistical: 0.0
+      pattern: 0.0
+      trend: 0.0
+      alpha158: 0.0
+      insider_flow: 0.0
+      catalyst: 0.0
+      short_interest: 0.0
+      sector_flows: 0.0
+    emphasis:
+      - "revenue_growth"
+      - "free_cash_flow"
+      - "z_score"
+    min_score: 55
+    min_market_cap: 2_000_000_000
+    prefer_profitable: true
+    use_consensus_scaling: false
+    thresholds:
+      strong_buy: 70
+      buy: 60
+      hold_upper: 50
+      hold_lower: 40
+      sell: 25
+    time_stop_days: 365
+
+  minimal_baseline_v2:
+    description: "IC-driven control: fundamental 0.60 + statistical 0.40. Drops technical (0.73 correlated with statistical) and every experimental analyzer. See commit fc1cb43+f469d02 for rationale."
+    time_horizon: "5-30 days"
+    weights:
+      fundamental: 0.60
+      statistical: 0.40
+      technical: 0.0
+      pattern: 0.0
+      trend: 0.0
+      alpha158: 0.0
+      insider_flow: 0.0
+      catalyst: 0.0
+      short_interest: 0.0
+      sector_flows: 0.0
+    emphasis:
+      - "revenue_growth"
+      - "free_cash_flow"
+      - "z_score"
+    min_score: 55
+    min_market_cap: 2_000_000_000
+    prefer_profitable: true
+    use_consensus_scaling: false
+    thresholds:
+      strong_buy: 70
+      buy: 60
+      hold_upper: 50
+      hold_lower: 40
+      sell: 25
     time_stop_days: 365

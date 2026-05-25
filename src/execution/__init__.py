@@ -1,15 +1,19 @@
 """Execution bounded context.
 
-Houses the live-trading + paper-trading orchestration that was previously
-spread across src/broker/ and src/paper/ before the Stream B carve.
+Houses the live-trading + paper-trading orchestration. The factor
+pipeline drives live trades through ``scripts.paper_trade_factor_picks``;
+the legacy 5-engine ``paper_trade_service`` / ``paper_evaluate_service``
+were deleted 2026-05-23.
 
 Submodules:
-  alpaca                  — Alpaca REST client (moved from src/broker/alpaca_client.py)
-  paper_db                — local SQLite persistence for paper trades (moved from src/paper/db.py)
-  paper_trade_service     — submit bracket orders for top scan recs
-  paper_evaluate_service  — reconcile closed Alpaca trades, calibrate scores
+  alpaca                  — Alpaca REST client
+  paper_db                — local SQLite persistence for paper trades
+  pre_trade_gates         — drift / sanity / kill-switch gates
+  kill_switch             — live-α gate state + evaluation
   sync_service            — pull Alpaca positions into portfolio.yaml
   bootstrap_service       — recreate portfolio.yaml holdings as Alpaca orders
+  safety_gates            — global trading-disabled gate
+  risk_sizing             — bracket / ATR sizing helpers
 """
 
 from src.execution.alpaca import AlpacaClient, AlpacaClientError

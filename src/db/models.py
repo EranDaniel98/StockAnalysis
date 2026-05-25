@@ -221,16 +221,61 @@ class ScanRun(Base):
     __tablename__ = "scan_runs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    strategy: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # The composite index on (strategy, scan_timestamp DESC) is defined
+    # in alembic migration 0011 — not as a per-column index here, because
+    # SQLAlchemy can't express the per-column DESC sort directly on
+    # mapped_column index= flags. Single-column scan_timestamp index is
+    # still useful for non-strategy-filtered time-range queries.
+    strategy: Mapped[str] = mapped_column(String(64), nullable=False)
     scan_timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
-    universe_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    # UUID minted at scan time. Renamed from ``universe_label`` in
+    # migration 0012 — the original name conflated this UUID with the
+    # semantic universe descriptor that backtest_runs / ic_diagnostics
+    # use. Unique-constrained so a duplicate write fails loud at the DB.
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     budget: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     n_candidates: Mapped[int] = mapped_column(Integer, nullable=False)
 
     recommendations: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
     """List of Recommendation.model_dump() entries with sub_scores + signals."""
+
+
+class SanityCheckRow(Base):
+    """Cached pre-trade AI sanity-check result.
+
+    Keyed by (ticker, run_id) so each check is bound to the specific
+    scan_run that produced the BUY. Re-running upserts in place. ON
+    DELETE CASCADE keeps the table tidy when the parent scan_run goes
+    away. Schema mirrors src/api/schemas/sanity.py:SanityCheck — the
+    router builds the pydantic envelope from one row.
+    """
+
+    __tablename__ = "sanity_checks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("scan_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    """One of: OK, CAUTION, REJECT. Mirrors SanityVerdict literal."""
+
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    catalysts_found: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    model_used: Mapped[str] = mapped_column(String(64), nullable=False)
+    mocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ticker", "run_id", name="uq_sanity_checks_ticker_run"),
+    )
 
 
 class ICDiagnostic(Base):

@@ -1,0 +1,2800 @@
+{
+  "strategy": "d05_r63_2020_2022_ls",
+  "snapshot_id": "67f102cf7d359388",
+  "snapshot_manifest": {
+    "universe_label": "sp500_pit",
+    "universe_as_of": "2020-05-13",
+    "window_start": "2020-05-13",
+    "window_end": "2022-05-13",
+    "n_tickers_with_prices": 473
+  },
+  "parameters": {
+    "top_decile": 0.05,
+    "rebalance_days": 63,
+    "cost_bps": 5.0,
+    "starting_cash": 100000.0,
+    "regime_filter_enabled": false
+  },
+  "metrics": {
+    "total_return_pct": 5.28,
+    "cagr_pct": 5.36,
+    "ann_sharpe": 0.953,
+    "max_drawdown_pct": -6.69,
+    "n_trades": 245,
+    "n_rebalances": 4,
+    "n_risk_off_periods": 0,
+    "final_equity": 105282.52
+  },
+  "benchmark_spy": {
+    "total_return_pct": -4.34,
+    "ann_sharpe": -0.176,
+    "max_drawdown_pct": -17.62
+  },
+  "alpha_vs_spy_pct": 9.62,
+  "walk_forward": {
+    "folds": [
+      {
+        "fold": 0,
+        "sharpe": 3.053,
+        "return_pct": 3.59,
+        "n_days": 50
+      },
+      {
+        "fold": 1,
+        "sharpe": 1.679,
+        "return_pct": 1.65,
+        "n_days": 50
+      },
+      {
+        "fold": 2,
+        "sharpe": 3.599,
+        "return_pct": 4.23,
+        "n_days": 50
+      },
+      {
+        "fold": 3,
+        "sharpe": -2.274,
+        "return_pct": -2.34,
+        "n_days": 50
+      },
+      {
+        "fold": 4,
+        "sharpe": -1.546,
+        "return_pct": -1.78,
+        "n_days": 50
+      }
+    ],
+    "mean_sharpe": 0.902,
+    "min_sharpe": -2.274,
+    "passed": false
+  },
+  "trades_sample": [
+    {
+      "date": "2021-05-17",
+      "ticker": "MET",
+      "side": "buy",
+      "shares": 40,
+      "price": 56.4196,
+      "cost": 1.1284
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "MAS",
+      "side": "buy",
+      "shares": 39,
+      "price": 58.1966,
+      "cost": 1.1348
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "BIO",
+      "side": "buy",
+      "shares": 3,
+      "price": 589.74,
+      "cost": 0.8846
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "ORCL",
+      "side": "buy",
+      "shares": 30,
+      "price": 73.9099,
+      "cost": 1.1086
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "AFL",
+      "side": "buy",
+      "shares": 45,
+      "price": 50.3139,
+      "cost": 1.1321
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "GOOGL",
+      "side": "buy",
+      "shares": 20,
+      "price": 113.5079,
+      "cost": 1.1351
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "F",
+      "side": "buy",
+      "shares": 252,
+      "price": 9.0065,
+      "cost": 1.1348
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "MTCH",
+      "side": "buy",
+      "shares": 16,
+      "price": 135.1272,
+      "cost": 1.081
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "GOOG",
+      "side": "buy",
+      "shares": 19,
+      "price": 115.1253,
+      "cost": 1.0937
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "KIM",
+      "side": "buy",
+      "shares": 133,
+      "price": 16.9968,
+      "cost": 1.1303
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "LYB",
+      "side": "buy",
+      "shares": 27,
+      "price": 81.933,
+      "cost": 1.1061
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "EG",
+      "side": "buy",
+      "shares": 9,
+      "price": 247.1444,
+      "cost": 1.1121
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "ATO",
+      "side": "buy",
+      "shares": 26,
+      "price": 86.9565,
+      "cost": 1.1304
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "APH",
+      "side": "buy",
+      "shares": 71,
+      "price": 31.7602,
+      "cost": 1.1275
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "KHC",
+      "side": "buy",
+      "shares": 65,
+      "price": 34.4944,
+      "cost": 1.1211
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "DD",
+      "side": "buy",
+      "shares": 70,
+      "price": 32.4308,
+      "cost": 1.1351
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "NVDA",
+      "side": "buy",
+      "shares": 160,
+      "price": 14.1299,
+      "cost": 1.1304
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "COO",
+      "side": "buy",
+      "shares": 23,
+      "price": 97.0153,
+      "cost": 1.1157
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "MAR",
+      "side": "buy",
+      "shares": 16,
+      "price": 134.621,
+      "cost": 1.077
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "WHR",
+      "side": "buy",
+      "shares": 11,
+      "price": 190.0713,
+      "cost": 1.0454
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "GM",
+      "side": "buy",
+      "shares": 42,
+      "price": 53.9415,
+      "cost": 1.1328
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "CPRT",
+      "side": "buy",
+      "shares": 73,
+      "price": 30.7375,
+      "cost": 1.1219
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "DAL",
+      "side": "short",
+      "shares": 50,
+      "price": 45.237,
+      "cost": 1.1309
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "O",
+      "side": "short",
+      "shares": 46,
+      "price": 49.1297,
+      "cost": 1.13
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "NCLH",
+      "side": "short",
+      "shares": 78,
+      "price": 28.88,
+      "cost": 1.1263
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "COTY",
+      "side": "short",
+      "shares": 255,
+      "price": 8.91,
+      "cost": 1.136
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "CCL",
+      "side": "short",
+      "shares": 82,
+      "price": 27.3934,
+      "cost": 1.1231
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "CHTR",
+      "side": "short",
+      "shares": 3,
+      "price": 686.85,
+      "cost": 1.0303
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "MAA",
+      "side": "short",
+      "shares": 17,
+      "price": 131.033,
+      "cost": 1.1138
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "ROST",
+      "side": "short",
+      "shares": 18,
+      "price": 121.4747,
+      "cost": 1.0933
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "PRGO",
+      "side": "short",
+      "shares": 59,
+      "price": 38.2039,
+      "cost": 1.127
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "EQIX",
+      "side": "short",
+      "shares": 3,
+      "price": 648.6682,
+      "cost": 0.973
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "PVH",
+      "side": "short",
+      "shares": 19,
+      "price": 115.5133,
+      "cost": 1.0974
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "WYNN",
+      "side": "short",
+      "shares": 18,
+      "price": 120.9723,
+      "cost": 1.0888
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "BMY",
+      "side": "short",
+      "shares": 42,
+      "price": 53.5444,
+      "cost": 1.1244
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "CZR",
+      "side": "short",
+      "shares": 22,
+      "price": 100.37,
+      "cost": 1.1041
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "RCL",
+      "side": "short",
+      "shares": 27,
+      "price": 82.6398,
+      "cost": 1.1156
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "ALK",
+      "side": "short",
+      "shares": 31,
+      "price": 71.67,
+      "cost": 1.1109
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "VTR",
+      "side": "short",
+      "shares": 49,
+      "price": 45.8203,
+      "cost": 1.1226
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "NOV",
+      "side": "short",
+      "shares": 137,
+      "price": 16.4762,
+      "cost": 1.1286
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "TJX",
+      "side": "short",
+      "shares": 33,
+      "price": 66.9528,
+      "cost": 1.1047
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "VNO",
+      "side": "short",
+      "shares": 57,
+      "price": 39.2633,
+      "cost": 1.119
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "UAL",
+      "side": "short",
+      "shares": 40,
+      "price": 56.57,
+      "cost": 1.1314
+    },
+    {
+      "date": "2021-05-17",
+      "ticker": "SYK",
+      "side": "short",
+      "shares": 9,
+      "price": 239.1641,
+      "cost": 1.0762
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MAS",
+      "side": "close_rebalance",
+      "shares": 39,
+      "price": 57.8349,
+      "cost": 1.1278
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ORCL",
+      "side": "close_rebalance",
+      "shares": 30,
+      "price": 85.1955,
+      "cost": 1.2779
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "AFL",
+      "side": "close_rebalance",
+      "shares": 45,
+      "price": 51.5966,
+      "cost": 1.1609
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "F",
+      "side": "close_rebalance",
+      "shares": 252,
+      "price": 9.9776,
+      "cost": 1.2572
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MTCH",
+      "side": "close_rebalance",
+      "shares": 16,
+      "price": 130.0306,
+      "cost": 1.0402
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "KIM",
+      "side": "close_rebalance",
+      "shares": 133,
+      "price": 17.5506,
+      "cost": 1.1671
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "LYB",
+      "side": "close_rebalance",
+      "shares": 27,
+      "price": 74.0868,
+      "cost": 1.0002
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ATO",
+      "side": "close_rebalance",
+      "shares": 26,
+      "price": 89.787,
+      "cost": 1.1672
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "APH",
+      "side": "close_rebalance",
+      "shares": 71,
+      "price": 35.659,
+      "cost": 1.2659
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "KHC",
+      "side": "close_rebalance",
+      "shares": 65,
+      "price": 30.208,
+      "cost": 0.9818
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "DD",
+      "side": "close_rebalance",
+      "shares": 70,
+      "price": 29.3926,
+      "cost": 1.0287
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "COO",
+      "side": "close_rebalance",
+      "shares": 23,
+      "price": 109.8481,
+      "cost": 1.2633
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MAR",
+      "side": "close_rebalance",
+      "shares": 16,
+      "price": 128.1431,
+      "cost": 1.0251
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "WHR",
+      "side": "close_rebalance",
+      "shares": 11,
+      "price": 181.3329,
+      "cost": 0.9973
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "GM",
+      "side": "close_rebalance",
+      "shares": 42,
+      "price": 50.9672,
+      "cost": 1.0703
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "DAL",
+      "side": "close_rebalance",
+      "shares": -50,
+      "price": 38.6377,
+      "cost": 0.9659
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "COTY",
+      "side": "close_rebalance",
+      "shares": -255,
+      "price": 8.07,
+      "cost": 1.0289
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "CHTR",
+      "side": "close_rebalance",
+      "shares": -3,
+      "price": 782.58,
+      "cost": 1.1739
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MAA",
+      "side": "close_rebalance",
+      "shares": -17,
+      "price": 158.9098,
+      "cost": 1.3507
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ROST",
+      "side": "close_rebalance",
+      "shares": -18,
+      "price": 118.3328,
+      "cost": 1.065
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "PVH",
+      "side": "close_rebalance",
+      "shares": -19,
+      "price": 111.8639,
+      "cost": 1.0627
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "WYNN",
+      "side": "close_rebalance",
+      "shares": -18,
+      "price": 90.8868,
+      "cost": 0.818
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "BMY",
+      "side": "close_rebalance",
+      "shares": -42,
+      "price": 56.5933,
+      "cost": 1.1885
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "CZR",
+      "side": "close_rebalance",
+      "shares": -22,
+      "price": 87.4,
+      "cost": 0.9614
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ALK",
+      "side": "close_rebalance",
+      "shares": -31,
+      "price": 57.36,
+      "cost": 0.8891
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "VTR",
+      "side": "close_rebalance",
+      "shares": -49,
+      "price": 48.128,
+      "cost": 1.1791
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "NOV",
+      "side": "close_rebalance",
+      "shares": -137,
+      "price": 11.8133,
+      "cost": 0.8092
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "TJX",
+      "side": "close_rebalance",
+      "shares": -33,
+      "price": 65.6483,
+      "cost": 1.0832
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "VNO",
+      "side": "close_rebalance",
+      "shares": -57,
+      "price": 36.6554,
+      "cost": 1.0447
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "SYK",
+      "side": "close_rebalance",
+      "shares": -9,
+      "price": 252.3097,
+      "cost": 1.1354
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "AMZN",
+      "side": "buy",
+      "shares": 14,
+      "price": 164.9495,
+      "cost": 1.1546
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MET",
+      "side": "buy",
+      "shares": 4,
+      "price": 53.6492,
+      "cost": 0.1073
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "NRG",
+      "side": "buy",
+      "shares": 63,
+      "price": 37.9105,
+      "cost": 1.1942
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "RF",
+      "side": "buy",
+      "shares": 143,
+      "price": 16.7149,
+      "cost": 1.1951
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "DVA",
+      "side": "buy",
+      "shares": 18,
+      "price": 131.61,
+      "cost": 1.1845
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "FITB",
+      "side": "buy",
+      "shares": 74,
+      "price": 31.9117,
+      "cost": 1.1807
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "BA",
+      "side": "buy",
+      "shares": 10,
+      "price": 229.06,
+      "cost": 1.1453
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "COF",
+      "side": "buy",
+      "shares": 14,
+      "price": 163.6483,
+      "cost": 1.1455
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "LYV",
+      "side": "buy",
+      "shares": 29,
+      "price": 81.14,
+      "cost": 1.1765
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "GOOGL",
+      "side": "sell_rebalance",
+      "shares": 3,
+      "price": 137.1758,
+      "cost": 0.2058
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "REGN",
+      "side": "buy",
+      "shares": 3,
+      "price": 624.3818,
+      "cost": 0.9366
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "GOOG",
+      "side": "sell_rebalance",
+      "shares": 2,
+      "price": 137.7848,
+      "cost": 0.1378
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "RJF",
+      "side": "buy",
+      "shares": 27,
+      "price": 85.8121,
+      "cost": 1.1585
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ORLY",
+      "side": "buy",
+      "shares": 59,
+      "price": 40.26,
+      "cost": 1.1877
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "BEN",
+      "side": "buy",
+      "shares": 93,
+      "price": 25.7253,
+      "cost": 1.1962
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "NVDA",
+      "side": "sell_rebalance",
+      "shares": 40,
+      "price": 19.9044,
+      "cost": 0.3981
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "LOW",
+      "side": "buy",
+      "shares": 13,
+      "price": 176.7068,
+      "cost": 1.1486
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "ZION",
+      "side": "buy",
+      "shares": 51,
+      "price": 46.6179,
+      "cost": 1.1888
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "CPRT",
+      "side": "sell_rebalance",
+      "shares": 6,
+      "price": 35.1975,
+      "cost": 0.1056
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "MPC",
+      "side": "buy",
+      "shares": 45,
+      "price": 52.0469,
+      "cost": 1.1711
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "IQV",
+      "side": "short",
+      "shares": 9,
+      "price": 255.29,
+      "cost": 1.1488
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "BBWI",
+      "side": "short",
+      "shares": 43,
+      "price": 55.6236,
+      "cost": 1.1959
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "LVS",
+      "side": "short",
+      "shares": 64,
+      "price": 37.1612,
+      "cost": 1.1892
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "O",
+      "side": "cover",
+      "shares": 3,
+      "price": 55.0422,
+      "cost": 0.0826
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "NCLH",
+      "side": "short",
+      "shares": 19,
+      "price": 24.63,
+      "cost": 0.234
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "STZ",
+      "side": "short",
+      "shares": 12,
+      "price": 196.5387,
+      "cost": 1.1792
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "CCL",
+      "side": "short",
+      "shares": 23,
+      "price": 22.6851,
+      "cost": 0.2609
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "IFF",
+      "side": "short",
+      "shares": 17,
+      "price": 136.7385,
+      "cost": 1.1623
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "PRGO",
+      "side": "short",
+      "shares": 10,
+      "price": 34.6401,
+      "cost": 0.1732
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "BKR",
+      "side": "short",
+      "shares": 125,
+      "price": 19.0421,
+      "cost": 1.1901
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "EXPE",
+      "side": "short",
+      "shares": 16,
+      "price": 142.6763,
+      "cost": 1.1414
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "NI",
+      "side": "short",
+      "shares": 109,
+      "price": 21.9405,
+      "cost": 1.1958
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "RCL",
+      "side": "short",
+      "shares": 4,
+      "price": 76.6672,
+      "cost": 0.1533
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "AMP",
+      "side": "short",
+      "shares": 9,
+      "price": 252.9768,
+      "cost": 1.1384
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "FIS",
+      "side": "short",
+      "shares": 20,
+      "price": 118.6683,
+      "cost": 1.1867
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "VRSN",
+      "side": "short",
+      "shares": 11,
+      "price": 208.0047,
+      "cost": 1.144
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "D",
+      "side": "short",
+      "shares": 37,
+      "price": 63.406,
+      "cost": 1.173
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "LUV",
+      "side": "short",
+      "shares": 51,
+      "price": 46.4215,
+      "cost": 1.1837
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "UAL",
+      "side": "short",
+      "shares": 11,
+      "price": 46.3,
+      "cost": 0.2546
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "APTV",
+      "side": "short",
+      "shares": 14,
+      "price": 164.24,
+      "cost": 1.1497
+    },
+    {
+      "date": "2021-08-16",
+      "ticker": "CAH",
+      "side": "short",
+      "shares": 50,
+      "price": 47.1216,
+      "cost": 1.178
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "EG",
+      "side": "close_rebalance",
+      "shares": 9,
+      "price": 251.9014,
+      "cost": 1.1336
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "EQIX",
+      "side": "close_rebalance",
+      "shares": -3,
+      "price": 708.7327,
+      "cost": 1.0631
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "UAL",
+      "side": "close_rebalance",
+      "shares": -51,
+      "price": 49.83,
+      "cost": 1.2707
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AMZN",
+      "side": "close_rebalance",
+      "shares": 14,
+      "price": 176.2575,
+      "cost": 1.2338
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "NRG",
+      "side": "close_rebalance",
+      "shares": 63,
+      "price": 31.6679,
+      "cost": 0.9975
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "DVA",
+      "side": "close_rebalance",
+      "shares": 18,
+      "price": 105.81,
+      "cost": 0.9523
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "FITB",
+      "side": "close_rebalance",
+      "shares": 74,
+      "price": 37.1787,
+      "cost": 1.3756
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "LYV",
+      "side": "close_rebalance",
+      "shares": 29,
+      "price": 112.32,
+      "cost": 1.6286
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "ORLY",
+      "side": "close_rebalance",
+      "shares": 59,
+      "price": 43.2653,
+      "cost": 1.2763
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BEN",
+      "side": "close_rebalance",
+      "shares": 93,
+      "price": 28.5697,
+      "cost": 1.3285
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "LOW",
+      "side": "close_rebalance",
+      "shares": 13,
+      "price": 216.6145,
+      "cost": 1.408
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "ZION",
+      "side": "close_rebalance",
+      "shares": 51,
+      "price": 55.7847,
+      "cost": 1.4225
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "MPC",
+      "side": "close_rebalance",
+      "shares": 45,
+      "price": 59.2507,
+      "cost": 1.3331
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "IQV",
+      "side": "close_rebalance",
+      "shares": -9,
+      "price": 254.68,
+      "cost": 1.1461
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BBWI",
+      "side": "close_rebalance",
+      "shares": -43,
+      "price": 67.3654,
+      "cost": 1.4484
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "STZ",
+      "side": "close_rebalance",
+      "shares": -12,
+      "price": 208.6059,
+      "cost": 1.2516
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "IFF",
+      "side": "close_rebalance",
+      "shares": -17,
+      "price": 134.9228,
+      "cost": 1.1468
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "EXPE",
+      "side": "close_rebalance",
+      "shares": -16,
+      "price": 177.0932,
+      "cost": 1.4167
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "NI",
+      "side": "close_rebalance",
+      "shares": -109,
+      "price": 21.6531,
+      "cost": 1.1801
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AMP",
+      "side": "close_rebalance",
+      "shares": -9,
+      "price": 288.7988,
+      "cost": 1.2996
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "VRSN",
+      "side": "close_rebalance",
+      "shares": -11,
+      "price": 233.1411,
+      "cost": 1.2823
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "D",
+      "side": "close_rebalance",
+      "shares": -37,
+      "price": 60.8854,
+      "cost": 1.1264
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "LUV",
+      "side": "close_rebalance",
+      "shares": -51,
+      "price": 44.8559,
+      "cost": 1.1438
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "APTV",
+      "side": "close_rebalance",
+      "shares": -14,
+      "price": 170.5,
+      "cost": 1.1935
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "MET",
+      "side": "sell_rebalance",
+      "shares": 3,
+      "price": 55.9821,
+      "cost": 0.084
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "PNW",
+      "side": "buy",
+      "shares": 43,
+      "price": 53.5932,
+      "cost": 1.1523
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "REG",
+      "side": "buy",
+      "shares": 37,
+      "price": 62.191,
+      "cost": 1.1505
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "RF",
+      "side": "sell_rebalance",
+      "shares": 26,
+      "price": 19.8589,
+      "cost": 0.2582
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "INTC",
+      "side": "buy",
+      "shares": 50,
+      "price": 46.6608,
+      "cost": 1.1665
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "COF",
+      "side": "buy",
+      "shares": 2,
+      "price": 145.2651,
+      "cost": 0.1453
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "GILD",
+      "side": "buy",
+      "shares": 40,
+      "price": 57.1636,
+      "cost": 1.1433
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AVGO",
+      "side": "buy",
+      "shares": 45,
+      "price": 51.7321,
+      "cost": 1.164
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AFL",
+      "side": "buy",
+      "shares": 45,
+      "price": 51.4342,
+      "cost": 1.1573
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AIG",
+      "side": "buy",
+      "shares": 44,
+      "price": 52.6071,
+      "cost": 1.1574
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "GOOGL",
+      "side": "sell_rebalance",
+      "shares": 2,
+      "price": 147.4592,
+      "cost": 0.1475
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "CPRT",
+      "side": "sell_rebalance",
+      "shares": 7,
+      "price": 38.9125,
+      "cost": 0.1362
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "GOOG",
+      "side": "sell_rebalance",
+      "shares": 2,
+      "price": 148.4269,
+      "cost": 0.1484
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BKNG",
+      "side": "buy",
+      "shares": 24,
+      "price": 96.2676,
+      "cost": 1.1552
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "RJF",
+      "side": "sell_rebalance",
+      "shares": 3,
+      "price": 93.6509,
+      "cost": 0.1405
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "NVDA",
+      "side": "sell_rebalance",
+      "shares": 43,
+      "price": 30.3259,
+      "cost": 0.652
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "COO",
+      "side": "buy",
+      "shares": 22,
+      "price": 104.3949,
+      "cost": 1.1483
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "DHI",
+      "side": "buy",
+      "shares": 25,
+      "price": 93.1074,
+      "cost": 1.1638
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "SLG",
+      "side": "buy",
+      "shares": 41,
+      "price": 55.9094,
+      "cost": 1.1461
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "WRB",
+      "side": "buy",
+      "shares": 72,
+      "price": 32.3893,
+      "cost": 1.166
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "GS",
+      "side": "buy",
+      "shares": 6,
+      "price": 362.0462,
+      "cost": 1.0861
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BALL",
+      "side": "short",
+      "shares": 26,
+      "price": 88.139,
+      "cost": 1.1458
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "IRM",
+      "side": "short",
+      "shares": 58,
+      "price": 39.9224,
+      "cost": 1.1577
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "LVS",
+      "side": "cover",
+      "shares": 2,
+      "price": 37.4917,
+      "cost": 0.0375
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "NCLH",
+      "side": "cover",
+      "shares": 6,
+      "price": 25.63,
+      "cost": 0.0769
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "O",
+      "side": "cover",
+      "shares": 2,
+      "price": 55.7735,
+      "cost": 0.0558
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BA",
+      "side": "short",
+      "shares": 20,
+      "price": 220.96,
+      "cost": 2.2096
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "DIS",
+      "side": "short",
+      "shares": 14,
+      "price": 155.9573,
+      "cost": 1.0917
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "AON",
+      "side": "short",
+      "shares": 8,
+      "price": 290.8649,
+      "cost": 1.1635
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "PRGO",
+      "side": "cover",
+      "shares": 6,
+      "price": 36.791,
+      "cost": 0.1104
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "UDR",
+      "side": "short",
+      "shares": 50,
+      "price": 46.5625,
+      "cost": 1.1641
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "SYY",
+      "side": "short",
+      "shares": 34,
+      "price": 67.5974,
+      "cost": 1.1492
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "CF",
+      "side": "short",
+      "shares": 39,
+      "price": 58.9589,
+      "cost": 1.1497
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "BKR",
+      "side": "cover",
+      "shares": 19,
+      "price": 21.9558,
+      "cost": 0.2086
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "TTWO",
+      "side": "short",
+      "shares": 12,
+      "price": 187.83,
+      "cost": 1.127
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "EIX",
+      "side": "short",
+      "shares": 45,
+      "price": 51.9169,
+      "cost": 1.1681
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "CZR",
+      "side": "short",
+      "shares": 22,
+      "price": 106.0,
+      "cost": 1.166
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "RCL",
+      "side": "cover",
+      "shares": 3,
+      "price": 82.6692,
+      "cost": 0.124
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "VTR",
+      "side": "short",
+      "shares": 49,
+      "price": 46.7995,
+      "cost": 1.1466
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "NOV",
+      "side": "short",
+      "shares": 185,
+      "price": 12.6302,
+      "cost": 1.1683
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "FIS",
+      "side": "short",
+      "shares": 2,
+      "price": 104.5655,
+      "cost": 0.1046
+    },
+    {
+      "date": "2021-11-12",
+      "ticker": "CRM",
+      "side": "short",
+      "shares": 7,
+      "price": 302.213,
+      "cost": 1.0577
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "BIO",
+      "side": "close_rebalance",
+      "shares": 3,
+      "price": 620.98,
+      "cost": 0.9315
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "O",
+      "side": "close_rebalance",
+      "shares": -41,
+      "price": 53.4896,
+      "cost": 1.0965
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "NCLH",
+      "side": "close_rebalance",
+      "shares": -91,
+      "price": 21.09,
+      "cost": 0.9596
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "PRGO",
+      "side": "close_rebalance",
+      "shares": -63,
+      "price": 31.9151,
+      "cost": 1.0053
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "RF",
+      "side": "close_rebalance",
+      "shares": 117,
+      "price": 20.4888,
+      "cost": 1.1986
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "BA",
+      "side": "close_rebalance",
+      "shares": -10,
+      "price": 210.04,
+      "cost": 1.0502
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "COF",
+      "side": "close_rebalance",
+      "shares": 16,
+      "price": 144.2768,
+      "cost": 1.1542
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "LVS",
+      "side": "close_rebalance",
+      "shares": -62,
+      "price": 43.6396,
+      "cost": 1.3528
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "REG",
+      "side": "close_rebalance",
+      "shares": 37,
+      "price": 54.7611,
+      "cost": 1.0131
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "GILD",
+      "side": "close_rebalance",
+      "shares": 40,
+      "price": 52.2932,
+      "cost": 1.0459
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "AFL",
+      "side": "close_rebalance",
+      "shares": 45,
+      "price": 58.2731,
+      "cost": 1.3111
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "AIG",
+      "side": "close_rebalance",
+      "shares": 44,
+      "price": 53.6259,
+      "cost": 1.1798
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "BKNG",
+      "side": "close_rebalance",
+      "shares": 24,
+      "price": 99.9591,
+      "cost": 1.1995
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "SLG",
+      "side": "close_rebalance",
+      "shares": 41,
+      "price": 57.6022,
+      "cost": 1.1808
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "GS",
+      "side": "close_rebalance",
+      "shares": 6,
+      "price": 323.8047,
+      "cost": 0.9714
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "BALL",
+      "side": "close_rebalance",
+      "shares": -26,
+      "price": 87.1077,
+      "cost": 1.1324
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "DIS",
+      "side": "close_rebalance",
+      "shares": -14,
+      "price": 147.3793,
+      "cost": 1.0317
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "AON",
+      "side": "close_rebalance",
+      "shares": -8,
+      "price": 271.563,
+      "cost": 1.0863
+    },
+    {
+      "date": "2022-02-14",
+      "ticker": "TTWO",
+      "side": "close_rebalance",
+      "shares": -12,
+      "price": 167.07,
+      "cost": 1.0024
+    }
+  ],
+  "rebalance_log": [
+    {
+      "date": "2021-05-17",
+      "action": "rebalance",
+      "n_positions": 44,
+      "n_long": 22,
+      "n_short": 22,
+      "regime": "low_vix"
+    },
+    {
+      "date": "2021-08-16",
+      "action": "rebalance",
+      "n_positions": 44,
+      "n_long": 22,
+      "n_short": 22,
+      "regime": "low_vix"
+    },
+    {
+      "date": "2021-11-12",
+      "action": "rebalance",
+      "n_positions": 46,
+      "n_long": 23,
+      "n_short": 23,
+      "regime": "low_vix"
+    },
+    {
+      "date": "2022-02-14",
+      "action": "rebalance",
+      "n_positions": 44,
+      "n_long": 22,
+      "n_short": 22,
+      "regime": "low_vix"
+    }
+  ],
+  "equity_curve": [
+    [
+      "2021-05-17",
+      100000.0
+    ],
+    [
+      "2021-05-18",
+      99635.65938752965
+    ],
+    [
+      "2021-05-19",
+      100177.99931903748
+    ],
+    [
+      "2021-05-20",
+      100402.57058510621
+    ],
+    [
+      "2021-05-21",
+      100846.01737255888
+    ],
+    [
+      "2021-05-24",
+      100550.15793265722
+    ],
+    [
+      "2021-05-25",
+      99993.09413159708
+    ],
+    [
+      "2021-05-26",
+      99780.50417201873
+    ],
+    [
+      "2021-05-27",
+      99991.42853539652
+    ],
+    [
+      "2021-05-28",
+      100104.38139537908
+    ],
+    [
+      "2021-06-01",
+      99749.99406126197
+    ],
+    [
+      "2021-06-02",
+      99504.61591209425
+    ],
+    [
+      "2021-06-03",
+      100463.96443631727
+    ],
+    [
+      "2021-06-04",
+      100831.78305236233
+    ],
+    [
+      "2021-06-07",
+      100516.91262718174
+    ],
+    [
+      "2021-06-08",
+      100198.07835468635
+    ],
+    [
+      "2021-06-09",
+      100181.62931561845
+    ],
+    [
+      "2021-06-10",
+      100001.58122268977
+    ],
+    [
+      "2021-06-11",
+      100039.45150892617
+    ],
+    [
+      "2021-06-14",
+      100286.97666794082
+    ],
+    [
+      "2021-06-15",
+      100466.2065070394
+    ],
+    [
+      "2021-06-16",
+      100156.85578772367
+    ],
+    [
+      "2021-06-17",
+      100519.00694101592
+    ],
+    [
+      "2021-06-18",
+      100545.89428606402
+    ],
+    [
+      "2021-06-21",
+      100225.94598618869
+    ],
+    [
+      "2021-06-22",
+      100502.31883999484
+    ],
+    [
+      "2021-06-23",
+      100675.73563194109
+    ],
+    [
+      "2021-06-24",
+      100820.70460009284
+    ],
+    [
+      "2021-06-25",
+      100694.05978682562
+    ],
+    [
+      "2021-06-28",
+      101795.79266970331
+    ],
+    [
+      "2021-06-29",
+      101939.85144936346
+    ],
+    [
+      "2021-06-30",
+      101452.05135385197
+    ],
+    [
+      "2021-07-01",
+      101544.43712244625
+    ],
+    [
+      "2021-07-02",
+      102003.8507148195
+    ],
+    [
+      "2021-07-06",
+      102293.28321812244
+    ],
+    [
+      "2021-07-07",
+      102995.67530962176
+    ],
+    [
+      "2021-07-08",
+      102647.959905684
+    ],
+    [
+      "2021-07-09",
+      102688.09243389912
+    ],
+    [
+      "2021-07-12",
+      102926.41463506772
+    ],
+    [
+      "2021-07-13",
+      103471.01621288309
+    ],
+    [
+      "2021-07-14",
+      103537.70662711316
+    ],
+    [
+      "2021-07-15",
+      103789.9253220951
+    ],
+    [
+      "2021-07-16",
+      104041.42750063675
+    ],
+    [
+      "2021-07-19",
+      104208.53797482996
+    ],
+    [
+      "2021-07-20",
+      103528.02878380756
+    ],
+    [
+      "2021-07-21",
+      103225.05201884825
+    ],
+    [
+      "2021-07-22",
+      103382.29747748101
+    ],
+    [
+      "2021-07-23",
+      103876.30219083355
+    ],
+    [
+      "2021-07-26",
+      103310.05824251845
+    ],
+    [
+      "2021-07-27",
+      103437.58023498266
+    ],
+    [
+      "2021-07-28",
+      103591.49804186582
+    ],
+    [
+      "2021-07-29",
+      104282.98694120767
+    ],
+    [
+      "2021-07-30",
+      104482.91380421526
+    ],
+    [
+      "2021-08-02",
+      104870.35358446691
+    ],
+    [
+      "2021-08-03",
+      105055.43391188752
+    ],
+    [
+      "2021-08-04",
+      105254.67729151552
+    ],
+    [
+      "2021-08-05",
+      104386.52224910306
+    ],
+    [
+      "2021-08-06",
+      104311.70220862151
+    ],
+    [
+      "2021-08-09",
+      104678.14948891319
+    ],
+    [
+      "2021-08-10",
+      104318.51224592753
+    ],
+    [
+      "2021-08-11",
+      104422.0590752218
+    ],
+    [
+      "2021-08-12",
+      104996.72468032193
+    ],
+    [
+      "2021-08-13",
+      105278.72548459988
+    ],
+    [
+      "2021-08-16",
+      105332.96211042922
+    ],
+    [
+      "2021-08-17",
+      105158.78087806323
+    ],
+    [
+      "2021-08-18",
+      105235.34167691204
+    ],
+    [
+      "2021-08-19",
+      105513.76239363116
+    ],
+    [
+      "2021-08-20",
+      105704.06788952547
+    ],
+    [
+      "2021-08-23",
+      105591.33325567865
+    ],
+    [
+      "2021-08-24",
+      105167.81879263913
+    ],
+    [
+      "2021-08-25",
+      105616.57692592463
+    ],
+    [
+      "2021-08-26",
+      105661.37338229481
+    ],
+    [
+      "2021-08-27",
+      105764.8392045683
+    ],
+    [
+      "2021-08-30",
+      105836.89837342646
+    ],
+    [
+      "2021-08-31",
+      105684.31298087654
+    ],
+    [
+      "2021-09-01",
+      105453.26183801971
+    ],
+    [
+      "2021-09-02",
+      105186.62251734536
+    ],
+    [
+      "2021-09-03",
+      105600.18270133904
+    ],
+    [
+      "2021-09-07",
+      105203.05088354158
+    ],
+    [
+      "2021-09-08",
+      105035.79632058699
+    ],
+    [
+      "2021-09-09",
+      104859.74860254739
+    ],
+    [
+      "2021-09-10",
+      105313.36401147151
+    ],
+    [
+      "2021-09-13",
+      105187.03370755975
+    ],
+    [
+      "2021-09-14",
+      105348.77130611462
+    ],
+    [
+      "2021-09-15",
+      105525.61971525446
+    ],
+    [
+      "2021-09-16",
+      105704.50027144988
+    ],
+    [
+      "2021-09-17",
+      105411.14676035309
+    ],
+    [
+      "2021-09-20",
+      104956.3651603914
+    ],
+    [
+      "2021-09-21",
+      105309.4503653695
+    ],
+    [
+      "2021-09-22",
+      105400.81628760096
+    ],
+    [
+      "2021-09-23",
+      105504.24538693391
+    ],
+    [
+      "2021-09-24",
+      105394.46285002702
+    ],
+    [
+      "2021-09-27",
+      105604.77118562677
+    ],
+    [
+      "2021-09-28",
+      105078.52888342904
+    ],
+    [
+      "2021-09-29",
+      105208.08198735875
+    ],
+    [
+      "2021-09-30",
+      105079.02642017137
+    ],
+    [
+      "2021-10-01",
+      104432.95538744671
+    ],
+    [
+      "2021-10-04",
+      104093.28020555805
+    ],
+    [
+      "2021-10-05",
+      104725.2604863081
+    ],
+    [
+      "2021-10-06",
+      104928.5383665011
+    ],
+    [
+      "2021-10-07",
+      105304.10896207561
+    ],
+    [
+      "2021-10-08",
+      105593.25188167824
+    ],
+    [
+      "2021-10-11",
+      105543.61946139933
+    ],
+    [
+      "2021-10-12",
+      104982.44758532362
+    ],
+    [
+      "2021-10-13",
+      105029.41308021595
+    ],
+    [
+      "2021-10-14",
+      105327.24053665067
+    ],
+    [
+      "2021-10-15",
+      105603.18940837451
+    ],
+    [
+      "2021-10-18",
+      106205.43022736668
+    ],
+    [
+      "2021-10-19",
+      106348.98872173717
+    ],
+    [
+      "2021-10-20",
+      106873.45565435605
+    ],
+    [
+      "2021-10-21",
+      106978.84718200512
+    ],
+    [
+      "2021-10-22",
+      107002.62031051464
+    ],
+    [
+      "2021-10-25",
+      107121.6768655662
+    ],
+    [
+      "2021-10-26",
+      107156.88005399788
+    ],
+    [
+      "2021-10-27",
+      107073.39626635669
+    ],
+    [
+      "2021-10-28",
+      107084.86110567165
+    ],
+    [
+      "2021-10-29",
+      106850.84313393175
+    ],
+    [
+      "2021-11-01",
+      106383.92783533549
+    ],
+    [
+      "2021-11-02",
+      106756.43252838668
+    ],
+    [
+      "2021-11-03",
+      106655.25287710334
+    ],
+    [
+      "2021-11-04",
+      107228.32403152261
+    ],
+    [
+      "2021-11-05",
+      106247.0895014916
+    ],
+    [
+      "2021-11-08",
+      106266.5681681973
+    ],
+    [
+      "2021-11-09",
+      106299.87918516147
+    ],
+    [
+      "2021-11-10",
+      106641.51768070084
+    ],
+    [
+      "2021-11-11",
+      107125.50727977447
+    ],
+    [
+      "2021-11-12",
+      107586.48528123638
+    ],
+    [
+      "2021-11-15",
+      107448.43974777986
+    ],
+    [
+      "2021-11-16",
+      107796.15632791031
+    ],
+    [
+      "2021-11-17",
+      108128.55522973626
+    ],
+    [
+      "2021-11-18",
+      108770.25877033686
+    ],
+    [
+      "2021-11-19",
+      109396.34002039285
+    ],
+    [
+      "2021-11-22",
+      109586.33185228088
+    ],
+    [
+      "2021-11-23",
+      109824.35419734044
+    ],
+    [
+      "2021-11-24",
+      109638.19679799653
+    ],
+    [
+      "2021-11-26",
+      109968.15448429732
+    ],
+    [
+      "2021-11-29",
+      110096.87462231106
+    ],
+    [
+      "2021-11-30",
+      110106.70434002415
+    ],
+    [
+      "2021-12-01",
+      111170.57320777519
+    ],
+    [
+      "2021-12-02",
+      110752.38351116079
+    ],
+    [
+      "2021-12-03",
+      110812.98734966142
+    ],
+    [
+      "2021-12-06",
+      110204.2556973607
+    ],
+    [
+      "2021-12-07",
+      110783.22468473291
+    ],
+    [
+      "2021-12-08",
+      110158.95908721702
+    ],
+    [
+      "2021-12-09",
+      110383.26852416925
+    ],
+    [
+      "2021-12-10",
+      110460.3052410807
+    ],
+    [
+      "2021-12-13",
+      110209.02996311014
+    ],
+    [
+      "2021-12-14",
+      110400.22879311745
+    ],
+    [
+      "2021-12-15",
+      110826.99676092563
+    ],
+    [
+      "2021-12-16",
+      110627.2589798086
+    ],
+    [
+      "2021-12-17",
+      109755.3309703753
+    ],
+    [
+      "2021-12-20",
+      109517.04990196432
+    ],
+    [
+      "2021-12-21",
+      108900.72080526018
+    ],
+    [
+      "2021-12-22",
+      108928.52736660652
+    ],
+    [
+      "2021-12-23",
+      109059.3259495174
+    ],
+    [
+      "2021-12-27",
+      109399.66158847953
+    ],
+    [
+      "2021-12-28",
+      109202.49975143571
+    ],
+    [
+      "2021-12-29",
+      109396.99435172661
+    ],
+    [
+      "2021-12-30",
+      109435.91145105349
+    ],
+    [
+      "2021-12-31",
+      109422.80546559615
+    ],
+    [
+      "2022-01-03",
+      109036.45299718395
+    ],
+    [
+      "2022-01-04",
+      109185.84510327646
+    ],
+    [
+      "2022-01-05",
+      109164.11569751753
+    ],
+    [
+      "2022-01-06",
+      109697.08838393725
+    ],
+    [
+      "2022-01-07",
+      109078.13287949024
+    ],
+    [
+      "2022-01-10",
+      110192.17430849286
+    ],
+    [
+      "2022-01-11",
+      109819.46617426252
+    ],
+    [
+      "2022-01-12",
+      109820.46384151615
+    ],
+    [
+      "2022-01-13",
+      109646.9058907014
+    ],
+    [
+      "2022-01-14",
+      109254.14899973766
+    ],
+    [
+      "2022-01-18",
+      108557.26332752005
+    ],
+    [
+      "2022-01-19",
+      108104.6411874025
+    ],
+    [
+      "2022-01-20",
+      107772.05026636296
+    ],
+    [
+      "2022-01-21",
+      107735.96430407208
+    ],
+    [
+      "2022-01-24",
+      107872.15707565559
+    ],
+    [
+      "2022-01-25",
+      107153.84111879361
+    ],
+    [
+      "2022-01-26",
+      107524.90855431289
+    ],
+    [
+      "2022-01-27",
+      107365.3763332055
+    ],
+    [
+      "2022-01-28",
+      107669.41297385009
+    ],
+    [
+      "2022-01-31",
+      107553.77981424506
+    ],
+    [
+      "2022-02-01",
+      107315.91547375836
+    ],
+    [
+      "2022-02-02",
+      108049.28168653813
+    ],
+    [
+      "2022-02-03",
+      108143.47994294236
+    ],
+    [
+      "2022-02-04",
+      108468.97519794625
+    ],
+    [
+      "2022-02-07",
+      108025.78377415799
+    ],
+    [
+      "2022-02-08",
+      108303.41930330027
+    ],
+    [
+      "2022-02-09",
+      107968.31606067295
+    ],
+    [
+      "2022-02-10",
+      107637.98749170269
+    ],
+    [
+      "2022-02-11",
+      107165.30610220379
+    ],
+    [
+      "2022-02-14",
+      107515.85154616699
+    ],
+    [
+      "2022-02-15",
+      107776.62442781159
+    ],
+    [
+      "2022-02-16",
+      107659.27166310514
+    ],
+    [
+      "2022-02-17",
+      107759.81791789515
+    ],
+    [
+      "2022-02-18",
+      107712.55639710656
+    ],
+    [
+      "2022-02-22",
+      107446.83147778598
+    ],
+    [
+      "2022-02-23",
+      107473.46678636267
+    ],
+    [
+      "2022-02-24",
+      107272.30065267623
+    ],
+    [
+      "2022-02-25",
+      107311.97726752394
+    ],
+    [
+      "2022-02-28",
+      107227.92524866876
+    ],
+    [
+      "2022-03-01",
+      107151.66078120942
+    ],
+    [
+      "2022-03-02",
+      107186.38360190246
+    ],
+    [
+      "2022-03-03",
+      107232.55162083247
+    ],
+    [
+      "2022-03-04",
+      107114.26057947523
+    ],
+    [
+      "2022-03-07",
+      106444.30377491207
+    ],
+    [
+      "2022-03-08",
+      106465.67854532429
+    ],
+    [
+      "2022-03-09",
+      106665.55125111894
+    ],
+    [
+      "2022-03-10",
+      106151.2336397871
+    ],
+    [
+      "2022-03-11",
+      106613.67476314156
+    ],
+    [
+      "2022-03-14",
+      107012.14536058341
+    ],
+    [
+      "2022-03-15",
+      107332.5744985544
+    ],
+    [
+      "2022-03-16",
+      107735.2665436843
+    ],
+    [
+      "2022-03-17",
+      107311.8273907475
+    ],
+    [
+      "2022-03-18",
+      107307.59290352048
+    ],
+    [
+      "2022-03-21",
+      107216.62976853686
+    ],
+    [
+      "2022-03-22",
+      107226.64764197916
+    ],
+    [
+      "2022-03-23",
+      106933.359678807
+    ],
+    [
+      "2022-03-24",
+      107369.95590015629
+    ],
+    [
+      "2022-03-25",
+      107266.02417682076
+    ],
+    [
+      "2022-03-28",
+      107521.49303248827
+    ],
+    [
+      "2022-03-29",
+      107306.59866650542
+    ],
+    [
+      "2022-03-30",
+      107016.46899278631
+    ],
+    [
+      "2022-03-31",
+      106505.4103964289
+    ],
+    [
+      "2022-04-01",
+      106256.01181794042
+    ],
+    [
+      "2022-04-04",
+      106294.41687074082
+    ],
+    [
+      "2022-04-05",
+      106196.43596214289
+    ],
+    [
+      "2022-04-06",
+      106265.47384329111
+    ],
+    [
+      "2022-04-07",
+      105852.65062006476
+    ],
+    [
+      "2022-04-08",
+      105334.93713967048
+    ],
+    [
+      "2022-04-11",
+      105376.25211160135
+    ],
+    [
+      "2022-04-12",
+      105057.61950346731
+    ],
+    [
+      "2022-04-13",
+      104813.89776671573
+    ],
+    [
+      "2022-04-14",
+      104473.2181733474
+    ],
+    [
+      "2022-04-18",
+      104683.53938136181
+    ],
+    [
+      "2022-04-19",
+      104548.36005636188
+    ],
+    [
+      "2022-04-20",
+      103993.64509796268
+    ],
+    [
+      "2022-04-21",
+      104137.56748451653
+    ],
+    [
+      "2022-04-22",
+      103911.77197529403
+    ],
+    [
+      "2022-04-25",
+      104539.56170289013
+    ],
+    [
+      "2022-04-26",
+      104554.8886506016
+    ],
+    [
+      "2022-04-27",
+      103851.60702103861
+    ],
+    [
+      "2022-04-28",
+      103912.25975045875
+    ],
+    [
+      "2022-04-29",
+      103729.34001568845
+    ],
+    [
+      "2022-05-02",
+      104462.5728024014
+    ],
+    [
+      "2022-05-03",
+      104120.8406109911
+    ],
+    [
+      "2022-05-04",
+      103878.4874671303
+    ],
+    [
+      "2022-05-05",
+      103828.21618470915
+    ],
+    [
+      "2022-05-06",
+      104212.63907567339
+    ],
+    [
+      "2022-05-09",
+      105561.16657186055
+    ],
+    [
+      "2022-05-10",
+      105600.57422537857
+    ],
+    [
+      "2022-05-11",
+      105265.77420222711
+    ],
+    [
+      "2022-05-12",
+      105282.52189323219
+    ]
+  ],
+  "long_short_enabled": true,
+  "exposure_history_sample": [
+    {
+      "date": "2021-05-17",
+      "gross_long": 0.0,
+      "gross_short": 0.0,
+      "net": 0.0,
+      "cash": 100000.0
+    },
+    {
+      "date": "2021-06-16",
+      "gross_long": 49562.92,
+      "gross_short": 49314.06,
+      "net": 248.87,
+      "cash": 99907.99
+    },
+    {
+      "date": "2021-07-16",
+      "gross_long": 49622.3,
+      "gross_short": 45468.93,
+      "net": 4153.37,
+      "cash": 99888.06
+    },
+    {
+      "date": "2021-08-16",
+      "gross_long": 51503.4,
+      "gross_short": 46039.18,
+      "net": 5464.22,
+      "cash": 99868.74
+    },
+    {
+      "date": "2021-09-15",
+      "gross_long": 51793.05,
+      "gross_short": 52047.12,
+      "net": -254.08,
+      "cash": 105779.7
+    },
+    {
+      "date": "2021-10-14",
+      "gross_long": 52726.59,
+      "gross_short": 53157.26,
+      "net": -430.67,
+      "cash": 105757.91
+    },
+    {
+      "date": "2021-11-12",
+      "gross_long": 55680.77,
+      "gross_short": 53829.89,
+      "net": 1850.88,
+      "cash": 105735.6
+    },
+    {
+      "date": "2021-12-14",
+      "gross_long": 51241.66,
+      "gross_short": 48775.47,
+      "net": 2466.18,
+      "cash": 107934.05
+    },
+    {
+      "date": "2022-01-13",
+      "gross_long": 53354.84,
+      "gross_short": 51620.75,
+      "net": 1734.09,
+      "cash": 107912.81
+    },
+    {
+      "date": "2022-02-14",
+      "gross_long": 50772.43,
+      "gross_short": 51148.16,
+      "net": -375.73,
+      "cash": 107891.58
+    },
+    {
+      "date": "2022-03-16",
+      "gross_long": 52727.86,
+      "gross_short": 53038.49,
+      "net": -310.64,
+      "cash": 108045.91
+    },
+    {
+      "date": "2022-04-14",
+      "gross_long": 52896.73,
+      "gross_short": 56446.18,
+      "net": -3549.46,
+      "cash": 108022.67
+    }
+  ]
+}

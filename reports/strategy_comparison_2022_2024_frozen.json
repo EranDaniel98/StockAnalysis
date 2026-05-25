@@ -1,0 +1,497 @@
+{
+  "snapshot_id": "4504fcb65f549dae",
+  "universe": "russell_1000",
+  "window": {
+    "start": "2022-05-13",
+    "end": "2024-05-13"
+  },
+  "summaries": [
+    {
+      "strategy": "minimal_baseline",
+      "snapshot_id": "4504fcb65f549dae",
+      "git_sha": "85b15b6",
+      "regime_mode": "off",
+      "window": {
+        "start": "2022-05-13",
+        "end": "2024-05-13",
+        "years": 2.0
+      },
+      "full": {
+        "n_trades": 203,
+        "total_return_pct": 53.68,
+        "alpha_vs_spy_matched_pct": 20.65,
+        "spy_return_pct": 33.76,
+        "ann_sharpe": 1.09,
+        "max_drawdown_pct": -17.06,
+        "win_rate_pct": 42.9,
+        "avg_hold_days": 32.4
+      },
+      "oos": {
+        "n_trades": 69,
+        "total_return_pct": 43.36,
+        "alpha_vs_spy_matched_pct": 23.09,
+        "ann_sharpe": 3.24,
+        "max_drawdown_pct": -9.73,
+        "win_rate_pct": 66.7
+      },
+      "walk_forward": {
+        "mean_sharpe": 1.11,
+        "min_sharpe": -0.91,
+        "max_sharpe": 3.39,
+        "passes_gate": false,
+        "folds": [
+          {
+            "i": 0,
+            "n_trades": 37,
+            "ann_sharpe": -0.43,
+            "total_return_pct": -6.67,
+            "max_drawdown_pct": -15.69
+          },
+          {
+            "i": 1,
+            "n_trades": 32,
+            "ann_sharpe": -0.91,
+            "total_return_pct": -7.93,
+            "max_drawdown_pct": -16.4
+          },
+          {
+            "i": 2,
+            "n_trades": 44,
+            "ann_sharpe": 1.96,
+            "total_return_pct": 11.98,
+            "max_drawdown_pct": -4.5
+          },
+          {
+            "i": 3,
+            "n_trades": 43,
+            "ann_sharpe": 1.56,
+            "total_return_pct": 9.78,
+            "max_drawdown_pct": -8.11
+          },
+          {
+            "i": 4,
+            "n_trades": 45,
+            "ann_sharpe": 3.39,
+            "total_return_pct": 29.89,
+            "max_drawdown_pct": -9.73
+          }
+        ]
+      },
+      "bootstrap": {
+        "label": "OOS",
+        "ann_sharpe_ci": [
+          0.79,
+          7.99
+        ]
+      },
+      "concentration": {
+        "applicable": true,
+        "pct": 23.58,
+        "headline_sharpe": 3.24,
+        "stripped_sharpe": 2.61,
+        "sharpe_drop": 0.63
+      },
+      "regimes_trade_buckets": {
+        "spy_bull": {
+          "n": 146,
+          "win_rate_pct": 46.6,
+          "avg_return_pct": 3.81,
+          "expectancy_pct": 3.81,
+          "total_pnl": 5377.14
+        },
+        "spy_bear": {
+          "n": 57,
+          "win_rate_pct": 33.3,
+          "avg_return_pct": 0.05,
+          "expectancy_pct": 0.05,
+          "total_pnl": -8.72
+        },
+        "vix_low": {
+          "n": 82,
+          "win_rate_pct": 56.1,
+          "avg_return_pct": 4.76,
+          "expectancy_pct": 4.76,
+          "total_pnl": 3778.49
+        },
+        "vix_normal": {
+          "n": 80,
+          "win_rate_pct": 33.8,
+          "avg_return_pct": 1.86,
+          "expectancy_pct": 1.86,
+          "total_pnl": 1461.69
+        },
+        "vix_high": {
+          "n": 41,
+          "win_rate_pct": 34.1,
+          "avg_return_pct": 0.48,
+          "expectancy_pct": 0.48,
+          "total_pnl": 128.24
+        }
+      },
+      "yearly": [],
+      "data_quality": {
+        "pipeline_version": "2026-05-15-survivorship-haircut",
+        "survivorship_bias": {
+          "applies": true,
+          "severity": "haircut_estimated",
+          "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+          "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+          "details": "Universe is built from a present-day ticker snapshot, so stocks that delisted / went bankrupt / were acquired before today are excluded entirely. Headline Sharpe / CAGR are biased upward by an unknown amount.",
+          "remediation": "Adopt point-in-time index membership (CRSP / Norgate / Sharadar) or apply Bessembinder-style synthetic delisted returns. Until then, treat all headline numbers as upper bounds.",
+          "universe_label": "russell_1000",
+          "adjusted": {
+            "full": {
+              "total_return_pct": 49.68,
+              "cagr_pct": 24.82,
+              "ann_sharpe": 0.89,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "out_of_sample": {
+              "total_return_pct": 42.16,
+              "cagr_pct": 70.32,
+              "ann_sharpe": 3.04,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "method": "Flat annual-return + Sharpe haircut applied to headline metrics per universe. See src/backtest/survivorship.py for magnitudes and citations. Headline numbers are unchanged; the adjusted block is the credible lower bound."
+          }
+        },
+        "n_tickers_traded": 99
+      }
+    },
+    {
+      "strategy": "minimal_baseline_v2",
+      "snapshot_id": "4504fcb65f549dae",
+      "git_sha": "85b15b6",
+      "regime_mode": "off",
+      "window": {
+        "start": "2022-05-13",
+        "end": "2024-05-13",
+        "years": 2.0
+      },
+      "full": {
+        "n_trades": 269,
+        "total_return_pct": 99.84,
+        "alpha_vs_spy_matched_pct": 67.36,
+        "spy_return_pct": 33.76,
+        "ann_sharpe": 1.6,
+        "max_drawdown_pct": -18.87,
+        "win_rate_pct": 43.9,
+        "avg_hold_days": 30.4
+      },
+      "oos": {
+        "n_trades": 106,
+        "total_return_pct": 44.13,
+        "alpha_vs_spy_matched_pct": 23.69,
+        "ann_sharpe": 3.69,
+        "max_drawdown_pct": -6.91,
+        "win_rate_pct": 55.7
+      },
+      "walk_forward": {
+        "mean_sharpe": 1.73,
+        "min_sharpe": -0.73,
+        "max_sharpe": 3.78,
+        "passes_gate": false,
+        "folds": [
+          {
+            "i": 0,
+            "n_trades": 48,
+            "ann_sharpe": 0.76,
+            "total_return_pct": 7.48,
+            "max_drawdown_pct": -11.96
+          },
+          {
+            "i": 1,
+            "n_trades": 42,
+            "ann_sharpe": -0.73,
+            "total_return_pct": -7.24,
+            "max_drawdown_pct": -17.55
+          },
+          {
+            "i": 2,
+            "n_trades": 46,
+            "ann_sharpe": 2.36,
+            "total_return_pct": 14.91,
+            "max_drawdown_pct": -3.74
+          },
+          {
+            "i": 3,
+            "n_trades": 60,
+            "ann_sharpe": 2.46,
+            "total_return_pct": 16.4,
+            "max_drawdown_pct": -8.87
+          },
+          {
+            "i": 4,
+            "n_trades": 70,
+            "ann_sharpe": 3.78,
+            "total_return_pct": 27.12,
+            "max_drawdown_pct": -6.91
+          }
+        ]
+      },
+      "bootstrap": {
+        "label": "OOS",
+        "ann_sharpe_ci": [
+          1.23,
+          8.16
+        ]
+      },
+      "concentration": {
+        "applicable": true,
+        "pct": 30.49,
+        "headline_sharpe": 3.69,
+        "stripped_sharpe": 2.67,
+        "sharpe_drop": 1.03
+      },
+      "regimes_trade_buckets": {
+        "spy_bull": {
+          "n": 190,
+          "win_rate_pct": 45.3,
+          "avg_return_pct": 3.9,
+          "expectancy_pct": 3.9,
+          "total_pnl": 7190.4
+        },
+        "spy_bear": {
+          "n": 79,
+          "win_rate_pct": 40.5,
+          "avg_return_pct": 3.57,
+          "expectancy_pct": 3.57,
+          "total_pnl": 2793.35
+        },
+        "vix_low": {
+          "n": 104,
+          "win_rate_pct": 51.9,
+          "avg_return_pct": 4.7,
+          "expectancy_pct": 4.7,
+          "total_pnl": 4709.8
+        },
+        "vix_normal": {
+          "n": 112,
+          "win_rate_pct": 34.8,
+          "avg_return_pct": 1.95,
+          "expectancy_pct": 1.95,
+          "total_pnl": 2200.16
+        },
+        "vix_high": {
+          "n": 53,
+          "win_rate_pct": 47.2,
+          "avg_return_pct": 5.96,
+          "expectancy_pct": 5.96,
+          "total_pnl": 3073.78
+        }
+      },
+      "yearly": [],
+      "data_quality": {
+        "pipeline_version": "2026-05-15-survivorship-haircut",
+        "survivorship_bias": {
+          "applies": true,
+          "severity": "haircut_estimated",
+          "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+          "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+          "details": "Universe is built from a present-day ticker snapshot, so stocks that delisted / went bankrupt / were acquired before today are excluded entirely. Headline Sharpe / CAGR are biased upward by an unknown amount.",
+          "remediation": "Adopt point-in-time index membership (CRSP / Norgate / Sharadar) or apply Bessembinder-style synthetic delisted returns. Until then, treat all headline numbers as upper bounds.",
+          "universe_label": "russell_1000",
+          "adjusted": {
+            "full": {
+              "total_return_pct": 95.84,
+              "cagr_pct": 47.88,
+              "ann_sharpe": 1.4,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "out_of_sample": {
+              "total_return_pct": 42.93,
+              "cagr_pct": 71.6,
+              "ann_sharpe": 3.49,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "method": "Flat annual-return + Sharpe haircut applied to headline metrics per universe. See src/backtest/survivorship.py for magnitudes and citations. Headline numbers are unchanged; the adjusted block is the credible lower bound."
+          }
+        },
+        "n_tickers_traded": 87
+      }
+    },
+    {
+      "strategy": "minimal_baseline_v3",
+      "snapshot_id": "4504fcb65f549dae",
+      "git_sha": "85b15b6",
+      "regime_mode": "off",
+      "window": {
+        "start": "2022-05-13",
+        "end": "2024-05-13",
+        "years": 2.0
+      },
+      "full": {
+        "n_trades": 234,
+        "total_return_pct": 81.22,
+        "alpha_vs_spy_matched_pct": 49.42,
+        "spy_return_pct": 33.76,
+        "ann_sharpe": 1.43,
+        "max_drawdown_pct": -16.58,
+        "win_rate_pct": 44.0,
+        "avg_hold_days": 34.2
+      },
+      "oos": {
+        "n_trades": 93,
+        "total_return_pct": 40.23,
+        "alpha_vs_spy_matched_pct": 19.69,
+        "ann_sharpe": 3.34,
+        "max_drawdown_pct": -9.16,
+        "win_rate_pct": 54.8
+      },
+      "walk_forward": {
+        "mean_sharpe": 1.34,
+        "min_sharpe": -0.18,
+        "max_sharpe": 3.22,
+        "passes_gate": false,
+        "folds": [
+          {
+            "i": 0,
+            "n_trades": 44,
+            "ann_sharpe": 1.0,
+            "total_return_pct": 10.29,
+            "max_drawdown_pct": -11.49
+          },
+          {
+            "i": 1,
+            "n_trades": 34,
+            "ann_sharpe": -0.18,
+            "total_return_pct": -2.51,
+            "max_drawdown_pct": -12.54
+          },
+          {
+            "i": 2,
+            "n_trades": 36,
+            "ann_sharpe": 0.63,
+            "total_return_pct": 4.09,
+            "max_drawdown_pct": -8.73
+          },
+          {
+            "i": 3,
+            "n_trades": 46,
+            "ann_sharpe": 2.04,
+            "total_return_pct": 13.22,
+            "max_drawdown_pct": -7.94
+          },
+          {
+            "i": 4,
+            "n_trades": 72,
+            "ann_sharpe": 3.22,
+            "total_return_pct": 23.18,
+            "max_drawdown_pct": -9.16
+          }
+        ]
+      },
+      "bootstrap": {
+        "label": "OOS",
+        "ann_sharpe_ci": [
+          0.53,
+          8.62
+        ]
+      },
+      "concentration": {
+        "applicable": true,
+        "pct": 36.43,
+        "headline_sharpe": 3.34,
+        "stripped_sharpe": 2.17,
+        "sharpe_drop": 1.17
+      },
+      "regimes_trade_buckets": {
+        "spy_bull": {
+          "n": 166,
+          "win_rate_pct": 45.8,
+          "avg_return_pct": 3.39,
+          "expectancy_pct": 3.39,
+          "total_pnl": 5449.06
+        },
+        "spy_bear": {
+          "n": 68,
+          "win_rate_pct": 39.7,
+          "avg_return_pct": 4.03,
+          "expectancy_pct": 4.03,
+          "total_pnl": 2672.55
+        },
+        "vix_low": {
+          "n": 100,
+          "win_rate_pct": 50.0,
+          "avg_return_pct": 4.25,
+          "expectancy_pct": 4.25,
+          "total_pnl": 4071.77
+        },
+        "vix_normal": {
+          "n": 81,
+          "win_rate_pct": 33.3,
+          "avg_return_pct": 1.16,
+          "expectancy_pct": 1.16,
+          "total_pnl": 1002.21
+        },
+        "vix_high": {
+          "n": 53,
+          "win_rate_pct": 49.1,
+          "avg_return_pct": 5.99,
+          "expectancy_pct": 5.99,
+          "total_pnl": 3047.63
+        }
+      },
+      "yearly": [],
+      "data_quality": {
+        "pipeline_version": "2026-05-15-survivorship-haircut",
+        "survivorship_bias": {
+          "applies": true,
+          "severity": "haircut_estimated",
+          "magnitude_hint_annual_pct": "1-3 (large-cap), more for small-cap or longer windows",
+          "source": "current-snapshot ticker lists (e.g. russell_1000_tickers.txt)",
+          "details": "Universe is built from a present-day ticker snapshot, so stocks that delisted / went bankrupt / were acquired before today are excluded entirely. Headline Sharpe / CAGR are biased upward by an unknown amount.",
+          "remediation": "Adopt point-in-time index membership (CRSP / Norgate / Sharadar) or apply Bessembinder-style synthetic delisted returns. Until then, treat all headline numbers as upper bounds.",
+          "universe_label": "russell_1000",
+          "adjusted": {
+            "full": {
+              "total_return_pct": 77.22,
+              "cagr_pct": 38.58,
+              "ann_sharpe": 1.23,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "out_of_sample": {
+              "total_return_pct": 39.03,
+              "cagr_pct": 65.1,
+              "ann_sharpe": 3.14,
+              "haircut_applied": {
+                "annual_return_haircut_pct": 2.0,
+                "sharpe_haircut": 0.2,
+                "rationale": "large-cap broad index, Bessembinder 2018 / BGR 1995"
+              }
+            },
+            "method": "Flat annual-return + Sharpe haircut applied to headline metrics per universe. See src/backtest/survivorship.py for magnitudes and citations. Headline numbers are unchanged; the adjusted block is the credible lower bound."
+          }
+        },
+        "n_tickers_traded": 76
+      }
+    }
+  ],
+  "equal_weight_benchmark": {
+    "n_tickers": 949,
+    "total_return_pct": 40.73,
+    "ann_sharpe": 0.94,
+    "window_start": "2022-05-13",
+    "window_end": "2024-05-13"
+  }
+}

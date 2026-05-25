@@ -146,6 +146,70 @@ class Config:
             if t.strip() and not t.startswith("#")
         )
 
+    def get_sp500_pit_tickers(self, as_of_date) -> list[str]:
+        """Reconstructed S&P 500 constituents as of ``as_of_date``.
+
+        Backed by ``src.universe.sp500_pit.SP500Membership``. Returns a
+        sorted list so caller order is deterministic. Raises
+        ``FileNotFoundError`` if the membership CSVs haven't been
+        scraped — run ``scripts/fetch_sp500_membership.py`` first.
+        """
+        from src.universe import load_default_sp500
+
+        membership = load_default_sp500()
+        return sorted(membership.as_of(as_of_date))
+
+    def get_universe_captured_date(self, universe_label: str):
+        """Return the ``# captured: YYYY-MM-DD`` date in a universe file.
+
+        Review item #4: a historical backtest whose end_date is AFTER
+        the universe was captured is structurally survivor-biased — the
+        ticker list only contains names that survived to the capture
+        date. The backtest engine reads this to refuse such runs unless
+        the operator passes an explicit override.
+
+        Returns ``date`` on success; raises ``ValueError`` when the file
+        exists but has no header (so we don't silently treat a missing
+        header as "no bias risk"); returns ``None`` when the file
+        doesn't exist (universe is empty)."""
+        from datetime import date
+
+        # sp500_pit is a reconstructed universe — there is no "captured
+        # date" because membership is computed per-target-date from the
+        # Wikipedia changes log. Return None so the survivorship guard
+        # in the backtest engine permits any historical window.
+        if universe_label == "sp500_pit":
+            return None
+
+        path_map = {
+            "russell_1000": self.config_dir / "russell_1000_tickers.txt",
+        }
+        path = path_map.get(universe_label)
+        if path is None or not path.exists():
+            return None
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line.startswith("#"):
+                # First non-comment line — header block ended without a
+                # match. Header MUST come before tickers.
+                break
+            # Form: "# captured: 2026-05-13" — case-insensitive label.
+            body = line.lstrip("#").strip()
+            if body.lower().startswith("captured:"):
+                stamp = body.split(":", 1)[1].strip()
+                try:
+                    return date.fromisoformat(stamp)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{path.name}: malformed captured-date "
+                        f"{stamp!r}; expected YYYY-MM-DD"
+                    ) from exc
+        raise ValueError(
+            f"{path.name}: missing '# captured: YYYY-MM-DD' header. "
+            f"Add the date the ticker list was snapshotted so the "
+            f"backtest engine can refuse survivor-biased windows."
+        )
+
     def get_theme_tickers(self):
         """Get all known tickers from all themes (deduplicated)."""
         tickers = set()

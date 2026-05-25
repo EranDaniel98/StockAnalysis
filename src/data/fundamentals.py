@@ -6,6 +6,7 @@ network) and has no timeout, so every call is wrapped in
 src.data.fetch_outcome.call_with_timeout. Tier-1 audit #8.
 """
 
+import sys
 import yfinance as yf
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,14 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 
 from src.data.fetch_outcome import call_with_timeout
 from src.data.numeric import coerce_numeric as _coerce_numeric
+
+# Rich Progress drives a Live thread that writes to stdout. Under
+# uvicorn worker threads on Windows the LegacyWindowsTerm flush raises
+# OSError [Errno 22] on exit (stdout isn't a real console there), and
+# the exception propagates out of fetch_batch — crashing every API
+# route that fetches fundamentals. Disable progress whenever stdout
+# isn't a TTY so server contexts are unaffected.
+_RICH_PROGRESS_DISABLED = not sys.stdout.isatty()
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +60,32 @@ class FundamentalsFetcher:
             # FetchOutcome-returning shape in src.data.fetch_outcome.
             return None
         try:
-            if not info or info.get("trailingPE") is None and info.get("sector") is None:
+            if not info:
+                logger.warning(f"No fundamental data for {ticker}")
+                return None
+
+            # Both trailingPE and sector missing usually means yfinance
+            # returned a stub (delisted ticker, ETF, fund). Don't return
+            # the full dict in that case — but DO preserve the
+            # identifying fields (name, longName) so the instrument
+            # classifier downstream can detect leveraged / inverse /
+            # daily ETFs that previously slipped through with name=ticker.
+            if info.get("trailingPE") is None and info.get("sector") is None:
+                long_name = info.get("longName") or info.get("shortName")
+                if long_name:
+                    logger.warning(
+                        "No fundamental data for %s (name=%r) — returning "
+                        "name-only stub so the instrument classifier can "
+                        "still flag non-stock instruments.",
+                        ticker, long_name,
+                    )
+                    return {
+                        "ticker": ticker,
+                        "name": long_name,
+                        "sector": None,
+                        "industry": None,
+                        "market_cap": None,
+                    }
                 logger.warning(f"No fundamental data for {ticker}")
                 return None
 
@@ -122,6 +156,30 @@ class FundamentalsFetcher:
                 "target_low_price": _coerce_numeric(info.get("targetLowPrice")),
                 "recommendation": info.get("recommendationKey"),  # string label
                 "num_analyst_opinions": _coerce_numeric(info.get("numberOfAnalystOpinions")),
+
+                # Earnings calendar — UNIX EPOCH SECONDS, UTC.
+                # earnings_announcement_ts: when the EPS/revenue release
+                #   drops, typically 16:00 ET ("after market close").
+                # earnings_call_ts: when the management Q&A conference
+                #   call starts, typically 17:00 ET (one hour after the
+                #   release). This is the call where forward guidance
+                #   and analyst questions move the stock.
+                # earnings_window_start/end: yfinance sometimes only
+                #   knows the day range (e.g. "between Jul 28-Aug 1");
+                #   when set, the FE should render "between X and Y"
+                #   instead of a single timestamp.
+                "earnings_announcement_ts": _coerce_numeric(
+                    info.get("earningsTimestamp"),
+                ),
+                "earnings_call_ts": _coerce_numeric(
+                    info.get("earningsCallTimestampStart"),
+                ),
+                "earnings_window_start": _coerce_numeric(
+                    info.get("earningsTimestampStart"),
+                ),
+                "earnings_window_end": _coerce_numeric(
+                    info.get("earningsTimestampEnd"),
+                ),
             }
 
             self.cache.set(cache_key, fundamentals)
@@ -149,6 +207,7 @@ class FundamentalsFetcher:
             TaskProgressColumn(),
             TextColumn("{task.fields[ticker]}"),
             transient=True,
+            disable=_RICH_PROGRESS_DISABLED,
         ) as progress:
             task = progress.add_task("fetching", total=total, ticker="")
             with ThreadPoolExecutor(max_workers=workers) as ex:

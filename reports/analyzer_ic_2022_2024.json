@@ -1,0 +1,112 @@
+{
+  "ran_at": "2026-05-15T23:43:29.582773+00:00",
+  "universe": "russell_1000",
+  "strategy": "minimal_baseline",
+  "window": {
+    "start": "2022-05-13",
+    "end": "2024-05-13"
+  },
+  "periods": [
+    5,
+    21
+  ],
+  "quantiles": 5,
+  "bonferroni_k": 6,
+  "panel_rows": 97406,
+  "per_factor": [
+    {
+      "factor": "technical",
+      "n_observations": 469062,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": 0.014432883726258358,
+          "ic_std": 0.16197378518875388,
+          "ic_ir": 0.08910629401812892,
+          "n_periods": 326,
+          "t_stat": 1.6088560260534028,
+          "p_value": 0.10861873881804418,
+          "top_minus_bottom_pct": -0.13494479900979484
+        }
+      }
+    },
+    {
+      "factor": "fundamental",
+      "n_observations": 469083,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": 0.018259761653938198,
+          "ic_std": 0.057170983240973146,
+          "ic_ir": 0.3193886237179815,
+          "n_periods": 326,
+          "t_stat": 5.766711741114865,
+          "p_value": 1.881522515567724e-08,
+          "top_minus_bottom_pct": 0.13934717497022373
+        }
+      }
+    },
+    {
+      "factor": "statistical",
+      "n_observations": 469083,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": 0.020476984647741982,
+          "ic_std": 0.15663191087490969,
+          "ic_ir": 0.13073315988652806,
+          "n_periods": 326,
+          "t_stat": 2.360448657483738,
+          "p_value": 0.01884312422435319,
+          "top_minus_bottom_pct": -0.14314951186882124
+        }
+      }
+    },
+    {
+      "factor": "pattern",
+      "by_horizon": {}
+    },
+    {
+      "factor": "trend",
+      "n_observations": 355876,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": -0.000688729780689449,
+          "ic_std": 0.15606399771518178,
+          "ic_ir": -0.004413124043806613,
+          "n_periods": 219,
+          "t_stat": -0.06530827189490825,
+          "p_value": 0.9479884061960688,
+          "top_minus_bottom_pct": 0.28149255110111554
+        }
+      }
+    },
+    {
+      "factor": "alpha158",
+      "n_observations": 469083,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": 0.0023404960469711263,
+          "ic_std": 0.1124483532546119,
+          "ic_ir": 0.020813964626690825,
+          "n_periods": 326,
+          "t_stat": 0.37580591567303817,
+          "p_value": 0.707306365597905,
+          "top_minus_bottom_pct": -0.03228529365644573
+        }
+      }
+    },
+    {
+      "factor": "composite",
+      "n_observations": 469083,
+      "by_horizon": {
+        "5D": {
+          "ic_mean": 0.02401038773392413,
+          "ic_std": 0.1297717076875705,
+          "ic_ir": 0.18502020326132954,
+          "n_periods": 326,
+          "t_stat": 3.340626745155101,
+          "p_value": 0.0009331904899063659,
+          "top_minus_bottom_pct": -0.06683557233032164
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+2026-05-16 10:09:10,587 [INFO] minimal_baseline: Universe russell_1000: 1002 tickers
+2026-05-16 10:09:10,691 [INFO] minimal_baseline: Loading snapshot 1dd88cad8e1f7534 ...
+2026-05-16 10:09:11,230 [INFO] minimal_baseline: Snapshot loaded: window 2024-05-13 -> 2026-05-13, 996 tickers with prices, spy=True vix=True
+2026-05-16 10:09:15,486 [INFO] minimal_baseline: PIT loader active — 979 tickers indexed from EDGAR.
+2026-05-16 10:09:15,487 [INFO] minimal_baseline: Backtest start: 2024-05-13 end: 2026-05-13 walk_forward_folds=5
+
+2026-05-16 10:39:20,869 [INFO] minimal_baseline: Wrote data\baseline\compare_minimal_baseline_1dd88cad8e1f7534.json

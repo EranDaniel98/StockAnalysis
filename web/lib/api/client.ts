@@ -74,19 +74,50 @@ export type Position = Schemas["Position"];
 export type PortfolioStatus = Schemas["PortfolioStatus"];
 export type PortfolioHistory = Schemas["PortfolioHistory"];
 export type EquityPoint = Schemas["EquityPoint"];
+export type PortfolioRecommendations = Schemas["PortfolioRecommendations"];
+export type PositionRecommendation = Schemas["PositionRecommendation"];
+// PositionStatus is a Python Literal[...] alias — Pydantic doesn't promote
+// those to top-level schemas, so we mirror the union locally. Keep in sync
+// with src/api/routers/portfolio.py::PositionStatus.
+export type PositionStatus =
+  | "HOLDING"
+  | "STOP_HIT"
+  | "NEAR_STOP"
+  | "TARGET_HIT"
+  | "NEAR_TARGET";
+export type PaperVsSpySnapshot = Schemas["PaperVsSpySnapshot"];
+export type PipelineRecentResponse = Schemas["PipelineRecentResponse"];
+export type PipelineRecentRun = Schemas["PipelineRecentRun"];
+export type TodayActionsResponse = Schemas["TodayActionsResponse"];
+export type TodayActionItem = Schemas["TodayActionItem"];
+export type FactorBacktestSummary = Schemas["FactorBacktestSummary"];
+export type FactorBacktestDetail = Schemas["FactorBacktestDetail"];
+export type WalkForwardFold = Schemas["WalkForwardFold"];
+export type IcReportSummary = Schemas["IcReportSummary"];
+export type IcReportDetail = Schemas["IcReportDetail"];
+export type IcFactorRow = Schemas["IcFactorRow"];
+export type IcCellMetrics = Schemas["IcCellMetrics"];
+export type ExecutionSummary = Schemas["ExecutionSummary"];
+export type ExecutionDetail = Schemas["ExecutionDetail"];
+export type SubmittedOrder = Schemas["SubmittedOrder"];
+export type SkippedOrder = Schemas["SkippedOrder"];
+export type FailedOrder = Schemas["FailedOrder"];
+export type SanityGate = Schemas["SanityGate"];
+export type SanityGateOutcome = Schemas["SanityGateOutcome"];
 
-export type ScanRequest = Schemas["ScanRequest"];
-export type ScanResponse = Schemas["ScanResponse"];
-export type ScanSummary = Schemas["ScanSummary"];
-export type ScanResultItem = Schemas["ScanResultItem"];
+// ScanRequest / ScanResponse / ScanSummary / ScanResultItem /
+// SanityCheckTriggerRequest were removed 2026-05-23 along with the
+// legacy 5-engine endpoints they typed.
+export type BuySignal = Schemas["BuySignal"];
+export type SanityCheck = Schemas["SanityCheck"];
+export type RiskManagement = Schemas["RiskManagement"];
+export type StopLoss = Schemas["StopLoss"];
+export type TakeProfit = Schemas["TakeProfit"];
+export type TimeStop = Schemas["TimeStop"];
+export type PositionSizing = Schemas["PositionSizing"];
 
-export type BacktestRequest = Schemas["BacktestRequest"];
-export type BacktestResponse = Schemas["BacktestResponse"];
-export type BacktestSummary = Schemas["BacktestSummary"];
-
-export type DiagnosticRequest = Schemas["DiagnosticRequest"];
-export type DiagnosticResponse = Schemas["DiagnosticResponse"];
-export type DiagnosticSummary = Schemas["DiagnosticSummary"];
+// BacktestRequest/Response/Summary + DiagnosticRequest/Response/Summary
+// removed 2026-05-23 with the /api/backtests + /api/diagnostics routes.
 
 export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 
@@ -96,33 +127,16 @@ export type OHLCBar = Schemas["OHLCBar"];
 export type MarketRegime = Schemas["MarketRegime"];
 export type SectorsResponse = Schemas["SectorsResponse"];
 export type SectorMetric = Schemas["SectorMetric"];
-export type ScoreCalibration = Schemas["ScoreCalibration"];
-export type CalibrationBucket = Schemas["CalibrationBucket"];
-export type TradeAnalytics = Schemas["TradeAnalytics"];
-export type TradeHeadline = Schemas["TradeHeadline"];
-export type CumulativePnlPoint = Schemas["CumulativePnlPoint"];
-export type ExitReasonStat = Schemas["ExitReasonStat"];
-export type StrategyStat = Schemas["StrategyStat"];
-export type HoldTimeBucket = Schemas["HoldTimeBucket"];
-export type TickerStat = Schemas["TickerStat"];
-export type PaperTradeItem = Schemas["PaperTradeItem"];
-export type TradeNotesUpdate = Schemas["TradeNotesUpdate"];
-
-export type MLModelsResponse = Schemas["MLModelsResponse"];
-export type ModelVersionRow = Schemas["ModelVersionRow"];
-export type ModelDriftSnapshot = Schemas["ModelDriftSnapshot"];
-export type FoldMetric = Schemas["FoldMetric"];
-
 export type DashboardResponse = Schemas["DashboardResponse"];
 export type DashboardPick = Schemas["DashboardPick"];
 export type StrategyCard = Schemas["StrategyCard"];
 
-export type ResearchAskRequest = Schemas["ResearchAskRequest"];
-export type ResearchRunSummary = Schemas["ResearchRunSummary"];
-export type ResearchRunDetail = Schemas["ResearchRunDetail"];
-export type ToolCallEntry = Schemas["ToolCallEntry"];
-export type FilingNotificationItem = Schemas["FilingNotificationItem"];
-export type SummarizeNotificationResponse = Schemas["SummarizeNotificationResponse"];
+export type BriefingResponse = Schemas["BriefingResponse"];
+export type FactorCoverage = Schemas["FactorCoverage"];
+export type TopPick = Schemas["TopPick"];
+export type ActionCounts = Schemas["ActionCounts"];
+export type DriftCheckOut = Schemas["DriftCheckOut"];
+export type PositionAlert = Schemas["PositionAlert"];
 
 // ─── Endpoint helpers ────────────────────────────────────────────────────────
 
@@ -138,164 +152,101 @@ export const api = {
     history: (params?: {
       period?: "1D" | "1W" | "1M" | "3M" | "6M" | "1A";
       timeframe?: "1Min" | "5Min" | "15Min" | "1H" | "1D";
+      includeSpy?: boolean;
     }) => {
       const q = new URLSearchParams();
       if (params?.period) q.set("period", params.period);
       if (params?.timeframe) q.set("timeframe", params.timeframe);
+      if (params?.includeSpy) q.set("include_spy", "true");
       const qs = q.toString();
       return request<PortfolioHistory>(
         `/api/portfolio/history${qs ? `?${qs}` : ""}`,
       );
     },
+    recommendations: () =>
+      request<PortfolioRecommendations>("/api/portfolio/recommendations"),
+    spySnapshot: () =>
+      request<PaperVsSpySnapshot>("/api/portfolio/spy-snapshot"),
   },
 
   scans: {
-    list: (params?: { strategy?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      if (params?.limit) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<ScanSummary[]>(`/api/scans${qs ? `?${qs}` : ""}`);
-    },
-    get: (runId: string) =>
-      request<ScanResponse>(`/api/scans/${encodeURIComponent(runId)}`),
-    trigger: (body: ScanRequest) =>
-      request<ScanResponse>("/api/scans", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+    // POST /api/scans, GET /api/scans, GET /api/scans/{id},
+    // /latest-buys, /sanity-check were deleted 2026-05-23. They
+    // drove the legacy 5-engine composite path which the FE no
+    // longer consumes; the only remaining surface is the factor
+    // pipeline's picks reader below.
+    factorPicks: () => request<BuySignal[]>("/api/scans/factor-picks"),
   },
 
-  backtests: {
-    list: (params?: { strategy?: string; limit?: number }) => {
+  executions: {
+    list: (limit?: number) => {
       const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      if (params?.limit) q.set("limit", String(params.limit));
+      if (limit) q.set("limit", String(limit));
       const qs = q.toString();
-      return request<BacktestSummary[]>(`/api/backtests${qs ? `?${qs}` : ""}`);
-    },
-    get: (id: number) => request<BacktestResponse>(`/api/backtests/${id}`),
-    trigger: (body: BacktestRequest) =>
-      request<BacktestResponse>("/api/backtests", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  },
-
-  diagnostics: {
-    list: (params?: { factor?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.factor) q.set("factor", params.factor);
-      if (params?.limit) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<DiagnosticSummary[]>(
-        `/api/diagnostics${qs ? `?${qs}` : ""}`,
+      return request<ExecutionSummary[]>(
+        `/api/executions${qs ? `?${qs}` : ""}`,
       );
     },
-    get: (id: number) => request<DiagnosticResponse>(`/api/diagnostics/${id}`),
-    trigger: (body: DiagnosticRequest) =>
-      request<DiagnosticResponse>("/api/diagnostics", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+    get: (date: string) =>
+      request<ExecutionDetail>(`/api/executions/${encodeURIComponent(date)}`),
   },
+
+  icReports: {
+    list: (limit?: number) => {
+      const q = new URLSearchParams();
+      if (limit) q.set("limit", String(limit));
+      const qs = q.toString();
+      return request<IcReportSummary[]>(
+        `/api/ic-reports${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (slug: string) =>
+      request<IcReportDetail>(`/api/ic-reports/${encodeURIComponent(slug)}`),
+  },
+
+  factorBacktests: {
+    list: (params?: { kind?: "sweep" | "ab"; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.kind) q.set("kind", params.kind);
+      if (params?.limit) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return request<FactorBacktestSummary[]>(
+        `/api/factor-backtests${qs ? `?${qs}` : ""}`,
+      );
+    },
+    get: (slug: string) =>
+      request<FactorBacktestDetail>(
+        `/api/factor-backtests/${encodeURIComponent(slug)}`,
+      ),
+  },
+
+  pipeline: {
+    recent: (limit?: number) => {
+      const q = new URLSearchParams();
+      if (limit) q.set("limit", String(limit));
+      const qs = q.toString();
+      return request<PipelineRecentResponse>(
+        `/api/pipeline/recent${qs ? `?${qs}` : ""}`,
+      );
+    },
+    todayActions: (picksDate?: string) => {
+      const q = new URLSearchParams();
+      if (picksDate) q.set("picks_date", picksDate);
+      const qs = q.toString();
+      return request<TodayActionsResponse>(
+        `/api/pipeline/today-actions${qs ? `?${qs}` : ""}`,
+      );
+    },
+  },
+
+  // /api/backtests + /api/diagnostics were deleted 2026-05-23. The
+  // FE never consumed them after the factor-pipeline migration; the
+  // live backtest UI now uses api.factorBacktests (above) which reads
+  // the on-disk reports.
 
   market: {
     regime: () => request<MarketRegime>("/api/market/regime"),
     sectors: () => request<SectorsResponse>("/api/market/sectors"),
-  },
-
-  analytics: {
-    calibration: (params?: { min_score?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.min_score != null) q.set("min_score", String(params.min_score));
-      const qs = q.toString();
-      return request<ScoreCalibration>(
-        `/api/analytics/calibration${qs ? `?${qs}` : ""}`,
-      );
-    },
-    tradesSummary: () =>
-      request<TradeAnalytics>("/api/analytics/trades-summary"),
-  },
-
-  trades: {
-    list: (params?: {
-      ticker?: string;
-      min_score?: number;
-      has_notes?: boolean;
-      limit?: number;
-    }) => {
-      const q = new URLSearchParams();
-      if (params?.ticker) q.set("ticker", params.ticker);
-      if (params?.min_score != null) q.set("min_score", String(params.min_score));
-      if (params?.has_notes != null) q.set("has_notes", String(params.has_notes));
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<PaperTradeItem[]>(`/api/trades${qs ? `?${qs}` : ""}`);
-    },
-    updateNotes: (id: number, body: TradeNotesUpdate) =>
-      request<PaperTradeItem>(`/api/trades/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      }),
-  },
-
-  research: {
-    ask: (body: ResearchAskRequest) =>
-      request<ResearchRunDetail>("/api/research/ask", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    list: (params?: { status?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.status) q.set("status", params.status);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<ResearchRunSummary[]>(
-        `/api/research/runs${qs ? `?${qs}` : ""}`,
-      );
-    },
-    get: (id: number, params?: { include_transcript?: boolean }) => {
-      const q = new URLSearchParams();
-      if (params?.include_transcript) q.set("include_transcript", "true");
-      const qs = q.toString();
-      return request<ResearchRunDetail>(
-        `/api/research/runs/${id}${qs ? `?${qs}` : ""}`,
-      );
-    },
-    notifications: (params?: { ticker?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.ticker) q.set("ticker", params.ticker);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      const qs = q.toString();
-      return request<FilingNotificationItem[]>(
-        `/api/research/notifications${qs ? `?${qs}` : ""}`,
-      );
-    },
-    summarizeNotification: (id: number) =>
-      request<SummarizeNotificationResponse>(
-        `/api/research/notifications/${id}/summarize`,
-        { method: "POST" },
-      ),
-    monitorStatus: () =>
-      request<{ running: boolean; poll_seconds: number; forms: string[] }>(
-        "/api/research/monitor/status",
-      ),
-  },
-
-  ml: {
-    models: (params?: {
-      model_name?: string;
-      limit?: number;
-      window_days?: number;
-    }) => {
-      const q = new URLSearchParams();
-      if (params?.model_name) q.set("model_name", params.model_name);
-      if (params?.limit != null) q.set("limit", String(params.limit));
-      if (params?.window_days != null) q.set("window_days", String(params.window_days));
-      const qs = q.toString();
-      return request<MLModelsResponse>(`/api/ml/models${qs ? `?${qs}` : ""}`);
-    },
   },
 
   stocks: {
@@ -307,20 +258,9 @@ export const api = {
         `/api/stocks/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`,
       );
     },
-    /**
-     * Run the full analyzer chain on a single ticker on-demand. Used as a
-     * fallback when the ticker isn't present in any recent scan_run — keeps
-     * the deep-dive page useful for arbitrary user input from the search bar.
-     */
-    analyze: (ticker: string, params?: { strategy?: string }) => {
-      const q = new URLSearchParams();
-      if (params?.strategy) q.set("strategy", params.strategy);
-      const qs = q.toString();
-      return request<ScanResultItem>(
-        `/api/stocks/${encodeURIComponent(ticker)}/analyze${qs ? `?${qs}` : ""}`,
-        { method: "POST" },
-      );
-    },
+    // POST /api/stocks/{ticker}/analyze was deleted 2026-05-23 — the
+    // per-stock page now reads factor context from the basket basketItem
+    // instead of running an on-demand 5-engine analyze.
   },
 
   recommendations: {
@@ -355,6 +295,10 @@ export const api = {
       return request<DashboardResponse>(
         `/api/dashboard${qs ? `?${qs}` : ""}`,
       );
+    },
+    briefing: (params?: { picks_date?: string }) => {
+      const qs = params?.picks_date ? `?picks_date=${params.picks_date}` : "";
+      return request<BriefingResponse>(`/api/dashboard/briefing${qs}`);
     },
   },
 };

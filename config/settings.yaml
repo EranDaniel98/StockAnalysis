@@ -4,7 +4,7 @@
 # =============================================================================
 
 data:
-  source: "yfinance"
+  source: "polygon"                 # yfinance | polygon (Polygon = deterministic, delisting-inclusive)
   history_years: 5
   interval: "1d"                    # 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo
   cache_expiry_hours: 24              # cache expiry when market is CLOSED
@@ -85,6 +85,16 @@ fundamental_filters:
   min_current_ratio: 1.0
   min_profit_margin_pct: 5
   min_free_cash_flow: 0
+  # Category weights for the fundamental composite. Each category
+  # returns a 0-100 sub-score; missing categories are skipped and the
+  # remaining weights are renormalized. Must sum to a positive value.
+  category_weights:
+    valuation: 0.25
+    growth: 0.25
+    profitability: 0.20
+    health: 0.15
+    dividend: 0.05
+    analyst: 0.10
 
 # --- Scoring Thresholds ---
 scoring:
@@ -96,10 +106,17 @@ scoring:
     sell: 20
     # below sell threshold = STRONG SELL
 
+  # Minimum daily-bar history below which the recommender refuses to
+  # emit a confident Action (insufficient_history gate). 252 ≈ one
+  # trading year — the longest indicator window (200-SMA) plus warmup
+  # buffer. Recent-IPO tickers and freshly-listed instruments trip
+  # this gate until they accumulate enough history.
+  min_history_days: 252
+
 # --- Risk Management ---
 risk_management:
   position_sizing:
-    method: "fixed_fractional"      # fixed_fractional, kelly
+    method: "fixed_fractional"      # only "fixed_fractional" is implemented; "kelly" is refused at runtime (no per-strategy win-rate calibration table) and falls back to fixed_fractional with a warning
     max_portfolio_pct: 10           # max % of portfolio in one position
     max_sector_pct: 30              # max % of portfolio in one sector
     default_portfolio_value: 100000
@@ -164,6 +181,64 @@ risk_management:
   # A/B-test via scripts/sweep_oscillator_merge.py.
   momentum_oscillator:
     merge_rsi_stoch: false
+
+# --- Live-trading safety (review items #1, #2) -----------------------------
+# Read at the broker-client boundary in src/execution/alpaca.py. EVERY
+# order submission goes through these gates; nothing can bypass them by
+# calling submit_bracket_order / submit_market_order directly.
+#
+# trading_enabled is the master kill switch. It MUST stay false until an
+# operator explicitly flips it for a session. Bootstrap from a non-live
+# config:
+#   STOCKNEW_TRADING_ENABLED=1 uv run python -m src.cli.main paper trade ...
+# The env-var override exists so a CI job or a one-off interactive
+# session can enable without editing the checked-in YAML; flipping
+# trading_enabled to true here ships an "always-on" config and is the
+# wrong way to do it for daily use.
+trading:
+  # Master kill switch. false → every order submission is refused with
+  # a loud log line and a non-zero exit. Override per-session with
+  # STOCKNEW_TRADING_ENABLED=1.
+  trading_enabled: false
+
+  # Hard refusal gates — enforced (not warned) at every order submission.
+  # Tripping any one of these refuses the order outright.
+  circuit_breakers:
+    # Daily realized + unrealized P&L floor as a fraction of account
+    # equity at session start. -0.02 means "if today's P&L is worse
+    # than -2% of opening equity, refuse all further entries". 0.0
+    # disables the breaker (do not do this for live).
+    max_daily_loss_pct: -0.02
+
+    # Trailing peak-to-trough drawdown ceiling as a fraction of the
+    # session-start equity. -0.10 means "if account is more than 10%
+    # below the recent equity high, halt." Live-trading default
+    # mirrors the review's recommended capital-safety ladder.
+    max_drawdown_halt_pct: -0.10
+
+    # Hard cap on simultaneously-open positions. Refuses entries above
+    # this even if the strategy + sizing would allow them. Real-money
+    # operability — fewer positions == easier to babysit. The cap is
+    # checked AFTER the strategy emits recommendations, so it can
+    # silently truncate a top-N list.
+    #
+    # Raised 30 → 60 on 2026-05-19: paper account had accumulated 52
+    # positions from prior runs and the 30-cap was short-circuiting
+    # the entire rebalance (including closes). 60 gives headroom for
+    # mid-rebalance overlap (existing 52 + new 15 = 67 transient peak)
+    # plus a buffer. A truly anomalous picks list would still hit 60
+    # and refuse, preserving the cap's value as a safety backstop.
+    max_open_positions: 60
+
+    # Maximum notional value per single order submission, in USD. A
+    # bracket entry of qty * limit_price exceeding this is refused.
+    # Raised from 3000 → 5000 on 2026-05-19 to fit the d03 concentration
+    # config: 15 picks × ~$4,200 each (= equity / 15 with 2% cash buffer)
+    # means individual orders for high-priced names (SNDK, MU, RL, BMY,
+    # TPR, GM) routinely exceed $3k. 5000 is the smallest cap that
+    # admits the planned d03 portfolio without removing the cap's value
+    # as a sanity backstop (a $10k order would still get refused).
+    max_order_value_usd: 5000
 
 # --- Alerts ---
 alerts:

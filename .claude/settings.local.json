@@ -33,7 +33,11 @@
       "Bash(rtk python *)",
       "Bash(rtk ls *)",
       "Bash(rtk git *)",
-      "Bash(rtk grep *)"
+      "Bash(rtk grep *)",
+      "Bash(uv run python -c ' *)",
+      "WebSearch",
+      "WebFetch",
+      "Bash(rtk uv *)"
     ]
   }
 }

@@ -2,25 +2,29 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   BarChart3,
-  BookText,
-  Brain,
   Briefcase,
   Grid3x3,
   HelpCircle,
   Home,
   LineChart,
   Microscope,
-  MessageSquare,
-  Rss,
+  Play,
   Search,
-  Target,
+  Sparkles,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 
+import { EdgeCaveatBanner } from "@/components/edge-caveat-banner";
 import { RegimeTile } from "@/components/regime-tile";
 import {
   CommandDialog,
@@ -48,6 +52,12 @@ const NAV: NavLink[] = [
     description: "Today's best plays across every strategy",
   },
   {
+    href: "/factors",
+    label: "Factors",
+    icon: Sparkles,
+    description: "Composite-factor daily picks (m+q+v)",
+  },
+  {
     href: "/portfolio",
     label: "Portfolio",
     icon: Wallet,
@@ -55,9 +65,15 @@ const NAV: NavLink[] = [
   },
   {
     href: "/scan",
-    label: "Scan",
-    icon: Search,
-    description: "Trigger a market scan",
+    label: "Run pipeline",
+    icon: Play,
+    description: "Re-run the daily factor pipeline on demand",
+  },
+  {
+    href: "/buy-signals",
+    label: "Today's actions",
+    icon: TrendingUp,
+    description: "NEW BUY / KEEP / EXIT with stops, sanity, earnings",
   },
   {
     href: "/backtests",
@@ -73,51 +89,15 @@ const NAV: NavLink[] = [
   },
   {
     href: "/recommendations",
-    label: "Recommendations",
+    label: "Execution log",
     icon: LineChart,
-    description: "Paper-trade recommendation history",
+    description: "Per-day paper-trade results: submitted / skipped / failed",
   },
   {
     href: "/sectors",
     label: "Sectors",
     icon: Grid3x3,
     description: "SPDR sector rotation map",
-  },
-  {
-    href: "/analytics",
-    label: "Analytics",
-    icon: BarChart3,
-    description: "Closed paper-trade analytics dashboard",
-  },
-  {
-    href: "/calibration",
-    label: "Calibration",
-    icon: Target,
-    description: "Score → realized-return calibration",
-  },
-  {
-    href: "/journal",
-    label: "Journal",
-    icon: BookText,
-    description: "Closed-trade journal with notes",
-  },
-  {
-    href: "/ml",
-    label: "ML Models",
-    icon: Brain,
-    description: "Trained models, fold metrics, drift status",
-  },
-  {
-    href: "/research",
-    label: "Research",
-    icon: MessageSquare,
-    description: "Ask the agent; runs scans / backtests on your behalf",
-  },
-  {
-    href: "/research/feed",
-    label: "Filing feed",
-    icon: Rss,
-    description: "Live EDGAR 8-K / 10-K / 10-Q notifications for your holdings",
   },
   {
     href: "/help",
@@ -131,13 +111,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [isMac, setIsMac] = useState(false);
 
-  // Detect Mac vs Windows/Linux for the keyboard-hint label. Defaults to
-  // non-Mac so SSR markup matches first paint on Windows.
-  useEffect(() => {
-    setIsMac(/Mac|iPhone|iPad/i.test(navigator.userAgent));
-  }, []);
+  // Detect Mac vs Windows/Linux for the keyboard-hint label.
+  // useSyncExternalStore is the React-recommended hydration-safe pattern
+  // for browser-API snapshots: SSR uses the fallback (false → Ctrl), and
+  // hydration reads navigator.userAgent so Mac users see ⌘K from first
+  // paint without a flash.
+  const isMac = useSyncExternalStore(
+    () => () => {},
+    () => /Mac|iPhone|iPad/i.test(navigator.userAgent),
+    () => false,
+  );
 
   // ⌘K / Ctrl+K toggles the palette.
   useEffect(() => {
@@ -239,6 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="border-border/40 bg-background/50 sticky top-0 z-10 flex justify-end gap-2 border-b px-6 py-2 backdrop-blur">
           <RegimeTile />
         </header>
+        <EdgeCaveatBanner />
         <div className="mx-auto w-full max-w-7xl px-6 py-8">{children}</div>
       </main>
 
