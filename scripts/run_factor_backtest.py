@@ -122,6 +122,10 @@ def _parse_args() -> argparse.Namespace:
                         "flips back on — decoupling it from the 63-day factor "
                         "rebalance. Default off = legacy (regime checked only at "
                         "rebalances). Targets the cadence leak (project_regime_whipsaw).")
+    p.add_argument("--rebal-offset", type=int, default=0,
+                   help="Shift the rebalance-grid start by N trading days (phase). "
+                        "Phase-envelope robustness: sweep 0..rebalance_days-1 to see "
+                        "if a result is an artifact of WHERE the 63-day grid lands.")
     p.add_argument("--vix-gate", action="store_true",
                    help="Block new entries when VIX is in the top "
                         "(1 - vix_cutoff) of its trailing 252d distribution. "
@@ -1022,7 +1026,7 @@ def run(args: argparse.Namespace) -> dict:
         if args.long_short:
             exposure_history.append(_record_exposure(holdings, cash, prices, d))
 
-        is_rebal = (i % rebal_every == 0)
+        is_rebal = (i % rebal_every == args.rebal_offset % rebal_every)
         check_regime = args.daily_regime or is_rebal
         blocked = vix_blocked = False
         if check_regime:
