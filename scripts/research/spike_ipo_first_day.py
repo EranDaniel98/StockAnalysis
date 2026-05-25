@@ -1,138 +1,143 @@
 # /// script
-# dependencies = ["yfinance", "pandas", "numpy", "openpyxl", "scipy", "requests"]
+# dependencies = ["pandas", "numpy", "scipy", "requests", "python-dotenv", "openpyxl"]
 # ///
 """
-Spike: is there a *tradeable* edge in IPO first-day open->close returns?
+Spike: is there a *tradeable* edge in IPO first-day returns?
 
-Phase 0 kill gate (see project memory / IPO discussion):
-  - Labels source: Jay Ritter's IPO-age.xlsx (firm-level calendar + VC/tech/
-    dual-class/size/founding-year features). NO offer price -> we measure the
-    OPEN->CLOSE return (what a non-allocated retail trader can actually capture),
-    NOT offer->close (which needs an IPO allocation).
-  - Day-1 OHLC from yfinance.
-  - Question: does mean open->close clear zero, and does ANY free feature sort
-    the cross-section (rank-IC CI excluding 0, monotonic quintiles)?
+Data source: Polygon / Massive (api.polygon.io). Chosen after the free
+Ritter+yfinance path proved too dirty (yfinance rate-limits at scale +
+survivorship + SPAC contamination — see memory project_ipo_spike_data_path).
 
-Honest limitations, measured and reported (not hidden):
-  - SURVIVORSHIP BIAS: yfinance drops delisted tickers, so IPOs that later died
-    are missing. Inflates results. We report coverage so we know how bad it is.
-  - TICKER REUSE: a Ritter ticker may map to a different company on yfinance
-    today. Guarded by rejecting symbols already trading before their offer date.
-  - No offer-price / range-revision / underwriter-rank features (Phase 1).
+The /vX/reference/ipos endpoint gives final_issue_price + the filing range
+(lowest/highest_offer_price), so we measure THREE returns and decompose the
+pop into reachable vs unreachable:
+    gap        = (open  - offer) / offer   # allocation-only; retail CANNOT get this
+    open_close = (close - open ) / open    # the slice a retail trader CAN trade
+    offer_close= (close - offer) / offer   # = gap + open_close (the stated target)
 
-Output: reports/ipo_first_day_ic.json + console summary.
+Headline questions:
+  1. How much of the offer->close pop is the gap (unreachable) vs open->close?
+  2. Does the range-revision signal ((offer - range_mid)/range_mid, the
+     strongest academic predictor) sort offer_close AND open_close?
+  KILL GATE: if open_close IC's CI includes 0 while offer_close's doesn't,
+  the edge is real but unreachable without an allocation -> stop.
+
+Honest limitations still measured: coverage reported; SPACs filtered by
+final_issue_price ~= $10 + security_type != CS; delisting-inclusive via
+Polygon aggregates (fixes survivorship).
+
+Setup: put POLYGON_API_KEY=<key> in .env  (existing Polygon keys work post the
+Massive rebrand). Stocks Starter (~5yr history) covers 2021+; Developer (~10yr)
+covers 2019+. Default window 2021-2025 is Starter-friendly.
+
 Usage:  uv run scripts/research/spike_ipo_first_day.py [START_YEAR] [END_YEAR]
+Output: reports/ipo_first_day_ic.json + console summary.
 """
 from __future__ import annotations
 
-import io
 import json
+import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout, as_completed
-from datetime import date, timedelta
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
+from dotenv import load_dotenv
 from scipy import stats
 
 ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT / ".env")
 DATA_DIR = ROOT / "data" / "ipo"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS = ROOT / "reports"
-REPORTS.mkdir(exist_ok=True)
+DAY1_CACHE = DATA_DIR / "polygon_day1_cache.json"
+IPOS_CACHE = DATA_DIR / "polygon_ipos_cache.json"
+RITTER_XLSX = DATA_DIR / "IPO-age.xlsx"          # optional, for VC/age join (already cached)
 
-RITTER_URL = "https://site.warrington.ufl.edu/ritter/files/IPO-age.xlsx"
-RITTER_XLSX = DATA_DIR / "IPO-age.xlsx"
-DAY1_CACHE = DATA_DIR / "day1_ohlc_cache.json"
-UA = {"User-Agent": "Mozilla/5.0 (IPO research; erand1998@gmail.com)"}
+BASE = "https://api.polygon.io"
+API_KEY = os.getenv("POLYGON_API_KEY") or os.getenv("MASSIVE_API_KEY")
 
-START_YEAR = int(sys.argv[1]) if len(sys.argv) > 1 else 2019
-END_YEAR = int(sys.argv[2]) if len(sys.argv) > 2 else 2024
-MIN_COHORT = 10        # min IPOs in a month-cohort to compute its rank-IC
-N_BOOT = 2000          # bootstrap resamples for IC CI
-WINSOR = 0.01          # winsorize labels at 1/99 pct for robustness
+START_YEAR = int(sys.argv[1]) if len(sys.argv) > 1 else 2021
+END_YEAR = int(sys.argv[2]) if len(sys.argv) > 2 else 2025
+MIN_COHORT = 8
+N_BOOT = 2000
+WINSOR = 0.01
+SPAC_PRICE_LO, SPAC_PRICE_HI = 9.85, 10.15        # SPACs IPO at exactly $10
 
 
-# ----------------------------------------------------------------------------- data load
-def load_ritter() -> pd.DataFrame:
-    if not RITTER_XLSX.exists():
-        print(f"downloading Ritter IPO-age.xlsx ...")
-        r = requests.get(RITTER_URL, headers=UA, timeout=60)
-        r.raise_for_status()
-        RITTER_XLSX.write_bytes(r.content)
-    raw = pd.read_excel(RITTER_XLSX, sheet_name=0)
-    raw.columns = [str(c).strip() for c in raw.columns]
-    # Columns: offer date | IPO name | Ticker | CUSIP | ADR (2=ADR) | VC | Dual
-    #          | Post-issue shares | Internet | CRSP Perm | Founding | Rollup
-    df = pd.DataFrame()
-    df["offer_date"] = pd.to_datetime(raw["offer date"].astype(str).str.split(".").str[0],
-                                      format="%Y%m%d", errors="coerce")
-    df["ticker"] = raw["Ticker"].astype(str).str.strip().str.upper()
-    df["adr"] = pd.to_numeric(raw["ADR (2=ADR)"], errors="coerce")
-    df["vc"] = pd.to_numeric(raw["VC"], errors="coerce")
-    df["dual"] = pd.to_numeric(raw["Dual"], errors="coerce")
-    df["post_shares"] = pd.to_numeric(raw["Post-issue shares"], errors="coerce")
-    df["internet"] = pd.to_numeric(raw["Internet"], errors="coerce")
-    df["founding"] = pd.to_numeric(raw["Founding"], errors="coerce")
+def _require_key():
+    if not API_KEY:
+        print("ERROR: no POLYGON_API_KEY (or MASSIVE_API_KEY) in environment / .env\n"
+              "  1. Get a Stocks key at https://polygon.io  (Starter covers 2021+, Developer 2019+)\n"
+              "  2. Add a line to .env:  POLYGON_API_KEY=your_key_here\n"
+              "  3. Re-run this script.", file=sys.stderr)
+        sys.exit(2)
 
-    df = df.dropna(subset=["offer_date", "ticker"])
-    df = df[df["ticker"].str.match(r"^[A-Z][A-Z.\-]{0,5}$")]          # plausible US symbols
-    df = df[(df["offer_date"].dt.year >= START_YEAR) & (df["offer_date"].dt.year <= END_YEAR)]
-    df = df[df["adr"] != 2]                                            # drop ADRs
-    df = df.drop_duplicates(subset=["ticker", "offer_date"]).reset_index(drop=True)
-    # derived features
-    df["age"] = df["offer_date"].dt.year - df["founding"]
-    df.loc[(df["age"] < 0) | (df["age"] > 200), "age"] = np.nan
-    df["log_size"] = np.log(df["post_shares"].where(df["post_shares"] > 0))
-    return df
+
+# ----------------------------------------------------------------------------- IPO calendar
+def fetch_ipos() -> list[dict]:
+    if IPOS_CACHE.exists():
+        return json.loads(IPOS_CACHE.read_text())
+    out, url = [], (f"{BASE}/vX/reference/ipos?ipo_status=history"
+                    f"&listing_date.gte={START_YEAR}-01-01&listing_date.lte={END_YEAR}-12-31"
+                    f"&limit=1000&sort=listing_date&order=asc&apiKey={API_KEY}")
+    while url:
+        r = requests.get(url, timeout=30)
+        if r.status_code != 200:
+            print(f"ipos fetch {r.status_code}: {r.text[:300]}", file=sys.stderr)
+            sys.exit(1)
+        j = r.json()
+        out.extend(j.get("results", []))
+        nxt = j.get("next_url")
+        url = f"{nxt}&apiKey={API_KEY}" if nxt else None
+        time.sleep(0.2)
+    IPOS_CACHE.write_text(json.dumps(out))
+    print(f"fetched {len(out)} IPO records {START_YEAR}-{END_YEAR}")
+    return out
 
 
 # ----------------------------------------------------------------------------- day-1 OHLC
-def _fetch_day1(ticker: str, offer_date: date) -> dict | None:
-    """First trading bar on/after offer_date. Rejects ticker reuse."""
-    start = offer_date - timedelta(days=5)
-    end = offer_date + timedelta(days=14)
-    try:
-        h = yf.Ticker(ticker).history(start=start.isoformat(), end=end.isoformat(),
-                                      interval="1d", auto_adjust=False)
-    except Exception:
-        return None
-    if h is None or h.empty:
-        return None
-    h = h.copy()
-    h.index = pd.to_datetime(h.index).tz_localize(None)
-    od = pd.Timestamp(offer_date)
-    # ticker-reuse guard: already trading before the IPO -> wrong company
-    if (h.index < od - pd.Timedelta(days=1)).any():
-        return {"reuse": True}
-    after = h[h.index >= od - pd.Timedelta(days=1)]
-    if after.empty:
-        return None
-    first = after.iloc[0]
-    o, c = float(first["Open"]), float(first["Close"])
-    if not (o > 0 and c > 0):
-        return None
-    return {"first_bar": after.index[0].date().isoformat(),
-            "open": o, "close": c, "oc_ret": (c - o) / o}
+def _agg_day1(ticker: str, listing_date: str) -> dict | None:
+    """First daily bar on/after listing_date (delisting-inclusive)."""
+    frm = listing_date
+    to = (pd.Timestamp(listing_date) + pd.Timedelta(days=10)).date().isoformat()
+    url = f"{BASE}/v2/aggs/ticker/{ticker}/range/1/day/{frm}/{to}?adjusted=false&sort=asc&limit=5&apiKey={API_KEY}"
+    for attempt in range(4):
+        r = requests.get(url, timeout=30)
+        if r.status_code == 429:
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        if r.status_code != 200:
+            return None
+        res = r.json().get("results") or []
+        if not res:
+            return None
+        b = res[0]
+        o, c = b.get("o"), b.get("c")
+        if not (o and c and o > 0 and c > 0):
+            return None
+        return {"bar_date": pd.Timestamp(b["t"], unit="ms").date().isoformat(),
+                "open": float(o), "close": float(c)}
+    return None
 
 
-def fetch_all_day1(df: pd.DataFrame) -> dict:
+def fetch_all_day1(rows: list[dict]) -> dict:
     cache = json.loads(DAY1_CACHE.read_text()) if DAY1_CACHE.exists() else {}
-    todo = [(r.ticker, r.offer_date.date()) for r in df.itertuples()
-            if f"{r.ticker}|{r.offer_date.date()}" not in cache]
+    todo = [(r["ticker"], r["listing_date"]) for r in rows
+            if r["ticker"] and r["listing_date"]
+            and f"{r['ticker']}|{r['listing_date']}" not in cache]
     print(f"day-1 OHLC: {len(cache)} cached, {len(todo)} to fetch")
     done = 0
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_fetch_day1, t, d): f"{t}|{d}" for t, d in todo}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_agg_day1, t, d): f"{t}|{d}" for t, d in todo}
         for fut in as_completed(futs):
-            key = futs[fut]
             try:
-                cache[key] = fut.result(timeout=35)
-            except (FutTimeout, Exception):
-                cache[key] = None
+                cache[futs[fut]] = fut.result()
+            except Exception:
+                cache[futs[fut]] = None
             done += 1
             if done % 100 == 0:
                 print(f"  {done}/{len(todo)}")
@@ -141,19 +146,39 @@ def fetch_all_day1(df: pd.DataFrame) -> dict:
     return cache
 
 
+# ----------------------------------------------------------------------------- optional Ritter VC/age
+def ritter_features() -> pd.DataFrame | None:
+    if not RITTER_XLSX.exists():
+        return None
+    raw = pd.read_excel(RITTER_XLSX, sheet_name=0)
+    raw.columns = [str(c).strip() for c in raw.columns]
+    od = pd.to_datetime(raw["offer date"].astype(str).str.split(".").str[0],
+                        format="%Y%m%d", errors="coerce")
+    return pd.DataFrame({
+        "ticker": raw["Ticker"].astype(str).str.strip().str.upper(),
+        "_year": od.dt.year,
+        "vc": pd.to_numeric(raw["VC"], errors="coerce"),
+        "founding": pd.to_numeric(raw["Founding"], errors="coerce"),
+    }).dropna(subset=["ticker", "_year"])
+
+
 # ----------------------------------------------------------------------------- stats
-def winsorize(s: pd.Series, p: float) -> pd.Series:
-    lo, hi = s.quantile(p), s.quantile(1 - p)
-    return s.clip(lo, hi)
+def winsorize(s, p):
+    return s.clip(s.quantile(p), s.quantile(1 - p))
 
 
-def cohort_rank_ic(df: pd.DataFrame, feat: str, label: str) -> dict:
-    """Fama-MacBeth: monthly-cohort Spearman, then average. Bootstrap CI over cohorts."""
+def block(s):
+    s = pd.Series(s).dropna()
+    return {"n": int(len(s)), "mean": round(float(s.mean()), 4),
+            "median": round(float(s.median()), 4),
+            "hit_gt0": round(float((s > 0).mean()), 3),
+            "std": round(float(s.std()), 4)} if len(s) else {"n": 0}
+
+
+def cohort_rank_ic(df, feat, label):
     sub = df[[feat, label, "cohort"]].dropna()
-    ics = []
-    for _, g in sub.groupby("cohort"):
-        if len(g) >= MIN_COHORT and g[feat].nunique() > 1:
-            ics.append(stats.spearmanr(g[feat], g[label]).statistic)
+    ics = [stats.spearmanr(g[feat], g[label]).statistic
+           for _, g in sub.groupby("cohort") if len(g) >= MIN_COHORT and g[feat].nunique() > 1]
     ics = np.array([x for x in ics if np.isfinite(x)])
     if len(ics) < 3:
         return {"n_cohorts": int(len(ics)), "ic_mean": None, "note": "too few cohorts"}
@@ -161,120 +186,115 @@ def cohort_rank_ic(df: pd.DataFrame, feat: str, label: str) -> dict:
     lo, hi = np.percentile(boot, [2.5, 97.5])
     t = ics.mean() / (ics.std(ddof=1) / np.sqrt(len(ics))) if ics.std() > 0 else 0.0
     return {"n_cohorts": int(len(ics)), "ic_mean": round(float(ics.mean()), 4),
-            "ic_std": round(float(ics.std(ddof=1)), 4), "t_stat": round(float(t), 2),
-            "ci95": [round(float(lo), 4), round(float(hi), 4)],
+            "t_stat": round(float(t), 2), "ci95": [round(float(lo), 4), round(float(hi), 4)],
             "ci_excludes_0": bool(lo > 0 or hi < 0)}
 
 
-def quintile_spread(df: pd.DataFrame, feat: str, label: str) -> dict:
+def quintile_spread(df, feat, label):
     sub = df[[feat, label]].dropna()
     if len(sub) < 25 or sub[feat].nunique() < 5:
-        return {"note": "insufficient / discrete"}
-    try:
-        q = pd.qcut(sub[feat].rank(method="first"), 5, labels=False)
-    except ValueError:
-        return {"note": "qcut failed"}
-    means = sub.groupby(q)[label].mean()
-    return {"q1_low": round(float(means.iloc[0]), 4), "q5_high": round(float(means.iloc[-1]), 4),
-            "spread_hi_minus_lo": round(float(means.iloc[-1] - means.iloc[0]), 4),
-            "monotonic": bool(means.is_monotonic_increasing or means.is_monotonic_decreasing)}
-
-
-def binary_diff(df: pd.DataFrame, feat: str, label: str) -> dict:
-    sub = df[[feat, label]].dropna()
-    a = sub[sub[feat] == 1][label]
-    b = sub[sub[feat] == 0][label]
-    if len(a) < 10 or len(b) < 10:
-        return {"note": "too few in a group", "n1": int(len(a)), "n0": int(len(b))}
-    t = stats.ttest_ind(a, b, equal_var=False)
-    return {"mean_1": round(float(a.mean()), 4), "mean_0": round(float(b.mean()), 4),
-            "diff": round(float(a.mean() - b.mean()), 4), "n1": int(len(a)), "n0": int(len(b)),
-            "t_stat": round(float(t.statistic), 2), "p_value": round(float(t.pvalue), 4)}
+        return {"note": "insufficient"}
+    q = pd.qcut(sub[feat].rank(method="first"), 5, labels=False)
+    m = sub.groupby(q)[label].mean()
+    return {"q1_low": round(float(m.iloc[0]), 4), "q5_high": round(float(m.iloc[-1]), 4),
+            "spread": round(float(m.iloc[-1] - m.iloc[0]), 4),
+            "monotonic": bool(m.is_monotonic_increasing or m.is_monotonic_decreasing)}
 
 
 # ----------------------------------------------------------------------------- main
 def main():
+    _require_key()
     np.random.seed(42)
-    ritter = load_ritter()
-    print(f"Ritter universe {START_YEAR}-{END_YEAR}: {len(ritter)} IPOs (post-filter)")
+    REPORTS.mkdir(exist_ok=True)
+    ipos = fetch_ipos()
+    cache = fetch_all_day1(ipos)
 
-    cache = fetch_all_day1(ritter)
-
-    # join labels
-    rows, reuse = [], 0
-    for r in ritter.itertuples():
-        rec = cache.get(f"{r.ticker}|{r.offer_date.date()}")
-        if rec is None:
+    rows = []
+    for r in ipos:
+        tk, ld = r.get("ticker"), r.get("listing_date")
+        offer = r.get("final_issue_price")
+        if not (tk and ld and offer and offer > 0):
             continue
-        if rec.get("reuse"):
-            reuse += 1
+        if r.get("security_type") not in (None, "CS"):       # common stock only
             continue
-        rows.append({"ticker": r.ticker, "offer_date": r.offer_date,
-                     "oc_ret": rec["oc_ret"], "vc": r.vc, "dual": r.dual,
-                     "internet": r.internet, "age": r.age, "log_size": r.log_size})
-    d = pd.DataFrame(rows)
-    n_list, n_data = len(ritter), len(d)
-    print(f"\ncoverage: {n_data}/{n_list} have day-1 data "
-          f"({100*n_data/n_list:.0f}%), {reuse} rejected as ticker-reuse")
+        if SPAC_PRICE_LO <= offer <= SPAC_PRICE_HI:           # drop $10 SPACs
+            continue
+        d1 = cache.get(f"{tk}|{ld}")
+        if not d1:
+            continue
+        o, c = d1["open"], d1["close"]
+        lo, hi = r.get("lowest_offer_price"), r.get("highest_offer_price")
+        mid = (lo + hi) / 2 if (lo and hi and hi >= lo > 0) else None
+        rows.append({
+            "ticker": tk, "listing_date": pd.Timestamp(ld),
+            "gap": (o - offer) / offer,
+            "open_close": (c - o) / o,
+            "offer_close": (c - offer) / offer,
+            "range_rev": (offer - mid) / mid if mid else np.nan,
+            "log_size": np.log(r["total_offer_size"]) if r.get("total_offer_size") else np.nan,
+        })
+    d = pd.DataFrame(rows).sort_values("listing_date").reset_index(drop=True)
+    n_priced = sum(1 for r in ipos if (r.get("final_issue_price") or 0) > 0)
 
-    d = d.sort_values("offer_date").reset_index(drop=True)
-    d["cohort"] = d["offer_date"].dt.to_period("M").astype(str)
-    d["oc_w"] = winsorize(d["oc_ret"], WINSOR)
+    # optional Ritter VC/age join
+    rit = ritter_features()
+    if rit is not None and len(d):
+        d["_year"] = d["listing_date"].dt.year
+        d = d.merge(rit, on=["ticker", "_year"], how="left")
+        d["age"] = d["_year"] - d["founding"]
+        d.loc[(d["age"] < 0) | (d["age"] > 200), "age"] = np.nan
 
-    # hotness: mean open->close of IPOs in the prior 30 calendar days (ex-ante)
-    dates = d["offer_date"].values
-    rets = d["oc_ret"].values
-    hot = np.full(len(d), np.nan)
-    for i in range(len(d)):
-        mask = (dates < dates[i]) & (dates >= dates[i] - np.timedelta64(30, "D"))
-        if mask.sum() >= 3:
-            hot[i] = rets[mask].mean()
-    d["hotness"] = hot
+    if not len(d):
+        print("no rows after filtering — check API key / window / coverage", file=sys.stderr)
+        sys.exit(1)
 
-    # unconditional facts (the most important numbers)
-    def block(s):
-        s = s.dropna()
-        return {"n": int(len(s)), "mean": round(float(s.mean()), 4),
-                "median": round(float(s.median()), 4),
-                "hit_rate_gt0": round(float((s > 0).mean()), 3),
-                "std": round(float(s.std()), 4)}
-    by_year = {int(y): block(g["oc_ret"]) for y, g in d.groupby(d["offer_date"].dt.year)}
+    d["cohort"] = d["listing_date"].dt.to_period("M").astype(str)
+    # ex-ante IPO-market hotness: mean open_close of IPOs in prior 30 days
+    dt, oc = d["listing_date"].values, d["open_close"].values
+    d["hotness"] = [oc[(dt < dt[i]) & (dt >= dt[i] - np.timedelta64(30, "D"))].mean()
+                    if ((dt < dt[i]) & (dt >= dt[i] - np.timedelta64(30, "D"))).sum() >= 3
+                    else np.nan for i in range(len(d))]
+    for lbl in ["gap", "open_close", "offer_close"]:
+        d[lbl + "_w"] = winsorize(d[lbl], WINSOR)
 
+    feats = [f for f in ["range_rev", "log_size", "hotness", "age", "vc"] if f in d]
     report = {
-        "spike": "ipo_first_day_open_to_close",
-        "label": "open->close day-1 return (tradeable; NOT offer->close)",
+        "spike": "ipo_first_day", "source": "polygon/massive",
         "window": f"{START_YEAR}-{END_YEAR}",
-        "coverage": {"ritter_list": n_list, "with_day1_data": n_data,
-                     "pct": round(100 * n_data / n_list, 1), "ticker_reuse_rejected": reuse,
-                     "WARNING": "yfinance survivorship: delisted IPOs missing -> results inflated"},
-        "unconditional": {"all": block(d["oc_ret"]), "winsorized": block(d["oc_w"]),
-                          "by_year": by_year},
-        "rank_ic_winsorized": {
-            f: cohort_rank_ic(d, f, "oc_w")
-            for f in ["hotness", "log_size", "age", "vc", "dual", "internet"]},
-        "quintile_spread_winsorized": {
-            f: quintile_spread(d, f, "oc_w") for f in ["hotness", "log_size", "age"]},
-        "binary_group_diff_winsorized": {
-            f: binary_diff(d, f, "oc_w") for f in ["vc", "dual", "internet"]},
+        "coverage": {"ipos_priced": n_priced, "after_filters_with_day1": len(d),
+                     "pct": round(100 * len(d) / max(n_priced, 1), 1)},
+        "unconditional": {
+            "gap_offer_to_open (UNREACHABLE)": block(d["gap"]),
+            "open_to_close (TRADEABLE)": block(d["open_close"]),
+            "offer_to_close (target=gap+oc)": block(d["offer_close"]),
+            "by_year_open_close": {int(y): block(g["open_close"])
+                                   for y, g in d.groupby(d["listing_date"].dt.year)}},
+        "rank_ic": {lbl: {f: cohort_rank_ic(d, f, lbl + "_w") for f in feats}
+                    for lbl in ["offer_close", "open_close"]},
+        "quintile_spread_range_rev": {
+            lbl: quintile_spread(d, "range_rev", lbl + "_w") for lbl in ["offer_close", "open_close"]},
     }
-    out = REPORTS / "ipo_first_day_ic.json"
-    out.write_text(json.dumps(report, indent=2))
+    (REPORTS / "ipo_first_day_ic.json").write_text(json.dumps(report, indent=2))
 
-    # ---- console verdict
+    # ---- verdict
+    u = report["unconditional"]
     print("\n" + "=" * 64)
-    print(f"UNCONDITIONAL open->close (n={report['unconditional']['all']['n']}):")
-    u = report["unconditional"]["all"]
-    print(f"  mean={u['mean']:+.4f}  median={u['median']:+.4f}  hit>0={u['hit_rate_gt0']:.0%}")
-    print("  by year:", {y: f"{v['mean']:+.3f}(n{v['n']})" for y, v in by_year.items()})
-    print("\nRANK-IC (winsorized open->close):")
-    for f, ic in report["rank_ic_winsorized"].items():
-        if ic.get("ic_mean") is None:
-            print(f"  {f:9s}: {ic.get('note')}")
-        else:
-            flag = "  <-- CI excludes 0" if ic["ci_excludes_0"] else ""
-            print(f"  {f:9s}: IC={ic['ic_mean']:+.4f} t={ic['t_stat']:+.2f} "
-                  f"CI={ic['ci95']} ({ic['n_cohorts']} cohorts){flag}")
-    print(f"\nwrote {out}")
+    print(f"coverage: {len(d)}/{n_priced} priced IPOs have day-1 data ({report['coverage']['pct']}%)")
+    print(f"\nPOP DECOMPOSITION (mean, n={u['open_to_close (TRADEABLE)']['n']}):")
+    print(f"  gap offer->open  (UNREACHABLE): {u['gap_offer_to_open (UNREACHABLE)']['mean']:+.4f}")
+    print(f"  open->close      (TRADEABLE)  : {u['open_to_close (TRADEABLE)']['mean']:+.4f} "
+          f"(hit>0 {u['open_to_close (TRADEABLE)']['hit_gt0']:.0%})")
+    print(f"  offer->close     (target)     : {u['offer_to_close (target=gap+oc)']['mean']:+.4f}")
+    for lbl in ["offer_close", "open_close"]:
+        print(f"\nRANK-IC vs {lbl}:")
+        for f, ic in report["rank_ic"][lbl].items():
+            if ic.get("ic_mean") is None:
+                print(f"  {f:10s}: {ic.get('note')}")
+            else:
+                flag = "  <-- CI excludes 0" if ic["ci_excludes_0"] else ""
+                print(f"  {f:10s}: IC={ic['ic_mean']:+.4f} t={ic['t_stat']:+.2f} "
+                      f"CI={ic['ci95']}{flag}")
+    print(f"\nwrote {REPORTS / 'ipo_first_day_ic.json'}")
 
 
 if __name__ == "__main__":
