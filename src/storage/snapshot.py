@@ -267,6 +267,10 @@ def write_snapshot(
         price_rows.append(d[keep])
     if price_rows:
         prices_long = pd.concat(price_rows, ignore_index=True)
+        # Deterministic row order. Threaded fetchers hand us tickers in
+        # completion order, which would otherwise vary the parquet bytes —
+        # and thus the content-addressed snapshot_id — across identical runs.
+        prices_long = prices_long.sort_values(["ticker", "date"]).reset_index(drop=True)
         prices_long.to_parquet(staging / PRICES_FILE, index=False)
     n_with_prices = sum(1 for df in price_data.values() if df is not None and not df.empty)
 
@@ -334,9 +338,9 @@ def write_snapshot(
             rows.append(d)
             n_with_earn += 1
         if rows:
-            pd.concat(rows, ignore_index=True).to_parquet(
-                staging / EARNINGS_FILE, index=False,
-            )
+            earn_long = pd.concat(rows, ignore_index=True).sort_values(
+                ["ticker", "earnings_date"]).reset_index(drop=True)
+            earn_long.to_parquet(staging / EARNINGS_FILE, index=False)
 
     # ----- compute content hashes & snapshot id -----
     content_hashes = {
