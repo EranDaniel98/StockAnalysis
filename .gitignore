@@ -54,6 +54,8 @@ data/backtests/
 data/sweep_*/
 # Auto-rotating daily picks
 data/daily_picks/
+# IPO spike: Ritter calendar (re-downloadable) + day-1 price cache (regenerable)
+data/ipo/
 # CLI-level local cache
 .cache/
 

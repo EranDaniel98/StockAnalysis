@@ -1,0 +1,168 @@
+{
+  "spike": "ipo_first_day_open_to_close",
+  "label": "open->close day-1 return (tradeable; NOT offer->close)",
+  "window": "2019-2024",
+  "coverage": {
+    "ritter_list": 2148,
+    "with_day1_data": 388,
+    "pct": 18.1,
+    "ticker_reuse_rejected": 6,
+    "WARNING": "yfinance survivorship: delisted IPOs missing -> results inflated"
+  },
+  "unconditional": {
+    "all": {
+      "n": 388,
+      "mean": 0.0331,
+      "median": 0.0,
+      "hit_rate_gt0": 0.474,
+      "std": 0.2304
+    },
+    "winsorized": {
+      "n": 388,
+      "mean": 0.028,
+      "median": 0.0,
+      "hit_rate_gt0": 0.474,
+      "std": 0.179
+    },
+    "by_year": {
+      "2019": {
+        "n": 87,
+        "mean": 0.0426,
+        "median": -0.004,
+        "hit_rate_gt0": 0.425,
+        "std": 0.2705
+      },
+      "2020": {
+        "n": 117,
+        "mean": 0.0318,
+        "median": 0.0059,
+        "hit_rate_gt0": 0.513,
+        "std": 0.1648
+      },
+      "2021": {
+        "n": 184,
+        "mean": 0.0294,
+        "median": 0.0,
+        "hit_rate_gt0": 0.473,
+        "std": 0.2462
+      }
+    }
+  },
+  "rank_ic_winsorized": {
+    "hotness": {
+      "n_cohorts": 14,
+      "ic_mean": -0.2388,
+      "ic_std": 0.1896,
+      "t_stat": -4.71,
+      "ci95": [
+        -0.3317,
+        -0.1444
+      ],
+      "ci_excludes_0": true
+    },
+    "log_size": {
+      "n_cohorts": 3,
+      "ic_mean": -0.1838,
+      "ic_std": 0.6465,
+      "t_stat": -0.49,
+      "ci95": [
+        -0.7333,
+        0.5285
+      ],
+      "ci_excludes_0": false
+    },
+    "age": {
+      "n_cohorts": 15,
+      "ic_mean": 0.0776,
+      "ic_std": 0.1855,
+      "t_stat": 1.62,
+      "ci95": [
+        -0.0203,
+        0.1636
+      ],
+      "ci_excludes_0": false
+    },
+    "vc": {
+      "n_cohorts": 15,
+      "ic_mean": 0.0287,
+      "ic_std": 0.2572,
+      "t_stat": 0.43,
+      "ci95": [
+        -0.0938,
+        0.1531
+      ],
+      "ci_excludes_0": false
+    },
+    "dual": {
+      "n_cohorts": 15,
+      "ic_mean": 0.0008,
+      "ic_std": 0.2278,
+      "t_stat": 0.01,
+      "ci95": [
+        -0.1098,
+        0.1079
+      ],
+      "ci_excludes_0": false
+    },
+    "internet": {
+      "n_cohorts": 14,
+      "ic_mean": 0.0638,
+      "ic_std": 0.1671,
+      "t_stat": 1.43,
+      "ci95": [
+        -0.0226,
+        0.1457
+      ],
+      "ci_excludes_0": false
+    }
+  },
+  "quintile_spread_winsorized": {
+    "hotness": {
+      "q1_low": 0.0342,
+      "q5_high": -0.006,
+      "spread_hi_minus_lo": -0.0402,
+      "monotonic": false
+    },
+    "log_size": {
+      "q1_low": 0.006,
+      "q5_high": 0.0293,
+      "spread_hi_minus_lo": 0.0233,
+      "monotonic": false
+    },
+    "age": {
+      "q1_low": -0.0061,
+      "q5_high": 0.013,
+      "spread_hi_minus_lo": 0.0191,
+      "monotonic": false
+    }
+  },
+  "binary_group_diff_winsorized": {
+    "vc": {
+      "mean_1": 0.007,
+      "mean_0": 0.0483,
+      "diff": -0.0413,
+      "n1": 189,
+      "n0": 180,
+      "t_stat": -2.19,
+      "p_value": 0.0296
+    },
+    "dual": {
+      "mean_1": 0.0248,
+      "mean_0": 0.0294,
+      "diff": -0.0046,
+      "n1": 117,
+      "n0": 271,
+      "t_stat": -0.25,
+      "p_value": 0.802
+    },
+    "internet": {
+      "mean_1": 0.05,
+      "mean_0": 0.0246,
+      "diff": 0.0254,
+      "n1": 52,
+      "n0": 336,
+      "t_stat": 0.95,
+      "p_value": 0.343
+    }
+  }
+}
