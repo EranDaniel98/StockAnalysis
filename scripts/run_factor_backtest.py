@@ -452,6 +452,24 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float((equity / equity.cummax() - 1.0).min())
 
 
+def _capm_alpha_beta(strat_rets: pd.Series, spy_rets: pd.Series) -> tuple[float, float]:
+    """Jensen's alpha (annualized %) and market beta from an OLS of daily
+    strategy returns on SPY.
+
+    Risk-free is taken as 0 — a documented simplification; over our windows
+    it shifts alpha by < the phase-noise envelope. Unlike raw excess return,
+    this separates stock-selection skill from the beta a regime-gated /
+    cash-heavy book carries: sitting in cash through a selloff is LOW BETA,
+    not alpha, and `alpha_vs_spy_pct` (excess return) credits it as alpha.
+    """
+    df = pd.concat([strat_rets.rename("s"), spy_rets.rename("m")], axis=1).dropna()
+    if len(df) < 30 or df["m"].var() == 0:
+        return 0.0, 0.0
+    beta = float(df["s"].cov(df["m"]) / df["m"].var())
+    alpha_daily = float(df["s"].mean() - beta * df["m"].mean())
+    return ((1.0 + alpha_daily) ** 252 - 1.0) * 100.0, beta
+
+
 def _walk_forward_folds(daily_rets: pd.Series, n_folds: int = 5) -> dict:
     """Split daily_rets into ``n_folds`` contiguous folds and report
     each fold's Sharpe + return. Mirrors the gating used elsewhere."""
@@ -875,6 +893,7 @@ def _compute_metrics_and_assemble(
     spy_daily = spy_win["Close"].pct_change().dropna()
     spy_sharpe = _annualize_sharpe(spy_daily)
     spy_dd = _max_drawdown(spy_win["Close"])
+    capm_alpha_pct, beta = _capm_alpha_beta(daily_rets, spy_daily)
 
     years = max(1e-6, (calendar[-1] - calendar[0]).days / 365.25)
     cagr = (1 + total_return) ** (1 / years) - 1
@@ -925,7 +944,12 @@ def _compute_metrics_and_assemble(
             "ann_sharpe": round(spy_sharpe, 3),
             "max_drawdown_pct": round(spy_dd * 100, 2),
         },
+        # Raw total-return gap — beta-blind. For a regime-gated/cash-heavy or
+        # long-short book this OVERSTATES skill (cash beating a falling SPY
+        # reads as "alpha"). Use capm_alpha_pct for the honest measure.
         "alpha_vs_spy_pct": round((total_return - spy_total) * 100, 2),
+        "capm_alpha_pct": round(capm_alpha_pct, 2),
+        "beta": round(beta, 3),
         "walk_forward": wf,
         "trades_sample": trades[:200],
         "rebalance_log": rebalance_log,
@@ -933,6 +957,20 @@ def _compute_metrics_and_assemble(
         "long_short_enabled": bool(args.long_short),
         "exposure_history_sample": exposure_history[::21] if exposure_history else [],
     }
+
+
+def _load_frozen_membership(snapshot_id: str):
+    """Load the snapshot's frozen S&P 500 PIT oracle (audit #16) for
+    per-rebalance universe re-resolution. Returns None for snapshots built
+    before membership-freezing (legacy / ad-hoc / russell_1000); callers
+    then fall back to the frozen ticker list."""
+    cur = Path("data/snapshots") / snapshot_id / "sp500_current.csv"
+    ch = Path("data/snapshots") / snapshot_id / "sp500_changes.csv"
+    if not (cur.exists() and ch.exists()):
+        return None
+    from src.universe.sp500_pit import SP500Membership
+
+    return SP500Membership.from_csvs(current_path=cur, changes_path=ch)
 
 
 def run(args: argparse.Namespace) -> dict:
@@ -943,6 +981,14 @@ def run(args: argparse.Namespace) -> dict:
         raise SystemExit(f"snapshot {args.snapshot_id} has no SPY frame")
 
     universe_tickers = sorted(prices.keys())
+    membership = _load_frozen_membership(args.snapshot_id)
+    if membership is None:
+        logger.warning(
+            "no frozen PIT membership in snapshot %s — universe is FROZEN at "
+            "its ticker set (audit #16 eligibility bias); rebuild via "
+            "scripts.build_snapshot to re-resolve membership per rebalance.",
+            args.snapshot_id,
+        )
     earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers)
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
@@ -1045,8 +1091,15 @@ def run(args: argparse.Namespace) -> dict:
             continue
 
         if is_rebal:
+            # Audit #16: rank only names IN the index as-of this rebalance.
+            # Removals drop out of the target here and get closed by the
+            # off-target logic in _apply_target; additions become eligible.
+            rebal_universe = (
+                sorted(set(universe_tickers) & membership.as_of(d))
+                if membership is not None else universe_tickers
+            )
             ranking, regime_label = _resolve_ranking(
-                args.factor, prices, fund_loader, d, universe_tickers,
+                args.factor, prices, fund_loader, d, rebal_universe,
                 regime_profile=args.regime_weights,
                 composite_factors=args.composite_factors,
                 sector_neutral_quality=args.sector_neutral_quality,
@@ -1133,10 +1186,10 @@ def main() -> int:
         b["total_return_pct"], b["ann_sharpe"], b["max_drawdown_pct"],
     )
     logger.info(
-        "ALPHA vs SPY: %+.2f%% | Walk-forward: mean_sharpe=%.2f "
-        "min_sharpe=%.2f passed=%s",
-        result["alpha_vs_spy_pct"], wf["mean_sharpe"], wf["min_sharpe"],
-        wf["passed"],
+        "CAPM alpha: %+.2f%% (beta=%.2f) | excess-return vs SPY: %+.2f%% | "
+        "Walk-forward: mean_sharpe=%.2f min_sharpe=%.2f passed=%s",
+        result["capm_alpha_pct"], result["beta"], result["alpha_vs_spy_pct"],
+        wf["mean_sharpe"], wf["min_sharpe"], wf["passed"],
     )
     logger.warning(
         "SINGLE-PHASE result (rebal-offset=%d). A 2yr/63d backtest has a "

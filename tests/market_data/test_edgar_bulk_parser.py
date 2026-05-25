@@ -39,13 +39,36 @@ from src.market_data.edgar_bulk.parser import parse_quarter_zip
 # Synthetic fixture
 # ---------------------------------------------------------------------------
 
-# sub.txt schema we mimic: adsh \t cik \t form \t filed
+# sub.txt schema we mimic: adsh \t cik \t form \t filed \t period
 # We only emit the columns the parser actually reads; pandas with usecols
-# tolerates extras but also tolerates "only these columns".
-SUB_HEADER = "adsh\tcik\tform\tfiled"
+# tolerates extras but also tolerates "only these columns". `period` is the
+# filing's report date (YYYYMMDD) — the parser keeps only num rows whose
+# ddate matches it, dropping prior-year comparatives.
+SUB_HEADER = "adsh\tcik\tform\tfiled\tperiod"
 
-# num.txt schema: adsh \t tag \t ddate \t uom \t value
-NUM_HEADER = "adsh\ttag\tddate\tuom\tvalue"
+# num.txt schema: adsh \t tag \t ddate \t qtrs \t segments \t uom \t value
+# `qtrs` = period length (0 instant, 1 quarter, 2/3 YTD, 4 annual); the parser
+# keeps only the quarterly (10-Q) / annual (10-K) flow + instants. `segments`
+# is non-empty for dimensional/segment rows (BusinessSegments=..., per-product
+# revenue, ...) — the parser keeps only the consolidated (empty-segments) row.
+NUM_HEADER = "adsh\ttag\tddate\tqtrs\tsegments\tuom\tvalue"
+
+# Balance-sheet (point-in-time) concepts carry qtrs=0; everything else is a
+# flow (qtrs=1 in a 10-Q, qtrs=4 in a 10-K).
+_INSTANT_TAGS = frozenset({
+    "StockholdersEquity", "Assets", "AssetsCurrent", "LiabilitiesCurrent",
+    "LongTermDebt", "CashAndCashEquivalentsAtCarryingValue",
+})
+
+# The filing report date shared by every fixture filing (kept uniform, like
+# the original ddate, so the valid_from-from-filed test stays meaningful).
+_FIXTURE_PERIOD = "20240630"
+
+
+def _qtrs_for(tag: str, form: str) -> int:
+    if tag in _INSTANT_TAGS:
+        return 0
+    return 4 if form.upper() == "10-K" else 1
 
 
 # Per-filing values designed so derived ratios are exact decimals.
@@ -158,6 +181,17 @@ _NOISE_FILINGS = [
     ),
 ]
 
+# Period/segment noise the parser must DROP, for AAPL's 2024-Q2 filing.
+# Emitted BEFORE the clean rows so that — absent the qtrs/ddate/segments
+# filters — the parser's first-wins selection would pick these wrong values,
+# failing the eps/revenue assertions. (adsh, tag, ddate, qtrs, segments, value)
+_PERIOD_NOISE = [
+    ("0000000001-24-000001", "EarningsPerShareDiluted", _FIXTURE_PERIOD, 2, "", 1.40),  # YTD EPS
+    ("0000000001-24-000001", "EarningsPerShareDiluted", "20230630", 1, "", 9.99),  # prior-yr Q (wrong ddate)
+    ("0000000001-24-000001", "Revenues", _FIXTURE_PERIOD, 2, "", 230.0),  # YTD revenue
+    ("0000000001-24-000001", "Revenues", _FIXTURE_PERIOD, 1, "ProductOrService=IPhone;", 45.0),  # segment revenue
+]
+
 
 def _build_sub_txt() -> str:
     lines = [SUB_HEADER]
@@ -170,24 +204,30 @@ def _build_sub_txt() -> str:
     ]
     for cik, filings in cik_filings:
         for adsh, form, filed, _facts in filings:
-            lines.append(f"{adsh}\t{cik}\t{form}\t{filed}")
+            lines.append(f"{adsh}\t{cik}\t{form}\t{filed}\t{_FIXTURE_PERIOD}")
     return "\n".join(lines) + "\n"
 
 
 def _build_num_txt() -> str:
     lines = [NUM_HEADER]
+    # Period/segment decoys first — first-wins would pick these without the fix.
+    for adsh, tag, ddate, qtrs, segments, value in _PERIOD_NOISE:
+        uom = "USD/shares" if tag == "EarningsPerShareDiluted" else "USD"
+        lines.append(f"{adsh}\t{tag}\t{ddate}\t{qtrs}\t{segments}\t{uom}\t{value}")
+    # A row with a garbage tag to prove tag-filtering works.
+    lines.append(f"0000000001-24-000001\tBogusUnusedTag\t{_FIXTURE_PERIOD}\t0\t\tUSD\t12345.0")
     all_filings = (
         _AAPL_FILINGS + _MSFT_FILINGS + _TEST_FILINGS
         + _UNMAPPED_FILINGS + _NOISE_FILINGS
     )
-    # Add a row with a garbage tag to prove tag-filtering works.
-    lines.append("0000000001-24-000001\tBogusUnusedTag\t20240630\tUSD\t12345.0")
-    for adsh, _form, _filed, facts in all_filings:
+    for adsh, form, _filed, facts in all_filings:
         for tag, value in facts:
             uom = "USD/shares" if tag == "EarningsPerShareDiluted" else "USD"
-            # ddate is the period-end date; not consumed by the parser but
-            # we emit a plausible one for fidelity.
-            lines.append(f"{adsh}\t{tag}\t20240630\t{uom}\t{value}")
+            # ddate == period + empty segments for the clean rows; qtrs marks
+            # the duration so the parser keeps the quarterly/annual flow + instants.
+            lines.append(
+                f"{adsh}\t{tag}\t{_FIXTURE_PERIOD}\t{_qtrs_for(tag, form)}\t\t{uom}\t{value}"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -348,6 +388,22 @@ def test_missing_concepts_leave_fields_none(synthetic_zip, cik_map):
     assert test_snap.roa is None
     assert test_snap.debt_to_equity is None
     assert test_snap.current_ratio is None
+
+
+def test_period_filter_drops_ytd_and_comparatives(synthetic_zip, cik_map):
+    """The AAPL 2024-Q2 filing also carries a YTD EPS (qtrs=2, 1.40), a
+    prior-year quarterly EPS (wrong ddate, 9.99), a YTD revenue (qtrs=2, 230)
+    and a per-segment revenue (segments='ProductOrService=IPhone;', 45) — all
+    emitted BEFORE the clean rows. The qtrs/ddate/segments filters must drop
+    them so the quarterly EPS (0.75) and consolidated revenue (120) survive.
+    Without the fix, first-wins selection would surface 1.40 / 45 here."""
+    snaps = parse_quarter_zip(synthetic_zip, cik_map)
+    aapl_2024_q2 = next(
+        s for s in snaps
+        if s.ticker == "AAPL" and s.valid_from.year == 2024 and s.source == "edgar_10q"
+    )
+    assert aapl_2024_q2.eps_diluted == pytest.approx(0.75)
+    assert aapl_2024_q2.revenue == pytest.approx(120.0)
 
 
 def test_empty_map_returns_no_snapshots(synthetic_zip):

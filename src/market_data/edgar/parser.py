@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from src.contracts.entities.fundamentals import FundamentalSnapshot, FundamentalsSource
@@ -78,6 +78,31 @@ def _form_to_source(form: str) -> FundamentalsSource | None:
     return None
 
 
+def _duration_days(fact: dict[str, Any]) -> int | None:
+    """Span of a duration fact in days, or None for instant (balance-sheet)
+    facts, which carry only ``end``."""
+    start, end = fact.get("start"), fact.get("end")
+    if not start or not end:
+        return None
+    try:
+        return (date.fromisoformat(end) - date.fromisoformat(start)).days
+    except (ValueError, TypeError):
+        return None
+
+
+def _period_ok(fact: dict[str, Any]) -> bool:
+    """Accept instants (no duration) and the single duration matching the
+    fact's form — one quarter for a 10-Q, one year for a 10-K. Rejects the
+    year-to-date rows a 10-Q double-reports under the same concept+filing,
+    which is what made eps_diluted (summed into a TTM) ambiguous."""
+    d = _duration_days(fact)
+    if d is None:
+        return True  # instant concept — no period ambiguity
+    if _form_to_source(fact.get("form", "")) == "edgar_10k":
+        return 350 <= d <= 380
+    return 80 <= d <= 100  # one fiscal quarter
+
+
 def _pick_concept_facts(
     us_gaap: dict[str, Any], concepts: list[str], *,
     expected_unit: str = "USD",
@@ -101,10 +126,13 @@ def _pick_concept_facts(
     Now the function reads ONLY the expected bucket; if it's empty,
     the field stays None (honest "no data").
     """
-    merged_by_filed: dict[str, dict[str, Any]] = {}
-    # Walk in REVERSE priority order so high-priority concepts overwrite
-    # lower-priority ones on duplicate filed dates.
-    for c in reversed(concepts):
+    # filed -> (fact, concept_prio, end). Per filing keep the fact whose
+    # period END is latest — the filing's own reporting period, not a
+    # prior-year comparative carried in the same filing — breaking ties by
+    # concept priority. _period_ok first drops the YTD/annual durations a
+    # 10-Q double-reports, which otherwise corrupted eps_diluted (audit fix).
+    best: dict[str, tuple[dict[str, Any], int, str]] = {}
+    for prio, c in enumerate(concepts):
         block = us_gaap.get(c)
         if not block:
             continue
@@ -121,9 +149,13 @@ def _pick_concept_facts(
             )
         for fact in bucket:
             filed = fact.get("filed")
-            if filed:
-                merged_by_filed[filed] = fact
-    return list(merged_by_filed.values())
+            if not filed or not _period_ok(fact):
+                continue
+            end = fact.get("end", "")
+            cur = best.get(filed)
+            if cur is None or end > cur[2] or (end == cur[2] and prio < cur[1]):
+                best[filed] = (fact, prio, end)
+    return [v[0] for v in best.values()]
 
 
 def _facts_by_filing(facts_list: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

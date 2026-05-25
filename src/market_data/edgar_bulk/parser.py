@@ -42,6 +42,16 @@ NUM_CHUNKSIZE = 250_000
 """How many num.txt rows pandas reads per chunk. Quarter num.txt has ~5-10M
 rows so we never want it all in memory. 250k is ~30MB of dataframe each."""
 
+# DERA num.txt `qtrs` = how many fiscal quarters a fact's period spans:
+# 0 = instant (balance-sheet items), 1 = one quarter, 2/3 = year-to-date,
+# 4 = full year. A 10-Q tags BOTH the 1-quarter flow AND the YTD figure for
+# the same concept+filing; reading without `qtrs` let the YTD row arbitrarily
+# overwrite the quarterly one, corrupting eps_diluted — which is summed into a
+# TTM downstream. Keep only the quarterly (10-Q) / annual (10-K) flow plus the
+# instants; drop YTD rows and prior-period comparatives (filtered by ddate).
+_ALLOWED_QTRS_10Q = frozenset({0, 1})
+_ALLOWED_QTRS_10K = frozenset({0, 4})
+
 
 def _form_to_source(form: str) -> FundamentalsSource | None:
     """Same mapping as the companyfacts parser. Bulk dataset uses the
@@ -134,9 +144,11 @@ def _compute_yoy(
 def _read_sub(zf: zipfile.ZipFile) -> pd.DataFrame:
     """Load sub.txt fully — it's ~5-15k rows per quarter (one row per filing).
 
-    We keep ``adsh, cik, form, filed`` and drop everything else. The CIK
-    column is int in the DERA spec; cast explicitly so the downstream
-    map lookup doesn't need to normalize.
+    We keep ``adsh, cik, form, filed, period`` and drop everything else. The
+    CIK column is int in the DERA spec; cast explicitly so the downstream
+    map lookup doesn't need to normalize. ``period`` (the filing's report
+    date, YYYYMMDD) lets the num-pass keep only the filing's own period and
+    drop prior-year comparatives.
     """
     with zf.open("sub.txt") as raw:
         # Tab-separated, despite the .txt extension. Quoting disabled because
@@ -145,14 +157,15 @@ def _read_sub(zf: zipfile.ZipFile) -> pd.DataFrame:
             raw,
             sep="\t",
             dtype={"adsh": str, "form": str},
-            usecols=["adsh", "cik", "form", "filed"],
+            usecols=["adsh", "cik", "form", "filed", "period"],
             na_values=["", "NULL"],
             quoting=3,  # csv.QUOTE_NONE
             on_bad_lines="skip",
         )
-    df = df.dropna(subset=["adsh", "cik", "form", "filed"])
+    df = df.dropna(subset=["adsh", "cik", "form", "filed", "period"])
     df["cik"] = df["cik"].astype("int64")
     df["filed"] = df["filed"].astype("int64")
+    df["period"] = df["period"].astype("int64")
     df = df[df["form"].isin(TARGET_FORMS)]
     return df.reset_index(drop=True)
 
@@ -171,8 +184,8 @@ def _iter_num_chunks(zf: zipfile.ZipFile) -> Iterable[pd.DataFrame]:
         reader = pd.read_csv(
             text,
             sep="\t",
-            usecols=["adsh", "tag", "ddate", "uom", "value"],
-            dtype={"adsh": str, "tag": str, "uom": str},
+            usecols=["adsh", "tag", "ddate", "qtrs", "segments", "uom", "value"],
+            dtype={"adsh": str, "tag": str, "uom": str, "segments": str},
             na_values=["", "NULL"],
             quoting=3,
             on_bad_lines="skip",
@@ -300,8 +313,8 @@ def parse_quarter_zip(
             logger.info("Bulk zip %s: no in-universe filings", zip_path)
             return []
 
-        # adsh → (cik, ticker, source, filed_int)
-        adsh_to_meta: dict[str, tuple[int, str, FundamentalsSource, int]] = {}
+        # adsh → (cik, ticker, source, filed_int, period_int)
+        adsh_to_meta: dict[str, tuple[int, str, FundamentalsSource, int, int]] = {}
         for _, row in sub.iterrows():
             source = _form_to_source(row["form"])
             if source is None:
@@ -309,7 +322,7 @@ def parse_quarter_zip(
             adsh = row["adsh"]
             cik = int(row["cik"])
             ticker = cik_to_ticker[cik]
-            adsh_to_meta[adsh] = (cik, ticker, source, int(row["filed"]))
+            adsh_to_meta[adsh] = (cik, ticker, source, int(row["filed"]), int(row["period"]))
 
         adsh_set = frozenset(adsh_to_meta.keys())
 
@@ -324,17 +337,35 @@ def parse_quarter_zip(
             # rare uom="USD/shares" rows where we still want to take the
             # numeric value (CONCEPT_MAP doesn't differentiate units; EPS
             # is the only USD/shares-tagged field we touch, so this is fine).
-            chunk = chunk.dropna(subset=["value"])
+            chunk = chunk.dropna(subset=["value", "ddate", "qtrs"])
             for row in chunk.itertuples(index=False):
-                adsh = row.adsh
-                tag = row.tag
-                value = float(row.value)
-                field_prio = _FIELD_BY_TAG.get(tag)
+                meta = adsh_to_meta.get(row.adsh)
+                if meta is None:
+                    continue
+                # Consolidated figures only — skip dimensional/segment rows
+                # (BusinessSegments=GreaterChina;, ProductOrService=IPhone;,
+                # ...) which share the concept tag. Without this the parser
+                # grabbed a segment's revenue/net-income as the company total,
+                # corrupting every level field. Consolidated rows have an empty
+                # `segments`.
+                if pd.notna(row.segments):
+                    continue
+                source, period = meta[2], meta[4]
+                # Period-correctness (audit fix): take only the filing's own
+                # reporting period — dropping prior-year comparatives — and only
+                # the quarterly/annual duration for flows, dropping YTD rows that
+                # would otherwise overwrite eps_diluted arbitrarily.
+                if int(row.ddate) != period:
+                    continue
+                allowed = _ALLOWED_QTRS_10K if source == "edgar_10k" else _ALLOWED_QTRS_10Q
+                if int(row.qtrs) not in allowed:
+                    continue
+                field_prio = _FIELD_BY_TAG.get(row.tag)
                 if field_prio is None:
                     continue
                 field, prio = field_prio
-                bucket = per_filing.setdefault(adsh, {})
-                bucket[field] = _select_value(bucket.get(field), value, prio)
+                bucket = per_filing.setdefault(row.adsh, {})
+                bucket[field] = _select_value(bucket.get(field), float(row.value), prio)
 
     # Flatten to FundamentalSnapshots per ticker, then chain.
     by_ticker: dict[str, list[FundamentalSnapshot]] = {}
@@ -344,7 +375,7 @@ def parse_quarter_zip(
             # Filing had no concepts we care about. Skip — no rows to write.
             continue
         fields = {k: v[0] for k, v in fields_raw.items()}
-        _, ticker, source, filed_int = meta
+        _, ticker, source, filed_int, _period = meta
         snap = _build_snapshot(ticker, source, filed_int, fields)
         by_ticker.setdefault(ticker, []).append(snap)
 
