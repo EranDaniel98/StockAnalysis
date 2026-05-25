@@ -116,6 +116,12 @@ def _parse_args() -> argparse.Namespace:
                    help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
                         "regime gate, OVERRIDING the SPY-SMA trend filter. For "
                         "testing alternative gates (e.g. market-breadth).")
+    p.add_argument("--daily-regime", action=argparse.BooleanOptionalAction, default=False,
+                   help="Evaluate the regime gate EVERY trading day — exit to cash "
+                        "the day it flips off, re-enter the standing target when it "
+                        "flips back on — decoupling it from the 63-day factor "
+                        "rebalance. Default off = legacy (regime checked only at "
+                        "rebalances). Targets the cadence leak (project_regime_whipsaw).")
     p.add_argument("--vix-gate", action="store_true",
                    help="Block new entries when VIX is in the top "
                         "(1 - vix_cutoff) of its trailing 252d distribution. "
@@ -968,6 +974,35 @@ def run(args: argparse.Namespace) -> dict:
         args.short_decile if args.short_decile is not None else args.top_decile
     )
 
+    standing_long: set[str] = set()   # latest factor target, for daily re-entry
+    standing_short: set[str] = set()
+
+    def _apply_target(long_set, short_set, cash):
+        """Resize holdings to (long_set, short_set), equal-weight per side,
+        VIX-scaled. Shared by the 63-day rebalance and the daily regime re-entry.
+        Reads d/holdings/trades from the enclosing loop scope at call time."""
+        cash = _close_off_target_positions(
+            long_set | short_set, holdings, cash, trades, prices, d, cost_rate,
+        )
+        current_eq = _mark_to_market(holdings, cash, prices, d)
+        if args.vix_exposure_scaling and snap.vix_df is not None and not snap.vix_df.empty:
+            em = exposure_at(
+                snap.vix_df, d, smoothing_window=args.vix_exposure_smoothing,
+                low_threshold=args.vix_exposure_low, high_threshold=args.vix_exposure_high,
+                floor=args.vix_exposure_floor,
+            )
+        else:
+            em = 1.0
+        long_capital = (current_eq * 0.5 if args.long_short else current_eq) * em
+        short_capital = (current_eq * 0.5 if args.long_short else 0.0) * em
+        per_long = long_capital / max(1, len(long_set)) if long_set else 0.0
+        per_short = short_capital / max(1, len(short_set)) if short_set else 0.0
+        cash = _resize_one_side(long_set, holdings, cash, trades, prices, d, per_long,
+                                cost_rate, is_long=True)
+        cash = _resize_one_side(short_set, holdings, cash, trades, prices, d, per_short,
+                                cost_rate, is_long=False)
+        return cash, em
+
     # Step through every trading day.
     prev_day: pd.Timestamp | None = None
     for i, d in enumerate(calendar):
@@ -987,87 +1022,67 @@ def run(args: argparse.Namespace) -> dict:
         if args.long_short:
             exposure_history.append(_record_exposure(holdings, cash, prices, d))
 
-        if i % rebal_every != 0:
-            continue
-
-        blocked, vix_blocked = _gate_blocks_entries(
-            args, trend_state, vix_state, vix_abs_state, d,
-        )
-        if blocked:
-            cash = _liquidate_all_to_cash(
-                holdings, cash, trades, rebalance_log,
-                prices, d, cost_rate, vix_blocked,
+        is_rebal = (i % rebal_every == 0)
+        check_regime = args.daily_regime or is_rebal
+        blocked = vix_blocked = False
+        if check_regime:
+            blocked, vix_blocked = _gate_blocks_entries(
+                args, trend_state, vix_state, vix_abs_state, d,
             )
+
+        # EXIT: a risk-off check-day while holding -> liquidate to cash. With
+        # --daily-regime this fires intra-rebalance (the cadence fix: exit the
+        # day the gate flips, not up to 63 days later); else only at rebalances.
+        if check_regime and blocked:
+            if holdings:
+                cash = _liquidate_all_to_cash(
+                    holdings, cash, trades, rebalance_log, prices, d, cost_rate, vix_blocked,
+                )
             continue
 
-        ranking, regime_label = _resolve_ranking(
-            args.factor, prices, fund_loader, d, universe_tickers,
-            regime_profile=args.regime_weights,
-            composite_factors=args.composite_factors,
-            sector_neutral_quality=args.sector_neutral_quality,
-            sectors=sectors,
-            vix_df=snap.vix_df if args.regime_weights != "equal" else None,
-            spy_df=spy,
-            momentum_flavor=args.momentum_flavor,
-            include_insider=args.include_insider,
-            insider_window_days=args.insider_window_days,
-            insider_min_cluster=args.insider_min_cluster,
-            include_pead=args.include_pead,
-            earnings_histories=earnings_histories,
-            pead_drift_window=args.pead_drift_window,
-        )
-        if ranking.empty:
-            continue
-        n_long = max(1, int(round(len(ranking) * args.top_decile)))
-        ranking = _apply_hysteresis_to_ranking(args, ranking, holdings, n_long)
-        long_set, short_set = _select_long_short_targets(
-            args, ranking, prices, d, n_long, short_decile,
-        )
-        target_set = long_set | short_set
-
-        cash = _close_off_target_positions(
-            target_set, holdings, cash, trades, prices, d, cost_rate,
-        )
-
-        # Sizing: equal-weight within each side. Long-short splits
-        # equity in half; long-only puts it all on the long side.
-        # VIX exposure scaling (optional) applies a multiplier in
-        # [floor, 1.0] to the capital deployed; the rest stays in cash
-        # so V-shape recoveries can re-enter on the next rebalance.
-        current_eq = _mark_to_market(holdings, cash, prices, d)
-        if args.vix_exposure_scaling and snap.vix_df is not None and not snap.vix_df.empty:
-            exposure_mult = exposure_at(
-                snap.vix_df, d,
-                smoothing_window=args.vix_exposure_smoothing,
-                low_threshold=args.vix_exposure_low,
-                high_threshold=args.vix_exposure_high,
-                floor=args.vix_exposure_floor,
+        if is_rebal:
+            ranking, regime_label = _resolve_ranking(
+                args.factor, prices, fund_loader, d, universe_tickers,
+                regime_profile=args.regime_weights,
+                composite_factors=args.composite_factors,
+                sector_neutral_quality=args.sector_neutral_quality,
+                sectors=sectors,
+                vix_df=snap.vix_df if args.regime_weights != "equal" else None,
+                spy_df=spy,
+                momentum_flavor=args.momentum_flavor,
+                include_insider=args.include_insider,
+                insider_window_days=args.insider_window_days,
+                insider_min_cluster=args.insider_min_cluster,
+                include_pead=args.include_pead,
+                earnings_histories=earnings_histories,
+                pead_drift_window=args.pead_drift_window,
             )
-        else:
-            exposure_mult = 1.0
-        long_capital = (current_eq * 0.5 if args.long_short else current_eq) * exposure_mult
-        short_capital = (current_eq * 0.5 if args.long_short else 0.0) * exposure_mult
-        per_long = long_capital / max(1, len(long_set)) if long_set else 0.0
-        per_short = short_capital / max(1, len(short_set)) if short_set else 0.0
-
-        cash = _resize_one_side(
-            long_set, holdings, cash, trades, prices, d,
-            per_long, cost_rate, is_long=True,
-        )
-        cash = _resize_one_side(
-            short_set, holdings, cash, trades, prices, d,
-            per_short, cost_rate, is_long=False,
-        )
-
-        rebalance_log.append({
-            "date": d.date().isoformat(),
-            "action": "rebalance",
-            "n_positions": len(holdings),
-            "n_long": sum(1 for v in holdings.values() if v > 0),
-            "n_short": sum(1 for v in holdings.values() if v < 0),
-            "regime": regime_label,
-            "exposure_mult": round(exposure_mult, 4),
-        })
+            if ranking.empty:
+                continue
+            n_long = max(1, int(round(len(ranking) * args.top_decile)))
+            ranking = _apply_hysteresis_to_ranking(args, ranking, holdings, n_long)
+            standing_long, standing_short = _select_long_short_targets(
+                args, ranking, prices, d, n_long, short_decile,
+            )
+            cash, exposure_mult = _apply_target(standing_long, standing_short, cash)
+            rebalance_log.append({
+                "date": d.date().isoformat(), "action": "rebalance",
+                "n_positions": len(holdings),
+                "n_long": sum(1 for v in holdings.values() if v > 0),
+                "n_short": sum(1 for v in holdings.values() if v < 0),
+                "regime": regime_label, "exposure_mult": round(exposure_mult, 4),
+            })
+        elif args.daily_regime and not holdings and (standing_long or standing_short):
+            # RE-ENTRY: regime flipped back on between rebalances while in cash
+            # -> re-buy the standing target, resized to current equity.
+            cash, exposure_mult = _apply_target(standing_long, standing_short, cash)
+            rebalance_log.append({
+                "date": d.date().isoformat(), "action": "regime_reentry",
+                "n_positions": len(holdings),
+                "n_long": sum(1 for v in holdings.values() if v > 0),
+                "n_short": sum(1 for v in holdings.values() if v < 0),
+                "regime": "risk_on", "exposure_mult": round(exposure_mult, 4),
+            })
 
     return _compute_metrics_and_assemble(
         args, snap, calendar, spy,
