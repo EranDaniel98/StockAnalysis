@@ -804,7 +804,11 @@ def _resize_one_side(
     side: target_shares > 0; short side: target_shares < 0. A negative
     delta on a short ADDs cash (the short sale itself). Returns the
     updated cash balance."""
-    for t in target_set:
+    # sorted() not raw set iteration: set order is non-deterministic across
+    # runs, which left trades_sample byte-unstable (metrics were unaffected
+    # because per_position is precomputed, but order-dependent sizing would
+    # break). Deterministic ticker order keeps backtest output bit-identical.
+    for t in sorted(target_set):
         px = _close_on(prices, t, d)
         if px is None or px <= 0:
             continue
