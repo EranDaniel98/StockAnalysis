@@ -112,6 +112,10 @@ def _parse_args() -> argparse.Namespace:
                    help=f"Re-entry SMA for --asymmetric-trend (default "
                         f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
                         f"recoveries earlier but more sensitive to chop.")
+    p.add_argument("--regime-file",
+                   help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
+                        "regime gate, OVERRIDING the SPY-SMA trend filter. For "
+                        "testing alternative gates (e.g. market-breadth).")
     p.add_argument("--vix-gate", action="store_true",
                    help="Block new entries when VIX is in the top "
                         "(1 - vix_cutoff) of its trailing 252d distribution. "
@@ -933,7 +937,13 @@ def run(args: argparse.Namespace) -> dict:
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
-    if args.asymmetric_trend:
+    if args.regime_file:
+        _raw = json.loads(Path(args.regime_file).read_text())
+        _rs = pd.Series({pd.Timestamp(k): bool(v) for k, v in _raw.items()}).sort_index()
+        _full = pd.date_range(_rs.index.min(), _rs.index.max(), freq="D")
+        trend_state = (_rs.reindex(_rs.index.union(_full)).sort_index()
+                       .ffill().fillna(False).astype(bool))
+    elif args.asymmetric_trend:
         trend_state = trend_state_asymmetric_series(
             spy, entry_sma=args.entry_sma,
         )
