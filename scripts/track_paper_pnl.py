@@ -76,7 +76,7 @@ def _spy_total_return(start: pd.Timestamp, end: pd.Timestamp) -> Optional[float]
     """
     from src.config_loader import Config
     from src.data.cache import DataCache
-    from src.data.fetcher import DataFetcher
+    from src.data.fetcher_factory import get_data_fetcher
 
     config = Config()
     cache = DataCache(
@@ -85,7 +85,7 @@ def _spy_total_return(start: pd.Timestamp, end: pd.Timestamp) -> Optional[float]
             "data", "market_hours_cache_minutes", default=5,
         ),
     )
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
     raw = fetcher.fetch_batch(["SPY"]).get("SPY")
     if raw is None or raw.empty:
         return None

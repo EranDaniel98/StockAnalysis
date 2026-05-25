@@ -62,7 +62,7 @@ def _fetch_quotes(tickers: list[str]) -> dict[str, float]:
         return {}
     from src.config_loader import Config
     from src.data.cache import DataCache
-    from src.data.fetcher import DataFetcher
+    from src.data.fetcher_factory import get_data_fetcher
 
     config = Config()
     cache = DataCache(
@@ -71,7 +71,7 @@ def _fetch_quotes(tickers: list[str]) -> dict[str, float]:
             "data", "market_hours_cache_minutes", default=5,
         ),
     )
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
     raw = fetcher.fetch_batch(tickers)
     out: dict[str, float] = {}
     for t, df in raw.items():

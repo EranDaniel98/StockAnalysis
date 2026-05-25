@@ -49,7 +49,7 @@ def main() -> int:
     # Load universe + prices + EDGAR + factors (same as daily_factor_picks)
     from src.config_loader import Config
     from src.data.cache import DataCache
-    from src.data.fetcher import DataFetcher
+    from src.data.fetcher_factory import get_data_fetcher
 
     config = Config()
     universe = config.get_sp500_pit_tickers(as_of)
@@ -61,7 +61,7 @@ def main() -> int:
             "data", "market_hours_cache_minutes", default=5,
         ),
     )
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
     logger.info("Fetching prices...")
     raw = fetcher.fetch_batch(universe)
     prices: dict[str, pd.DataFrame] = {}

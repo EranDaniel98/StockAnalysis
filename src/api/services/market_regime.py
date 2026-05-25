@@ -15,7 +15,7 @@ import pandas as pd
 
 from src.api.schemas.market import MarketRegime
 from src.data.cache import DataCache
-from src.data.fetcher import DataFetcher
+from src.data.fetcher_factory import get_data_fetcher
 from src.market_data.regime import RegimeParams, classify_at
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def compute_regime_sync(config) -> MarketRegime:
         ),
         force_fresh=False,
     )
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
 
     rf = config.get_regime_filter()
     params = RegimeParams(

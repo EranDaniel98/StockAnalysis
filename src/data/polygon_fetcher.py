@@ -41,7 +41,12 @@ class PolygonDataFetcher:
 
     def fetch_price_data(self, ticker, period=None, interval=None, *, adjusted: bool = True):
         """OHLCV for one ticker. adjusted=True (split/div-adjusted) for factors;
-        pass adjusted=False for raw prints. Returns DataFrame or None on miss."""
+        pass adjusted=False for raw prints. Returns DataFrame or None on miss.
+
+        Index symbols (``^VIX``, ``^GSPC``) transparently fall back to yfinance:
+        Polygon's index data (I:VIX) is Indices-tier, not on the $29 Stocks plan."""
+        if str(ticker).startswith("^"):
+            return self._yf_index_fallback(ticker, period, interval)
         interval = interval or self.interval
         period = period or f"{self.history_years}y"
         multiplier, timespan = _interval_to_polygon(interval)
@@ -69,6 +74,26 @@ class PolygonDataFetcher:
             cache_data.index = cache_data.index.astype(str)
             self.cache.set(cache_key, cache_data.to_dict())
         return df
+
+    def _yf_index_fallback(self, ticker, period, interval):
+        """^-prefixed index symbols aren't on the $29 Stocks plan — keep the
+        VIX/regime gate working by pulling these from yfinance (one symbol, not
+        a determinism-sensitive path). Matches the legacy fetcher's tz-aware shape."""
+        import yfinance as yf
+
+        period = period or f"{self.history_years}y"
+        interval = interval or self.interval
+        try:
+            h = yf.Ticker(ticker).history(period=period, interval=interval)
+        except Exception as e:
+            logger.warning("yfinance index fallback failed for %s: %s", ticker, e)
+            return None
+        if h is None or h.empty:
+            return None
+        h = h.copy()
+        h.columns = [str(c).strip() for c in h.columns]
+        keep = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in h.columns]
+        return h[keep] if keep else None
 
     def fetch_batch(self, tickers, period=None, interval=None, *, adjusted: bool = True):
         """Parallel multi-ticker fetch. Returns {ticker: DataFrame} (misses dropped)."""

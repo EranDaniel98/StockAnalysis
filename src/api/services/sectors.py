@@ -15,7 +15,7 @@ import pandas as pd
 
 from src.api.schemas.sectors import SectorMetric, SectorsResponse
 from src.data.cache import DataCache
-from src.data.fetcher import DataFetcher
+from src.data.fetcher_factory import get_data_fetcher
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def compute_sectors_sync(config) -> SectorsResponse:
         ),
         force_fresh=False,
     )
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
 
     tickers = [t for t, _ in SECTOR_ETFS]
     history = fetcher.fetch_batch(tickers, period="6mo")

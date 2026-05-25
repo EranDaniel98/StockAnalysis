@@ -259,7 +259,7 @@ def main() -> int:
     if args.trend_gate:
         from src.config_loader import Config
         from src.data.cache import DataCache
-        from src.data.fetcher import DataFetcher
+        from src.data.fetcher_factory import get_data_fetcher
 
         config = Config()
         cache = DataCache(
@@ -268,7 +268,7 @@ def main() -> int:
                 "data", "market_hours_cache_minutes", default=5,
             ),
         )
-        fetcher = DataFetcher(config, cache)
+        fetcher = get_data_fetcher(config, cache)
         spy_data = fetcher.fetch_batch(["SPY"]).get("SPY")
         if spy_data is None or spy_data.empty:
             logger.warning(
@@ -328,7 +328,7 @@ def main() -> int:
     if args.vix_gate:
         from src.config_loader import Config
         from src.data.cache import DataCache
-        from src.data.fetcher import DataFetcher
+        from src.data.fetcher_factory import get_data_fetcher
         from src.factors.vix_regime import is_calm
 
         config = Config()
@@ -338,7 +338,7 @@ def main() -> int:
                 "data", "market_hours_cache_minutes", default=5,
             ),
         )
-        fetcher = DataFetcher(config, cache)
+        fetcher = get_data_fetcher(config, cache)
         vix_data = fetcher.fetch_batch(["^VIX"]).get("^VIX")
         if vix_data is None or vix_data.empty:
             logger.warning(

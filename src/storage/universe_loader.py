@@ -64,12 +64,12 @@ def load_prices(
     without price data are dropped (legacy contract).
     """
     from src.config_loader import Config
-    from src.data.fetcher import DataFetcher
+    from src.data.fetcher_factory import get_data_fetcher
 
     if config is None:
         config = Config()
     cache = _build_cache(config)
-    fetcher = DataFetcher(config, cache)
+    fetcher = get_data_fetcher(config, cache)
     raw = fetcher.fetch_batch(tickers)
     out: dict[str, pd.DataFrame] = {}
     for t, df in raw.items():
