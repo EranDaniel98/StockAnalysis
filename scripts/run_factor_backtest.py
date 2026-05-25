@@ -1062,6 +1062,13 @@ def run(args: argparse.Namespace) -> dict:
                 pead_drift_window=args.pead_drift_window,
             )
             if ranking.empty:
+                # audit C2: don't silently skip — a skipped rebalance drifts
+                # exposure and undercounts n_rebalances. Log it + record it.
+                logger.warning("empty ranking at %s — rebalance skipped, holding prior book",
+                               d.date())
+                rebalance_log.append({"date": d.date().isoformat(),
+                                      "action": "skipped_empty_ranking",
+                                      "n_positions": len(holdings)})
                 continue
             n_long = max(1, int(round(len(ranking) * args.top_decile)))
             ranking = _apply_hysteresis_to_ranking(args, ranking, holdings, n_long)
@@ -1130,6 +1137,12 @@ def main() -> int:
         "min_sharpe=%.2f passed=%s",
         result["alpha_vs_spy_pct"], wf["mean_sharpe"], wf["min_sharpe"],
         wf["passed"],
+    )
+    logger.warning(
+        "SINGLE-PHASE result (rebal-offset=%d). A 2yr/63d backtest has a "
+        "+/-20-30pp phase-noise envelope — do NOT read this as an edge. Run "
+        "scripts/phase_envelope.py for the phase-averaged number (see "
+        "project_phase_luck_capstone).", args.rebal_offset,
     )
     print(args.output)
     return 0
