@@ -26,6 +26,8 @@ import asyncio
 import logging
 import sys
 
+from dotenv import load_dotenv
+
 from src.db.session import dispose_engine, get_sessionmaker
 from src.market_data.edgar.client import EDGARClient, get_ticker_to_cik
 from src.market_data.edgar_bulk.client import BulkArchiveClient, iter_year_quarter_pairs
@@ -116,6 +118,9 @@ async def run(
 
 
 def main() -> None:
+    # The --tickers path never constructs Config() (which is what loads .env),
+    # so EDGAR/DB env vars (STOCKNEW_EDGAR_USER_AGENT, POSTGRES_URL) went unset.
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--tickers", type=str, help="Comma-separated ticker list")
