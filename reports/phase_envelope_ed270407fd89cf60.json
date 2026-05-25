@@ -1,0 +1,97 @@
+{
+  "snapshot": "ed270407fd89cf60",
+  "base_args": "--factor composite --composite-factors mqv --top-decile 0.03 --cost-bps 5.0 --asymmetric-trend --entry-sma 75 --no-include-pead --no-sector-neutral-quality --hysteresis-bonus 0.75 --momentum-flavor raw",
+  "n_phases": 9,
+  "per_phase": [
+    {
+      "offset": 0,
+      "alpha": 9.26,
+      "sharpe": 1.458,
+      "total": 53.8,
+      "maxdd": -9.31,
+      "wf_pass": true
+    },
+    {
+      "offset": 7,
+      "alpha": 8.63,
+      "sharpe": 1.614,
+      "total": 53.17,
+      "maxdd": -9.43,
+      "wf_pass": true
+    },
+    {
+      "offset": 14,
+      "alpha": -15.3,
+      "sharpe": 0.805,
+      "total": 29.24,
+      "maxdd": -22.12,
+      "wf_pass": false
+    },
+    {
+      "offset": 21,
+      "alpha": -40.77,
+      "sharpe": 0.194,
+      "total": 3.77,
+      "maxdd": -24.59,
+      "wf_pass": false
+    },
+    {
+      "offset": 28,
+      "alpha": -19.2,
+      "sharpe": 0.691,
+      "total": 25.34,
+      "maxdd": -22.09,
+      "wf_pass": true
+    },
+    {
+      "offset": 35,
+      "alpha": -18.99,
+      "sharpe": 0.828,
+      "total": 25.55,
+      "maxdd": -10.44,
+      "wf_pass": true
+    },
+    {
+      "offset": 42,
+      "alpha": -26.7,
+      "sharpe": 0.645,
+      "total": 17.84,
+      "maxdd": -10.88,
+      "wf_pass": true
+    },
+    {
+      "offset": 49,
+      "alpha": -17.95,
+      "sharpe": 0.828,
+      "total": 26.59,
+      "maxdd": -13.92,
+      "wf_pass": false
+    },
+    {
+      "offset": 56,
+      "alpha": -23.73,
+      "sharpe": 0.674,
+      "total": 20.81,
+      "maxdd": -17.3,
+      "wf_pass": false
+    }
+  ],
+  "envelope": {
+    "alpha": {
+      "mean": -16.08,
+      "median": -18.99,
+      "std": 15.11,
+      "min": -40.77,
+      "max": 9.26,
+      "pct_phases_positive": 22.0
+    },
+    "sharpe": {
+      "mean": 0.86,
+      "median": 0.81,
+      "min": 0.19,
+      "max": 1.61
+    },
+    "wf_pass_rate_pct": 56.0
+  },
+  "verdict": "PHASE-LUCK / FRAGILE \u2014 do not trust a single offset"
+}

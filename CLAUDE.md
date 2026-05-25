@@ -38,6 +38,15 @@ uv run python -m scripts.run_factor_backtest --snapshot-id <id> --output reports
 - FastAPI (`src/api/`) + Next.js (`web/`) · Rich (CLI output) · python-telegram-bot (alerts)
 - YAML config, `.env` secrets
 
+## Evaluation discipline (read before trusting ANY backtest number)
+
+- **NEVER trust a single-offset backtest.** A 2yr/63-day window (~8 rebalances) has a **±20–30pp phase-noise envelope** — the headline "+9.26%" was a lucky-phase outlier (median ~−19% across phases). Always evaluate phase-averaged: `uv run python scripts/phase_envelope.py --snapshot-id <id> --base-args "..."` → judge on the mean/median ± spread + %-positive, not one number. See `project_phase_luck_capstone`.
+- **Open correctness caveats (2026-05-25 audit), fix before trusting results:**
+  - **value factor is suspect** — EDGAR EPS facts aren't disambiguated by period (quarterly vs YTD), so `compute_eps_ttm` can mix durations. Treat value/full-composite numbers as unreliable until fixed.
+  - **universe is frozen at the snapshot's as-of date**, not re-resolved per rebalance (eligibility bias).
+  - **`alpha_vs_spy_pct` is raw excess return, not CAPM α** — meaningless for low-beta / regime-gated / long-short books (use Sharpe + DD there, or compute Jensen's α).
+  - Lookahead/PIT discipline itself audited CLEAN.
+
 ## Conventions
 
 - Nothing hardcoded — thresholds / weights / params come from `config/*.yaml`.

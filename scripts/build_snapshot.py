@@ -130,11 +130,30 @@ def main() -> int:
             "out. A 2024-26 run showed +73%% alpha that was almost entirely this bias. "
             "Do NOT trust Russell backtests until PIT membership exists.")
     else:
-        universe = list(cfg.get_sp500_pit_tickers(as_of))
+        # Audit #16: freeze the FULL window membership, not a single as-of set.
+        # all-members-during-[start,end] = members at start ∪ members at end ∪
+        # every name added/removed inside the window. This kills the
+        # eligibility freeze (additions missing, removals over-held); the
+        # backtest re-resolves as_of(d) per rebalance from the frozen oracle.
+        from src.universe import load_default_sp500
+
+        membership = load_default_sp500()
+        ch = membership.changes
+        win_ch = ch[(ch["date"] >= win_start) & (ch["date"] <= win_end)]
+        window_members = (
+            set(membership.as_of(win_start))
+            | set(membership.as_of(win_end))
+            | set(win_ch["ticker"])
+        )
+        universe = sorted(window_members)
         if not universe:
             raise SystemExit("PIT S&P 500 universe is empty — run "
                              "`uv run python -m scripts.fetch_sp500_membership` first, or pass --tickers.")
         label = args.label
+        logger.info("sp500_pit window membership: %d names over [%s..%s] "
+                    "(%d as-of-start + additions/removals)",
+                    len(universe), win_start.date(), win_end.date(),
+                    len(membership.as_of(win_start)))
 
     client = PolygonClient()
     logger.info("fetching %d tickers + SPY from Polygon over [%s .. %s]",
@@ -157,6 +176,20 @@ def main() -> int:
         pipeline_version=args.pipeline_version,
         universe_as_of=str(as_of.date()),
     )
+
+    # Audit #16: freeze the PIT membership oracle into the snapshot dir so the
+    # backtest can re-resolve as_of(d) per rebalance reproducibly (off frozen
+    # data, never the live CSV). Only meaningful for sp500_pit.
+    if label == "sp500_pit":
+        import shutil
+        from pathlib import Path
+
+        from src.universe.sp500_pit import DEFAULT_CHANGES_PATH, DEFAULT_CURRENT_PATH
+
+        snap_dir = Path("data/snapshots") / manifest.snapshot_id
+        shutil.copy(DEFAULT_CURRENT_PATH, snap_dir / "sp500_current.csv")
+        shutil.copy(DEFAULT_CHANGES_PATH, snap_dir / "sp500_changes.csv")
+        logger.info("froze PIT membership (current + changes) into %s", snap_dir)
 
     print(f"\nsnapshot_id: {manifest.snapshot_id}")
     print(f"  prices: {manifest.n_tickers_with_prices}/{len(universe)} tickers  "
