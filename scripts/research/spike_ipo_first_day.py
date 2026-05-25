@@ -190,15 +190,19 @@ def cohort_rank_ic(df, feat, label):
             "ci_excludes_0": bool(lo > 0 or hi < 0)}
 
 
-def quintile_spread(df, feat, label):
+def quintile_median(df, feat, label):
+    """Median (outlier-robust) of `label` by `feat` quintile. Means here are
+    useless — day-1 IPO returns have 100x outliers. Median = typical outcome."""
     sub = df[[feat, label]].dropna()
     if len(sub) < 25 or sub[feat].nunique() < 5:
-        return {"note": "insufficient"}
+        return {"note": "insufficient", "n": int(len(sub))}
     q = pd.qcut(sub[feat].rank(method="first"), 5, labels=False)
-    m = sub.groupby(q)[label].mean()
-    return {"q1_low": round(float(m.iloc[0]), 4), "q5_high": round(float(m.iloc[-1]), 4),
-            "spread": round(float(m.iloc[-1] - m.iloc[0]), 4),
-            "monotonic": bool(m.is_monotonic_increasing or m.is_monotonic_decreasing)}
+    m = sub.groupby(q)[label].median()
+    return {"by_quintile_median": [round(float(x), 4) for x in m],
+            "q1_low": round(float(m.iloc[0]), 4), "q5_high": round(float(m.iloc[-1]), 4),
+            "spread_median": round(float(m.iloc[-1] - m.iloc[0]), 4),
+            "monotonic": bool(m.is_monotonic_increasing or m.is_monotonic_decreasing),
+            "n": int(len(sub))}
 
 
 # ----------------------------------------------------------------------------- main
@@ -227,6 +231,7 @@ def main():
         mid = (lo + hi) / 2 if (lo and hi and hi >= lo > 0) else None
         rows.append({
             "ticker": tk, "listing_date": pd.Timestamp(ld),
+            "offer_price": offer, "offer_size": r.get("total_offer_size"),
             "gap": (o - offer) / offer,
             "open_close": (c - o) / o,
             "offer_close": (c - offer) / offer,
@@ -258,6 +263,19 @@ def main():
         d[lbl + "_w"] = winsorize(d[lbl], WINSOR)
 
     feats = [f for f in ["range_rev", "log_size", "hotness", "age", "vc"] if f in d]
+    # Liquid subset: the make-or-break test. If the range_rev edge lives only in
+    # nano-caps (deal < $50M, sub-$5 offer), it's untradeable noise (you can't
+    # fill at the open print, can't size). Real edge must survive here.
+    d_liq = d[(d["offer_size"] >= 50e6) & (d["offer_price"] >= 5)].copy()
+
+    def label_section(frame):
+        return {
+            "n": int(len(frame)),
+            "open_close_median": block(frame["open_close"]),
+            "range_rev_ic_open_close": cohort_rank_ic(frame, "range_rev", "open_close_w"),
+            "range_rev_quintiles_open_close": quintile_median(frame, "range_rev", "open_close"),
+        }
+
     report = {
         "spike": "ipo_first_day", "source": "polygon/massive",
         "window": f"{START_YEAR}-{END_YEAR}",
@@ -271,20 +289,22 @@ def main():
                                    for y, g in d.groupby(d["listing_date"].dt.year)}},
         "rank_ic": {lbl: {f: cohort_rank_ic(d, f, lbl + "_w") for f in feats}
                     for lbl in ["offer_close", "open_close"]},
-        "quintile_spread_range_rev": {
-            lbl: quintile_spread(d, "range_rev", lbl + "_w") for lbl in ["offer_close", "open_close"]},
+        "quintile_median_range_rev": {
+            lbl: quintile_median(d, "range_rev", lbl) for lbl in ["offer_close", "open_close"]},
+        "ALL_operating": label_section(d),
+        "LIQUID_only (>=$50M, >=$5)": label_section(d_liq),
     }
     (REPORTS / "ipo_first_day_ic.json").write_text(json.dumps(report, indent=2))
 
-    # ---- verdict
+    # ---- verdict (MEDIAN — means are outlier-garbage on day-1 IPO returns)
     u = report["unconditional"]
     print("\n" + "=" * 64)
     print(f"coverage: {len(d)}/{n_priced} priced IPOs have day-1 data ({report['coverage']['pct']}%)")
-    print(f"\nPOP DECOMPOSITION (mean, n={u['open_to_close (TRADEABLE)']['n']}):")
-    print(f"  gap offer->open  (UNREACHABLE): {u['gap_offer_to_open (UNREACHABLE)']['mean']:+.4f}")
-    print(f"  open->close      (TRADEABLE)  : {u['open_to_close (TRADEABLE)']['mean']:+.4f} "
+    print(f"\nPOP DECOMPOSITION (MEDIAN, n={u['open_to_close (TRADEABLE)']['n']}):")
+    print(f"  gap offer->open  (UNREACHABLE): {u['gap_offer_to_open (UNREACHABLE)']['median']:+.4f}")
+    print(f"  open->close      (TRADEABLE)  : {u['open_to_close (TRADEABLE)']['median']:+.4f} "
           f"(hit>0 {u['open_to_close (TRADEABLE)']['hit_gt0']:.0%})")
-    print(f"  offer->close     (target)     : {u['offer_to_close (target=gap+oc)']['mean']:+.4f}")
+    print(f"  offer->close     (target)     : {u['offer_to_close (target=gap+oc)']['median']:+.4f}")
     for lbl in ["offer_close", "open_close"]:
         print(f"\nRANK-IC vs {lbl}:")
         for f, ic in report["rank_ic"][lbl].items():
@@ -294,6 +314,24 @@ def main():
                 flag = "  <-- CI excludes 0" if ic["ci_excludes_0"] else ""
                 print(f"  {f:10s}: IC={ic['ic_mean']:+.4f} t={ic['t_stat']:+.2f} "
                       f"CI={ic['ci95']}{flag}")
+    print("\n" + "-" * 64)
+    print("MAKE-OR-BREAK: does the range_rev edge survive in TRADEABLE names?")
+    for key in ["ALL_operating", "LIQUID_only (>=$50M, >=$5)"]:
+        s = report[key]
+        ic = s["range_rev_ic_open_close"]
+        q = s["range_rev_quintiles_open_close"]
+        icstr = (f"IC={ic['ic_mean']:+.4f} CI={ic['ci95']}"
+                 f"{'  EXCLUDES 0' if ic.get('ci_excludes_0') else '  (incl 0)'}"
+                 if ic.get("ic_mean") is not None else ic.get("note"))
+        print(f"\n  {key}  (n={s['n']}):")
+        print(f"    open->close median = {s['open_close_median'].get('median')}  "
+              f"hit>0 {s['open_close_median'].get('hit_gt0')}")
+        print(f"    range_rev -> open->close: {icstr}")
+        if "by_quintile_median" in q:
+            print(f"    open->close MEDIAN by range_rev quintile: {q['by_quintile_median']} "
+                  f"(q5-q1 {q['spread_median']:+.4f}, monotonic={q['monotonic']})")
+        else:
+            print(f"    quintiles: {q.get('note')}")
     print(f"\nwrote {REPORTS / 'ipo_first_day_ic.json'}")
 
 

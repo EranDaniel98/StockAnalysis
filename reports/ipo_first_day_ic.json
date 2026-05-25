@@ -1,168 +1,274 @@
 {
-  "spike": "ipo_first_day_open_to_close",
-  "label": "open->close day-1 return (tradeable; NOT offer->close)",
-  "window": "2019-2024",
+  "spike": "ipo_first_day",
+  "source": "polygon/massive",
+  "window": "2021-2025",
   "coverage": {
-    "ritter_list": 2148,
-    "with_day1_data": 388,
-    "pct": 18.1,
-    "ticker_reuse_rejected": 6,
-    "WARNING": "yfinance survivorship: delisted IPOs missing -> results inflated"
+    "ipos_priced": 2107,
+    "after_filters_with_day1": 801,
+    "pct": 38.0
   },
   "unconditional": {
-    "all": {
-      "n": 388,
-      "mean": 0.0331,
-      "median": 0.0,
-      "hit_rate_gt0": 0.474,
-      "std": 0.2304
+    "gap_offer_to_open (UNREACHABLE)": {
+      "n": 801,
+      "mean": 5.0493,
+      "median": 0.0329,
+      "hit_gt0": 0.551,
+      "std": 47.2532
     },
-    "winsorized": {
-      "n": 388,
-      "mean": 0.028,
-      "median": 0.0,
-      "hit_rate_gt0": 0.474,
-      "std": 0.179
+    "open_to_close (TRADEABLE)": {
+      "n": 801,
+      "mean": 0.2726,
+      "median": -0.015,
+      "hit_gt0": 0.421,
+      "std": 5.9552
     },
-    "by_year": {
-      "2019": {
-        "n": 87,
-        "mean": 0.0426,
-        "median": -0.004,
-        "hit_rate_gt0": 0.425,
-        "std": 0.2705
-      },
-      "2020": {
-        "n": 117,
-        "mean": 0.0318,
-        "median": 0.0059,
-        "hit_rate_gt0": 0.513,
-        "std": 0.1648
-      },
+    "offer_to_close (target=gap+oc)": {
+      "n": 801,
+      "mean": 30.9819,
+      "median": 0.0164,
+      "hit_gt0": 0.528,
+      "std": 773.7765
+    },
+    "by_year_open_close": {
       "2021": {
-        "n": 184,
-        "mean": 0.0294,
+        "n": 207,
+        "mean": 0.0085,
         "median": 0.0,
-        "hit_rate_gt0": 0.473,
-        "std": 0.2462
+        "hit_gt0": 0.469,
+        "std": 0.1822
+      },
+      "2022": {
+        "n": 73,
+        "mean": 0.323,
+        "median": -0.0379,
+        "hit_gt0": 0.384,
+        "std": 2.753
+      },
+      "2023": {
+        "n": 124,
+        "mean": 0.1752,
+        "median": -0.0228,
+        "hit_gt0": 0.411,
+        "std": 1.641
+      },
+      "2024": {
+        "n": 198,
+        "mean": 0.8699,
+        "median": -0.0149,
+        "hit_gt0": 0.404,
+        "std": 11.7857
+      },
+      "2025": {
+        "n": 199,
+        "mean": -0.0046,
+        "median": -0.0226,
+        "hit_gt0": 0.407,
+        "std": 0.3315
       }
     }
   },
-  "rank_ic_winsorized": {
-    "hotness": {
-      "n_cohorts": 14,
-      "ic_mean": -0.2388,
-      "ic_std": 0.1896,
-      "t_stat": -4.71,
+  "rank_ic": {
+    "offer_close": {
+      "range_rev": {
+        "n_cohorts": 42,
+        "ic_mean": 0.2475,
+        "t_stat": 5.18,
+        "ci95": [
+          0.1565,
+          0.3405
+        ],
+        "ci_excludes_0": true
+      },
+      "log_size": {
+        "n_cohorts": 42,
+        "ic_mean": 0.0052,
+        "t_stat": 0.1,
+        "ci95": [
+          -0.0983,
+          0.1049
+        ],
+        "ci_excludes_0": false
+      },
+      "hotness": {
+        "n_cohorts": 41,
+        "ic_mean": -0.1581,
+        "t_stat": -3.68,
+        "ci95": [
+          -0.2396,
+          -0.0729
+        ],
+        "ci_excludes_0": true
+      },
+      "age": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0244,
+        "t_stat": 0.54,
+        "ci95": [
+          -0.0624,
+          0.1073
+        ],
+        "ci_excludes_0": false
+      },
+      "vc": {
+        "n_cohorts": 33,
+        "ic_mean": 0.1565,
+        "t_stat": 2.49,
+        "ci95": [
+          0.0419,
+          0.279
+        ],
+        "ci_excludes_0": true
+      }
+    },
+    "open_close": {
+      "range_rev": {
+        "n_cohorts": 42,
+        "ic_mean": 0.1288,
+        "t_stat": 3.19,
+        "ci95": [
+          0.0503,
+          0.2034
+        ],
+        "ci_excludes_0": true
+      },
+      "log_size": {
+        "n_cohorts": 42,
+        "ic_mean": 0.1387,
+        "t_stat": 2.84,
+        "ci95": [
+          0.041,
+          0.2332
+        ],
+        "ci_excludes_0": true
+      },
+      "hotness": {
+        "n_cohorts": 41,
+        "ic_mean": -0.1977,
+        "t_stat": -5.7,
+        "ci95": [
+          -0.2626,
+          -0.1267
+        ],
+        "ci_excludes_0": true
+      },
+      "age": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0615,
+        "t_stat": 1.1,
+        "ci95": [
+          -0.048,
+          0.1632
+        ],
+        "ci_excludes_0": false
+      },
+      "vc": {
+        "n_cohorts": 33,
+        "ic_mean": 0.0658,
+        "t_stat": 0.98,
+        "ci95": [
+          -0.0603,
+          0.1912
+        ],
+        "ci_excludes_0": false
+      }
+    }
+  },
+  "quintile_median_range_rev": {
+    "offer_close": {
+      "by_quintile_median": [
+        -0.0625,
+        0.0,
+        0.0008,
+        0.0175,
+        0.2619
+      ],
+      "q1_low": -0.0625,
+      "q5_high": 0.2619,
+      "spread_median": 0.3244,
+      "monotonic": true,
+      "n": 794
+    },
+    "open_close": {
+      "by_quintile_median": [
+        -0.0424,
+        -0.0222,
+        -0.0058,
+        -0.0231,
+        0.0213
+      ],
+      "q1_low": -0.0424,
+      "q5_high": 0.0213,
+      "spread_median": 0.0636,
+      "monotonic": false,
+      "n": 794
+    }
+  },
+  "ALL_operating": {
+    "n": 801,
+    "open_close_median": {
+      "n": 801,
+      "mean": 0.2726,
+      "median": -0.015,
+      "hit_gt0": 0.421,
+      "std": 5.9552
+    },
+    "range_rev_ic_open_close": {
+      "n_cohorts": 42,
+      "ic_mean": 0.1288,
+      "t_stat": 3.19,
       "ci95": [
-        -0.3317,
-        -0.1444
+        0.0502,
+        0.2069
       ],
       "ci_excludes_0": true
     },
-    "log_size": {
-      "n_cohorts": 3,
-      "ic_mean": -0.1838,
-      "ic_std": 0.6465,
-      "t_stat": -0.49,
-      "ci95": [
-        -0.7333,
-        0.5285
+    "range_rev_quintiles_open_close": {
+      "by_quintile_median": [
+        -0.0424,
+        -0.0222,
+        -0.0058,
+        -0.0231,
+        0.0213
       ],
-      "ci_excludes_0": false
-    },
-    "age": {
-      "n_cohorts": 15,
-      "ic_mean": 0.0776,
-      "ic_std": 0.1855,
-      "t_stat": 1.62,
-      "ci95": [
-        -0.0203,
-        0.1636
-      ],
-      "ci_excludes_0": false
-    },
-    "vc": {
-      "n_cohorts": 15,
-      "ic_mean": 0.0287,
-      "ic_std": 0.2572,
-      "t_stat": 0.43,
-      "ci95": [
-        -0.0938,
-        0.1531
-      ],
-      "ci_excludes_0": false
-    },
-    "dual": {
-      "n_cohorts": 15,
-      "ic_mean": 0.0008,
-      "ic_std": 0.2278,
-      "t_stat": 0.01,
-      "ci95": [
-        -0.1098,
-        0.1079
-      ],
-      "ci_excludes_0": false
-    },
-    "internet": {
-      "n_cohorts": 14,
-      "ic_mean": 0.0638,
-      "ic_std": 0.1671,
-      "t_stat": 1.43,
-      "ci95": [
-        -0.0226,
-        0.1457
-      ],
-      "ci_excludes_0": false
+      "q1_low": -0.0424,
+      "q5_high": 0.0213,
+      "spread_median": 0.0636,
+      "monotonic": false,
+      "n": 794
     }
   },
-  "quintile_spread_winsorized": {
-    "hotness": {
-      "q1_low": 0.0342,
-      "q5_high": -0.006,
-      "spread_hi_minus_lo": -0.0402,
-      "monotonic": false
+  "LIQUID_only (>=$50M, >=$5)": {
+    "n": 409,
+    "open_close_median": {
+      "n": 409,
+      "mean": 0.4612,
+      "median": 0.0,
+      "hit_gt0": 0.491,
+      "std": 8.2337
     },
-    "log_size": {
-      "q1_low": 0.006,
-      "q5_high": 0.0293,
-      "spread_hi_minus_lo": 0.0233,
-      "monotonic": false
+    "range_rev_ic_open_close": {
+      "n_cohorts": 17,
+      "ic_mean": 0.1658,
+      "t_stat": 2.21,
+      "ci95": [
+        0.0286,
+        0.311
+      ],
+      "ci_excludes_0": true
     },
-    "age": {
-      "q1_low": -0.0061,
-      "q5_high": 0.013,
-      "spread_hi_minus_lo": 0.0191,
-      "monotonic": false
-    }
-  },
-  "binary_group_diff_winsorized": {
-    "vc": {
-      "mean_1": 0.007,
-      "mean_0": 0.0483,
-      "diff": -0.0413,
-      "n1": 189,
-      "n0": 180,
-      "t_stat": -2.19,
-      "p_value": 0.0296
-    },
-    "dual": {
-      "mean_1": 0.0248,
-      "mean_0": 0.0294,
-      "diff": -0.0046,
-      "n1": 117,
-      "n0": 271,
-      "t_stat": -0.25,
-      "p_value": 0.802
-    },
-    "internet": {
-      "mean_1": 0.05,
-      "mean_0": 0.0246,
-      "diff": 0.0254,
-      "n1": 52,
-      "n0": 336,
-      "t_stat": 0.95,
-      "p_value": 0.343
+    "range_rev_quintiles_open_close": {
+      "by_quintile_median": [
+        -0.0158,
+        0.0,
+        0.0,
+        -0.008,
+        0.0339
+      ],
+      "q1_low": -0.0158,
+      "q5_high": 0.0339,
+      "spread_median": 0.0497,
+      "monotonic": false,
+      "n": 407
     }
   }
 }
