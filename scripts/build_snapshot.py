@@ -93,6 +93,8 @@ def main() -> int:
     ap.add_argument("--as-of", help="PIT S&P 500 universe date (YYYY-MM-DD); defaults to --start")
     ap.add_argument("--tickers", default="", help="comma list to OVERRIDE the PIT universe (ad-hoc/test)")
     ap.add_argument("--label", default="sp500_pit", help="universe label recorded in the manifest")
+    ap.add_argument("--universe", default="sp500_pit", choices=["sp500_pit", "russell_1000"],
+                    help="which universe to freeze (ignored when --tickers is given)")
     ap.add_argument("--lookback-days", type=int, default=400,
                     help="extra calendar history before --start so the 252-trading-day momentum lookback warms up")
     ap.add_argument("--pipeline-version", default="polygon_v1")
@@ -114,6 +116,19 @@ def main() -> int:
     if args.tickers.strip():
         universe = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
         label = args.label if args.label != "sp500_pit" else "adhoc"
+    elif args.universe == "russell_1000":
+        universe = [t.upper() for t in cfg.get_russell_1000_tickers()]
+        if not universe:
+            raise SystemExit("Russell 1000 list empty — run "
+                             "`uv run python -m scripts.fetch_russell_1000` first.")
+        label = "russell_1000"
+        logger.warning(
+            "Russell 1000 list is STATIC CURRENT membership (not point-in-time). "
+            "Backtests over historical windows are SURVIVORSHIP-BIASED — you hold "
+            "today's index members, not the set that existed at each rebalance, so "
+            "momentum buys hindsight winners and never holds the names that dropped "
+            "out. A 2024-26 run showed +73%% alpha that was almost entirely this bias. "
+            "Do NOT trust Russell backtests until PIT membership exists.")
     else:
         universe = list(cfg.get_sp500_pit_tickers(as_of))
         if not universe:
