@@ -231,6 +231,13 @@ def _parse_args() -> argparse.Namespace:
                         "Loads earnings histories from --earnings-cache-dir.")
     p.add_argument("--earnings-cache-dir", default="data/earnings_history",
                    help="Per-ticker earnings parquet cache for PEAD.")
+    # Backtests must NOT live-fetch earnings: it's non-deterministic and, on a
+    # stale cache, fires ~500 yfinance calls per run that hang/rate-limit (this
+    # stalled a multi-config sweep). Past surprises are immutable facts, so the
+    # cache is valid indefinitely for backtests. Default ~10yr = cache-only.
+    p.add_argument("--earnings-cache-max-age-hours", type=float, default=87_600.0,
+                   help="Max cache age before re-fetch. Default ~10yr (cache-only) "
+                        "so backtests never live-fetch. Lower only to refresh.")
     p.add_argument("--pead-drift-window", type=int, default=60,
                    help="PEAD drift envelope in calendar days (default 60).")
     p.add_argument("--long-short", action="store_true",
@@ -540,6 +547,7 @@ def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers:
     logger.info("Loading earnings histories for PEAD...")
     histories = load_earnings_histories(
         universe_tickers, Path(args.earnings_cache_dir),
+        max_age_hours=args.earnings_cache_max_age_hours,
     )
     logger.info(
         "Loaded earnings histories for %d / %d tickers",
