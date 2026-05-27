@@ -22,7 +22,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from src.api.dependencies import get_price_repo
+from src.api.dependencies import get_config, get_price_repo
 from src.api.schemas.stock import OHLCBar, StockDetail
 from src.storage.parquet_ohlcv import ParquetPriceRepository
 
@@ -155,13 +155,46 @@ async def get_ticker_factors(ticker: str) -> TickerFactors:
     )
 
 
+def _price_df_to_bars(df) -> list[OHLCBar]:
+    """OHLC frame (Parquet store or live-fetched) -> list[OHLCBar]. Handles
+    either a DatetimeIndex or an explicit date column after reset_index()."""
+    import pandas as pd
+
+    df = df.reset_index()
+    date_col = next(
+        (c for c in ("Date", "date", "Datetime", "index", "timestamp")
+         if c in df.columns),
+        df.columns[0],
+    )
+    bars: list[OHLCBar] = []
+    for _, r in df.iterrows():
+        d = r[date_col]
+        bars.append(
+            OHLCBar(
+                date=d.date() if hasattr(d, "date") else d,
+                open=float(r["Open"]),
+                high=float(r["High"]),
+                low=float(r["Low"]),
+                close=float(r["Close"]),
+                volume=int(r["Volume"])
+                if "Volume" in df.columns and pd.notna(r["Volume"])
+                else None,
+            )
+        )
+    return bars
+
+
 @router.get("/{ticker}", response_model=StockDetail)
 async def get_stock_detail(
     ticker: str,
     history_days: int = Query(default=120, ge=5, le=730),
     price_repo: ParquetPriceRepository = Depends(get_price_repo),
 ) -> StockDetail:
-    """Per-ticker OHLC history. ``history_days`` controls the lookback."""
+    """Per-ticker OHLC history. ``history_days`` controls the lookback.
+
+    Falls back to a single live Polygon fetch when the Parquet store has no
+    cached bars — common for universe names that were never pulled into a
+    basket (e.g. MU). Keeps the chart working for any universe ticker."""
     tu = ticker.strip().upper()
     if not tu:
         raise HTTPException(status_code=400, detail="empty ticker")
@@ -172,27 +205,24 @@ async def get_stock_detail(
     try:
         df = await price_repo.get_history(tu, start=start, end=end)
         if df is not None and not df.empty:
-            df = df.reset_index()
-            date_col = "Date" if "Date" in df.columns else "date"
-            for _, r in df.iterrows():
-                history.append(
-                    OHLCBar(
-                        date=r[date_col].date()
-                        if hasattr(r[date_col], "date")
-                        else r[date_col],
-                        open=float(r["Open"]),
-                        high=float(r["High"]),
-                        low=float(r["Low"]),
-                        close=float(r["Close"]),
-                        volume=(
-                            int(r["Volume"])
-                            if "Volume" in df.columns and r["Volume"] is not None
-                            else None
-                        ),
-                    )
-                )
+            history = _price_df_to_bars(df)
     except Exception as e:
-        logger.warning("price history fetch failed for %s: %s", tu, e)
+        logger.warning("parquet history fetch failed for %s: %s", tu, e)
+
+    if not history:
+        try:
+            from src.data.fetcher_factory import get_data_fetcher
+
+            fetcher = get_data_fetcher(get_config())
+            df = await asyncio.to_thread(
+                fetcher.fetch_price_data, tu, f"{history_days}d", "1d"
+            )
+            if df is not None and not df.empty:
+                history = _price_df_to_bars(df)
+                logger.info("served %s chart via live fallback (%d bars)",
+                            tu, len(history))
+        except Exception as e:
+            logger.warning("live price fallback failed for %s: %s", tu, e)
 
     if not history:
         raise HTTPException(
