@@ -45,6 +45,10 @@ class FactorPicksResult:
     # the bottom-N picks (worst composite → expected to underperform).
     # Empty otherwise.
     shorts: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # Per-ticker EDGAR fundamental row counts (loader.coverage()). Lets the
+    # per-stock factor-analysis endpoint flag thin-history names (e.g. a recent
+    # spin-off with few quarters) whose quality/value ranks are unreliable.
+    per_ticker_coverage: dict[str, int] = field(default_factory=dict)
 
 
 # Known share-class groups -- when two tickers represent the same
@@ -474,6 +478,10 @@ def run_factor_picks(
             shorts = shorts[~shorts["ticker"].isin(set(top["ticker"]))]
         shorts = _attach_per_factor_ranks(shorts, mom, qual, val, pead_display)
 
+    # Attach per-factor ranks to the FULL composite (not just the picks) so any
+    # ticker's breakdown is available for the per-stock factor-analysis view.
+    composite = _attach_per_factor_ranks(composite, mom, qual, val, pead_display)
+
     return FactorPicksResult(
         as_of=as_of,
         factors_used=factors_used,
@@ -484,4 +492,5 @@ def run_factor_picks(
         coverage={"fundamentals_covered": n_covered, "universe": len(universe)},
         sector_cap_skipped=sector_cap_skipped,
         shorts=shorts,
+        per_ticker_coverage=dict(coverage),
     )
