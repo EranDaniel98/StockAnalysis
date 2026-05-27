@@ -108,8 +108,11 @@ class MoveEvidence:
     earnings_in_window: bool = False
     earnings_date: str | None = None
     earnings_surprise_pct: float | None = None
-    filings: list[dict[str, str]] = field(default_factory=list)  # {form, date, ...}
+    filings: list[dict[str, str]] = field(default_factory=list)  # {form, date, items, excerpt}
     short_interest_delta_pct: float | None = None  # +=more shorts, -=covering
+    short_interest_days_to_cover: float | None = None
+    news: list[dict[str, str]] = field(default_factory=list)  # {date, title, sentiment, publisher}
+    peers: list[str] = field(default_factory=list)            # related tickers (validation targets)
     # Honest gaps — sources we did NOT consult (so the LLM doesn't invent them).
     missing_sources: list[str] = field(default_factory=list)
 
@@ -136,6 +139,7 @@ class MoveAnalysis:
     summary: str
     candidate_drivers: list[CandidateDriver]
     cannot_determine: list[str]
+    peers: list[str] = field(default_factory=list)  # carried from evidence for the report
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -154,10 +158,14 @@ isn't in the evidence (e.g. news, analyst actions when listed as missing), you \
 must NOT invent it — name it under cannot_determine instead.
 - Lean on the return attribution: if the stock barely beat its sector ETF, the \
 move is mostly sector/market, not stock-specific — say so even if it's boring.
+- Use the news feed (with per-ticker sentiment when present) and the 8-K filing \
+excerpts to identify the actual catalyst — these are now provided, so a sharp \
+single-day move with matching news should be named, not left as "cannot determine."
 - For EACH candidate driver, give a TESTABLE cross-sectional hypothesis: how \
 would one express this driver as a factor and check it across the whole universe \
 out-of-sample (so a "find similar names" follow-up gets validated, not traded on \
-a hunch).
+a hunch). When the driver is stock-specific, name the provided `peers` as the \
+concrete candidate set to screen + validate.
 
 Return ONLY a JSON object, no prose around it:
 {
@@ -207,7 +215,7 @@ async def analyze_move(client: Any, evidence: MoveEvidence, *,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_msg}],
         tools=[],
-        max_tokens=1500,
+        max_tokens=4000,
     )
     data = _parse_json(_extract_text(resp))
     drivers = [
@@ -226,4 +234,5 @@ async def analyze_move(client: Any, evidence: MoveEvidence, *,
         summary=data.get("summary", ""),
         candidate_drivers=drivers,
         cannot_determine=data.get("cannot_determine", []),
+        peers=list(evidence.peers),
     )

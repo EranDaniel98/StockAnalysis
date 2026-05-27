@@ -121,26 +121,55 @@ async def _edgar_filings(ticker, start, end, *, max_texts: int = 3):
     return rows[:12]
 
 
-async def _short_delta(ticker, end, window_days):
-    """Short-interest change over the window (signed %), or None if not covered."""
+def _news(ticker, start):
+    """Ticker-tagged news published in the window, with per-ticker sentiment."""
+    from src.market_data.polygon import PolygonClient
     try:
-        from src.db.session import dispose_engine, get_sessionmaker
-        from src.factors.short_interest_delta import fetch_short_delta
-        sm = get_sessionmaker()
-        try:
-            async with sm() as session:
-                df = await fetch_short_delta(session, [ticker.upper()], end, window_days=window_days)
-        finally:
-            await dispose_engine()
+        items = PolygonClient().news(ticker, limit=15, published_gte=start.date().isoformat())
     except Exception as e:  # noqa: BLE001
-        logger.debug("short-interest lookup failed for %s: %s", ticker, e)
-        return None
-    if df is None or df.empty:
-        return None
-    row = df[df["ticker"] == ticker.upper()]
-    if row.empty:
-        return None
-    return round(float(row["delta_pct"].iloc[0]) * 100.0, 2)
+        logger.debug("news fetch failed %s: %s", ticker, e)
+        return []
+    out = []
+    for a in items:
+        ins = next((i for i in (a.get("insights") or [])
+                    if i.get("ticker", "").upper() == ticker.upper()), None)
+        out.append({"date": (a.get("published_utc") or "")[:10], "title": a.get("title", ""),
+                    "sentiment": (ins or {}).get("sentiment"),
+                    "publisher": (a.get("publisher") or {}).get("name", "")})
+    return out[:10]
+
+
+def _peers(ticker):
+    """Polygon related-companies (peer proxy) — the concrete set to screen+validate."""
+    from src.market_data.polygon import PolygonClient
+    try:
+        return PolygonClient().related_companies(ticker)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("peers fetch failed %s: %s", ticker, e)
+        return []
+
+
+def _poly_short(ticker, start):
+    """(delta_pct over window, latest days_to_cover) from Polygon short-interest."""
+    from src.market_data.polygon import PolygonClient
+    try:
+        rows = PolygonClient().short_interest(ticker, limit=12)  # desc by settlement
+    except Exception as e:  # noqa: BLE001
+        logger.debug("short-interest fetch failed %s: %s", ticker, e)
+        return None, None
+    if not rows:
+        return None, None
+    latest = rows[0]
+    si = latest.get("short_interest")
+    dtc = latest.get("days_to_cover")
+    s = start.date().isoformat()
+    prior = next((r for r in rows[1:] if (r.get("settlement_date") or "") < s), None)
+    if prior is None and len(rows) > 1:
+        prior = rows[-1]
+    delta = None
+    if prior and si and prior.get("short_interest"):
+        delta = round((si - prior["short_interest"]) / prior["short_interest"] * 100.0, 2)
+    return delta, (round(float(dtc), 2) if dtc is not None else None)
 
 
 def _render_md(a) -> str:
@@ -154,6 +183,8 @@ def _render_md(a) -> str:
     if a.cannot_determine:
         lines += ["## Cannot determine from the evidence"]
         lines += [f"- {x}" for x in a.cannot_determine]
+    if getattr(a, "peers", None):
+        lines += ["", f"**Peers to screen (validation set):** {', '.join(a.peers)}"]
     lines += ["", "_Drivers are candidates, not causes. Validate any 'similar "
               "names' idea cross-sectionally (phase_envelope.py) before trading._"]
     return "\n".join(lines)
@@ -168,8 +199,7 @@ async def _run(args) -> int:
     ticker = args.ticker.upper()
     end = pd.Timestamp(args.end) if args.end else pd.Timestamp(datetime.now(timezone.utc).date())
     start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=args.lookback_days)
-    missing: list[str] = ["live news / analyst price-target actions "
-                          "(SEC filing text IS read below, but no news-wire feed)"]
+    missing: list[str] = []
 
     # Sector -> ETF proxy.
     sector = None
@@ -198,18 +228,22 @@ async def _run(args) -> int:
         sm_ = _window_metrics(prices[etf], start, end)
         sector_ret = sm_[0] if sm_ else None
 
-    # Catalysts (best-effort, run the async ones concurrently).
-    earnings_t = asyncio.to_thread(_earnings_in_window, ticker, start, end)
-    filings, sdelta, (e_in, e_date, e_surp) = await asyncio.gather(
+    # Catalysts (best-effort, all concurrent — EDGAR async + Polygon/yfinance in threads).
+    filings, (e_in, e_date, e_surp), news, peers, (sdelta, dtc) = await asyncio.gather(
         _edgar_filings(ticker, start, end),
-        _short_delta(ticker, end, args.lookback_days),
-        earnings_t,
+        asyncio.to_thread(_earnings_in_window, ticker, start, end),
+        asyncio.to_thread(_news, ticker, start),
+        asyncio.to_thread(_peers, ticker),
+        asyncio.to_thread(_poly_short, ticker, start),
     )
     if filings is None:
         missing.append("EDGAR filings (no CIK match / SEC unreachable)")
         filings = []
+    if not news:
+        missing.append("no ticker-tagged news returned for the window")
     if sdelta is None:
-        missing.append("short interest (ticker not in our FINRA coverage)")
+        missing.append("short-interest change (no Polygon coverage for this name)")
+    missing.append("intraday microstructure / analyst price-target actions (not analyzed)")
 
     evidence = MoveEvidence(
         ticker=ticker, start=start.date().isoformat(), end=end.date().isoformat(),
@@ -219,7 +253,8 @@ async def _run(args) -> int:
         biggest_day_pct=bday[1] if bday else None,
         volume_spike_ratio=vspike,
         earnings_in_window=e_in, earnings_date=e_date, earnings_surprise_pct=e_surp,
-        filings=filings, short_interest_delta_pct=sdelta,
+        filings=filings, short_interest_delta_pct=sdelta, short_interest_days_to_cover=dtc,
+        news=news, peers=peers,
         missing_sources=missing,
     )
 

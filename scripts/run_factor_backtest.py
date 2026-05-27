@@ -57,6 +57,7 @@ from src.factors.regime import (
     ENTRY_SMA_WINDOW as REGIME_DEFAULT_ENTRY_SMA,
     is_risk_on,
     trend_state_asymmetric_series,
+    trend_state_hysteresis_series,
     trend_state_series,
 )
 from src.factors.regime_weights import list_profiles, weights_for
@@ -117,16 +118,29 @@ def _parse_args() -> argparse.Namespace:
                    help=f"Re-entry SMA for --asymmetric-trend (default "
                         f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
                         f"recoveries earlier but more sensitive to chop.")
+    p.add_argument("--regime-band-pct", type=float, default=0.03,
+                   help="Hysteresis dead-band around the entry-SMA gate (default "
+                        "+/-3%%): flip risk-ON only above SMA*(1+band), OFF only "
+                        "below SMA*(1-band), carry state inside. With --daily-regime "
+                        "it ignores marginal SMA crosses to cut whipsaw. DEFAULT 0.03 "
+                        "since 2026-05-27: vs plain daily-regime it improved ALL three "
+                        "validation windows (bull +11->+12.3%%, slow-bear +1.3->+2.9%%, "
+                        "COVID +15.3->+24.0%% CAPM-a). Pass 0 for the plain level check.")
     p.add_argument("--regime-file",
                    help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
                         "regime gate, OVERRIDING the SPY-SMA trend filter. For "
                         "testing alternative gates (e.g. market-breadth).")
-    p.add_argument("--daily-regime", action=argparse.BooleanOptionalAction, default=False,
+    p.add_argument("--daily-regime", action=argparse.BooleanOptionalAction, default=True,
                    help="Evaluate the regime gate EVERY trading day — exit to cash "
                         "the day it flips off, re-enter the standing target when it "
                         "flips back on — decoupling it from the 63-day factor "
-                        "rebalance. Default off = legacy (regime checked only at "
-                        "rebalances). Targets the cadence leak (project_regime_whipsaw).")
+                        "rebalance. DEFAULT ON since 2026-05-27: the breadth test "
+                        "showed the 63-day cadence rode the COVID crash down -40%% "
+                        "(phase-luck, FRAGILE); daily eval cut that to ~-12%% and "
+                        "turned COVID CAPM-a -7.9%% -> +15.3%% (also +2.2pp bull). "
+                        "Cost: whipsaws a choppy slow bear (2022 +6.1%% -> +1.3%%) "
+                        "— a hysteresis band is the planned fix. Pass --no-daily-regime "
+                        "for the legacy rebalance-only gate.")
     p.add_argument("--rebal-offset", type=int, default=0,
                    help="Shift the rebalance-grid start by N trading days (phase). "
                         "Phase-envelope robustness: sweep 0..rebalance_days-1 to see "
@@ -538,11 +552,17 @@ def _mark_to_market(
     return eq
 
 
-def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str]):
-    """PEAD analyzer needs per-ticker earnings histories. Loaded once
-    up front (parquet cache hits after the first run)."""
+def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str],
+                                     snap=None):
+    """PEAD analyzer needs per-ticker earnings histories. Prefer the snapshot's
+    FROZEN earnings (reproducible) when present; else fall back to the live
+    cache (older snapshots built without frozen earnings)."""
     if not args.include_pead:
         return None
+    frozen = getattr(snap, "earnings_history", None) if snap is not None else None
+    if frozen:
+        logger.info("Using FROZEN snapshot earnings for PEAD (%d tickers).", len(frozen))
+        return frozen
     from src.factors.earnings_cache import load_earnings_histories
     logger.info("Loading earnings histories for PEAD...")
     histories = load_earnings_histories(
@@ -1002,7 +1022,7 @@ def run(args: argparse.Namespace) -> dict:
             "scripts.build_snapshot to re-resolve membership per rebalance.",
             args.snapshot_id,
         )
-    earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers)
+    earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers, snap)
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
@@ -1013,9 +1033,14 @@ def run(args: argparse.Namespace) -> dict:
         trend_state = (_rs.reindex(_rs.index.union(_full)).sort_index()
                        .ffill().fillna(False).astype(bool))
     elif args.asymmetric_trend:
-        trend_state = trend_state_asymmetric_series(
-            spy, entry_sma=args.entry_sma,
-        )
+        if args.regime_band_pct > 0:
+            trend_state = trend_state_hysteresis_series(
+                spy, entry_sma=args.entry_sma, band_pct=args.regime_band_pct,
+            )
+        else:
+            trend_state = trend_state_asymmetric_series(
+                spy, entry_sma=args.entry_sma,
+            )
     else:
         trend_state = trend_state_series(spy)
     vix_state = _build_vix_state(args, snap, spy)
