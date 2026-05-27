@@ -29,12 +29,14 @@ from dotenv import load_dotenv
 
 REPO = Path(__file__).resolve().parent.parent
 OPUS_MODEL = "claude-opus-4-7"
-# Free-tier Gemini API allows Flash models; the 3.x Pro models are pay-as-you-go
-# only (limit:0 on free tier). Override with --gemini-model gemini-3.1-pro-preview
-# once billing is enabled on the API key's Cloud project.
-GEMINI_MODEL = "gemini-3.5-flash"
-MAX_TOKENS = 1800
-TIMEOUT_S = 180
+# Pro requires paid API billing (Tier 1+); free tier is limit:0 on 3.x Pro.
+# Fall back to --gemini-model gemini-3.5-flash if running on the free tier.
+GEMINI_MODEL = "gemini-3.1-pro-preview"
+OPUS_MAX_TOKENS = 2000
+# Gemini 3.x Pro is a thinking model — reasoning tokens count against the output
+# budget, so a tight cap truncates the visible answer mid-sentence. Give it room.
+GEMINI_MAX_TOKENS = 8000
+TIMEOUT_S = 240
 
 FRAMING = """You are one of two AI quant reviewers in a SYMMETRIC CRITIQUE of a \
 live, paper-traded US-equity strategy. The other reviewer is {opponent}.
@@ -109,7 +111,7 @@ def opus_turn(client, system_text: str, user_text: str) -> str:
         # Cache the dossier system block — it is identical every Opus turn.
         resp = client.messages.create(
             model=OPUS_MODEL,
-            max_tokens=MAX_TOKENS,
+            max_tokens=OPUS_MAX_TOKENS,
             system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user_text}],
             timeout=TIMEOUT_S,
@@ -126,7 +128,7 @@ def gemini_turn(client, gem_types, model: str, system_text: str, user_text: str)
             contents=user_text,
             config=gem_types.GenerateContentConfig(
                 system_instruction=system_text,
-                max_output_tokens=MAX_TOKENS,
+                max_output_tokens=GEMINI_MAX_TOKENS,
                 temperature=0.7,
             ),
         )
