@@ -121,12 +121,17 @@ def _parse_args() -> argparse.Namespace:
                    help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
                         "regime gate, OVERRIDING the SPY-SMA trend filter. For "
                         "testing alternative gates (e.g. market-breadth).")
-    p.add_argument("--daily-regime", action=argparse.BooleanOptionalAction, default=False,
+    p.add_argument("--daily-regime", action=argparse.BooleanOptionalAction, default=True,
                    help="Evaluate the regime gate EVERY trading day — exit to cash "
                         "the day it flips off, re-enter the standing target when it "
                         "flips back on — decoupling it from the 63-day factor "
-                        "rebalance. Default off = legacy (regime checked only at "
-                        "rebalances). Targets the cadence leak (project_regime_whipsaw).")
+                        "rebalance. DEFAULT ON since 2026-05-27: the breadth test "
+                        "showed the 63-day cadence rode the COVID crash down -40%% "
+                        "(phase-luck, FRAGILE); daily eval cut that to ~-12%% and "
+                        "turned COVID CAPM-a -7.9%% -> +15.3%% (also +2.2pp bull). "
+                        "Cost: whipsaws a choppy slow bear (2022 +6.1%% -> +1.3%%) "
+                        "— a hysteresis band is the planned fix. Pass --no-daily-regime "
+                        "for the legacy rebalance-only gate.")
     p.add_argument("--rebal-offset", type=int, default=0,
                    help="Shift the rebalance-grid start by N trading days (phase). "
                         "Phase-envelope robustness: sweep 0..rebalance_days-1 to see "
