@@ -18,6 +18,7 @@ export const PIPELINE_STEPS = [
   "ai_sanity_check",
   "morning_briefing",
   "paper_vs_spy_snapshot",
+  "kill_switch_check",
 ] as const;
 
 export type PipelineStep = typeof PIPELINE_STEPS[number];

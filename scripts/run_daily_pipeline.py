@@ -60,6 +60,11 @@ def _run(args: list[str], step: str) -> bool:
         if result.returncode != 0:
             logger.error("STEP %s exit code %d", step, result.returncode)
             return False
+        # Success marker — the SSE pipeline parser (src/api/routers/pipeline.py
+        # _STEP_DONE_RE) needs a "STEP <name> exit code <n>" line on EVERY
+        # completion, not just failures. Without this, successful steps never
+        # emit step_completed and the web step-ladder shows them stuck/failed.
+        logger.info("STEP %s exit code 0", step)
         return True
     except Exception as e:  # noqa: BLE001
         logger.error("STEP %s exception: %s", step, e)

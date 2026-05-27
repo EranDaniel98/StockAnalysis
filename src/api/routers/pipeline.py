@@ -53,6 +53,7 @@ PIPELINE_STEPS = [
     "ai_sanity_check",
     "morning_briefing",
     "paper_vs_spy_snapshot",
+    "kill_switch_check",
 ]
 
 # Hard ceiling so a hung subprocess can't pin the lock forever.
