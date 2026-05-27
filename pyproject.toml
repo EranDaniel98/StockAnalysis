@@ -1,0 +1,67 @@
+[project]
+name = "stocknew"
+version = "0.1.0"
+description = "US-equity quant system — cross-sectional factor composite (12-1 momentum + EDGAR PIT quality/value + PEAD), regime-gated, paper-traded via Alpaca."
+requires-python = ">=3.12"
+dependencies = [
+    # Data + market access
+    "yfinance>=0.2.31",
+    "finvizfinance>=0.14",
+    "alpaca-py>=0.30.0",
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    # Compute
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pandas-ta>=0.3.14b",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    # Quant tooling
+    "alphalens-reloaded>=0.4.6",
+    "quantstats>=0.0.80",
+    "vectorbt>=1.0.0",
+    # Persistence
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "redis>=5.0.0",
+    "pyarrow>=14.0.0",
+    "orjson>=3.9.0",
+    "portalocker>=3.0",
+    "pgvector>=0.3",
+    # Web / API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sse-starlette>=2.1.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.5.0",
+    # ML platform
+    "lightgbm>=4.0",
+    "joblib>=1.3",
+    "torch>=2.2",
+    "sentence-transformers>=2.7",
+    # LLM (research agent + strategy debate)
+    "anthropic>=0.40",
+    "google-genai>=2.6",
+    # Config / output / alerts
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+    "jinja2>=3.1.0",
+    "python-telegram-bot>=20.0",
+    "structlog>=24.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.0",
+    "pytest-cov>=4.1",
+]
+
+[tool.uv]
+# Application, not a distributable package — don't try to build/install the root.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
