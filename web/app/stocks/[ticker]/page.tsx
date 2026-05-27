@@ -8,10 +8,11 @@ import {
   Calendar,
   ChevronLeft,
   ExternalLink,
+  Loader2,
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -28,6 +29,7 @@ import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -35,6 +37,7 @@ import {
   api,
   type OHLCBar,
   type Position,
+  type TickerFactors,
   type TodayActionItem,
 } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
@@ -379,17 +382,111 @@ function StockDetail({
           ) : null}
 
           {!basketItem && !heldPosition ? (
-            <Card>
-              <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                Not in today&apos;s basket and not in paper positions. The chart
-                still works — for factor context, this ticker would need to
-                make today&apos;s top picks.
-              </CardContent>
-            </Card>
+            <FactorAnalysisCard ticker={ticker} />
           ) : null}
         </div>
       </div>
     </>
+  );
+}
+
+function FactorAnalysisCard({ ticker }: { ticker: string }) {
+  const [run, setRun] = useState(false);
+  const q = useQuery({
+    queryKey: ["stockFactors", ticker],
+    queryFn: () => api.stocks.factors(ticker),
+    enabled: run,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  return (
+    <Card>
+      <CardContent className="py-5 space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Not in today&apos;s basket or your paper positions — the price chart
+          still works.
+        </p>
+        {!run ? (
+          <div className="space-y-1.5">
+            <Button
+              size="sm"
+              onClick={() => setRun(true)}
+              className="font-mono text-[11px] tracking-wider uppercase"
+            >
+              Analyze factors
+            </Button>
+            <p className="text-[10px] text-muted-foreground">
+              ranks this ticker across the universe · first run ~1–2&nbsp;min
+            </p>
+          </div>
+        ) : q.isLoading || q.isFetching ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Scoring the universe… (~1–2&nbsp;min)
+          </div>
+        ) : q.error ? (
+          <p className="text-sm text-bearish">
+            Couldn&apos;t compute factors:{" "}
+            {q.error instanceof Error ? q.error.message : "unknown error"}
+          </p>
+        ) : q.data ? (
+          <FactorAnalysisResult data={q.data} />
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FactorAnalysisResult({ data }: { data: TickerFactors }) {
+  if (!data.in_universe) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {data.note ?? "Not in the scored S&P 500 universe for this date."}
+      </p>
+    );
+  }
+  const fmt = (n: number | null) => (n != null ? `#${n}` : "—");
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between border-b border-border pb-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Composite
+        </span>
+        <span className="font-mono text-sm">
+          {fmt(data.composite_rank)}
+          <span className="text-muted-foreground">/{data.universe_size}</span>
+          {data.composite_z != null ? (
+            <span className="ml-2 text-muted-foreground">
+              z {data.composite_z >= 0 ? "+" : ""}
+              {data.composite_z.toFixed(2)}
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono text-xs">
+        <dt className="text-muted-foreground">momentum</dt>
+        <dd>{fmt(data.momentum_rank)}</dd>
+        <dt className="text-muted-foreground">quality</dt>
+        <dd>{fmt(data.quality_rank)}</dd>
+        <dt className="text-muted-foreground">value</dt>
+        <dd>{fmt(data.value_rank)}</dd>
+        <dt className="text-muted-foreground">PEAD</dt>
+        <dd>{fmt(data.pead_rank)}</dd>
+      </dl>
+      <p
+        className={
+          data.picked_today
+            ? "text-[11px] text-bullish"
+            : "text-[11px] text-muted-foreground"
+        }
+      >
+        {data.picked_today ? "In today's basket." : "Not in today's basket."}
+      </p>
+      {data.note ? (
+        <p className="text-[11px] leading-snug text-amber-500/90">{data.note}</p>
+      ) : null}
+    </div>
   );
 }
 

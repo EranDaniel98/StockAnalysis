@@ -124,6 +124,25 @@ export type PaperRecommendationItem = Schemas["PaperRecommendationItem"];
 export type StockDetail = Schemas["StockDetail"];
 export type OHLCBar = Schemas["OHLCBar"];
 
+// On-demand per-ticker factor breakdown (works for ANY universe ticker, even
+// ones the daily picks filtered out). Mirrors src/api/routers/stocks.py:TickerFactors.
+export type TickerFactors = {
+  ticker: string;
+  as_of: string;
+  in_universe: boolean;
+  picked_today: boolean;
+  universe_size: number;
+  composite_rank: number | null;
+  composite_z: number | null;
+  momentum_rank: number | null;
+  quality_rank: number | null;
+  value_rank: number | null;
+  pead_rank: number | null;
+  edgar_rows: number;
+  thin_fundamentals: boolean;
+  note: string | null;
+};
+
 export type MarketRegime = Schemas["MarketRegime"];
 export type SectorsResponse = Schemas["SectorsResponse"];
 export type SectorMetric = Schemas["SectorMetric"];
@@ -261,6 +280,14 @@ export const api = {
     // POST /api/stocks/{ticker}/analyze was deleted 2026-05-23 — the
     // per-stock page now reads factor context from the basket basketItem
     // instead of running an on-demand 5-engine analyze.
+    //
+    // GET /factors (2026-05-27) computes the factor breakdown on demand for
+    // ANY universe ticker, including names the daily picks filtered out. First
+    // call of the day takes ~1-2 min (scores the whole universe), then cached.
+    factors: (ticker: string) =>
+      request<TickerFactors>(
+        `/api/stocks/${encodeURIComponent(ticker)}/factors`,
+      ),
   },
 
   recommendations: {
