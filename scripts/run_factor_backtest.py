@@ -118,12 +118,14 @@ def _parse_args() -> argparse.Namespace:
                    help=f"Re-entry SMA for --asymmetric-trend (default "
                         f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
                         f"recoveries earlier but more sensitive to chop.")
-    p.add_argument("--regime-band-pct", type=float, default=0.0,
-                   help="Hysteresis dead-band around the entry-SMA gate (e.g. 0.03 "
-                        "= +/-3%%): flip risk-ON only above SMA*(1+band), OFF only "
+    p.add_argument("--regime-band-pct", type=float, default=0.03,
+                   help="Hysteresis dead-band around the entry-SMA gate (default "
+                        "+/-3%%): flip risk-ON only above SMA*(1+band), OFF only "
                         "below SMA*(1-band), carry state inside. With --daily-regime "
-                        "this ignores marginal SMA crosses to cut slow-bear whipsaw. "
-                        "0 = plain level check.")
+                        "it ignores marginal SMA crosses to cut whipsaw. DEFAULT 0.03 "
+                        "since 2026-05-27: vs plain daily-regime it improved ALL three "
+                        "validation windows (bull +11->+12.3%%, slow-bear +1.3->+2.9%%, "
+                        "COVID +15.3->+24.0%% CAPM-a). Pass 0 for the plain level check.")
     p.add_argument("--regime-file",
                    help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
                         "regime gate, OVERRIDING the SPY-SMA trend filter. For "
