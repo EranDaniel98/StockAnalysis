@@ -74,28 +74,51 @@ def _earnings_in_window(ticker, start, end):
     return True, date, surprise
 
 
-async def _edgar_filings(ticker, start, end):
-    """Recent 8-K/10-Q/10-K filings in the window, or None if EDGAR unreachable."""
+_FILING_FORMS = ("8-K", "8-K/A", "10-Q", "10-K", "SC 13D", "SC 13G")
+
+
+async def _edgar_filings(ticker, start, end, *, max_texts: int = 3):
+    """In-window filings with 8-K Item labels + text excerpts for the 8-Ks
+    (the event filings). None if EDGAR unreachable / no CIK match."""
+    from src.research_agent.move_analyzer import html_to_text, label_items
     try:
         from src.market_data.edgar.client import EDGARClient, get_ticker_to_cik
         client = EDGARClient()
         try:
-            cik_map = await get_ticker_to_cik(client)
-            cik = cik_map.get(ticker.upper())
+            cik = (await get_ticker_to_cik(client)).get(ticker.upper())
             if cik is None:
                 return None
-            subs = await client.fetch_submissions(int(cik))
+            recent = (await client.fetch_submissions(int(cik))).get("filings", {}).get("recent", {})
+            forms, dates = recent.get("form", []), recent.get("filingDate", [])
+            items, accns = recent.get("items", []), recent.get("accessionNumber", [])
+            docs = recent.get("primaryDocument", [])
+            s, e = start.date().isoformat(), end.date().isoformat()
+            rows = []
+            for i, f in enumerate(forms):
+                d = dates[i] if i < len(dates) else ""
+                if not (s <= d <= e) or f not in _FILING_FORMS:
+                    continue
+                rows.append({"form": f, "date": d,
+                             "items": label_items(items[i] if i < len(items) else ""),
+                             "_accn": accns[i] if i < len(accns) else "",
+                             "_doc": docs[i] if i < len(docs) else ""})
+            # Read the text of the most recent 8-Ks — that's where the "why" is.
+            for r in [r for r in rows if r["form"].startswith("8-K")][:max_texts]:
+                if r["_accn"] and r["_doc"]:
+                    try:
+                        html = await client.fetch_filing_text(int(cik), r["_accn"], r["_doc"])
+                        r["excerpt"] = html_to_text(html)
+                    except Exception as ex:  # noqa: BLE001
+                        logger.debug("filing text fetch failed %s: %s", r["_accn"], ex)
         finally:
             await client.aclose()
     except Exception as e:  # noqa: BLE001
         logger.debug("EDGAR lookup failed for %s: %s", ticker, e)
         return None
-    recent = (subs or {}).get("filings", {}).get("recent", {})
-    forms, dates = recent.get("form", []), recent.get("filingDate", [])
-    s, e = start.date().isoformat(), end.date().isoformat()
-    out = [{"form": f, "date": d} for f, d in zip(forms, dates)
-           if s <= d <= e and f in ("8-K", "10-Q", "10-K", "8-K/A", "SC 13D", "SC 13G")]
-    return out[:12]
+    for r in rows:  # drop internal fetch fields before the LLM sees them
+        r.pop("_accn", None)
+        r.pop("_doc", None)
+    return rows[:12]
 
 
 async def _short_delta(ticker, end, window_days):
@@ -145,7 +168,8 @@ async def _run(args) -> int:
     ticker = args.ticker.upper()
     end = pd.Timestamp(args.end) if args.end else pd.Timestamp(datetime.now(timezone.utc).date())
     start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=args.lookback_days)
-    missing: list[str] = ["news / analyst actions (no live feed in this system)"]
+    missing: list[str] = ["live news / analyst price-target actions "
+                          "(SEC filing text IS read below, but no news-wire feed)"]
 
     # Sector -> ETF proxy.
     sector = None

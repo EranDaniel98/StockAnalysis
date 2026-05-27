@@ -44,6 +44,45 @@ SECTOR_ETF: dict[str, str] = {
 }
 
 
+# 8-K Item codes -> plain label. The codes alone are a strong signal of WHAT a
+# filing is about (2.02 = earnings, 5.02 = exec change, 1.01 = a deal, ...).
+ITEM_8K_LABELS: dict[str, str] = {
+    "1.01": "Entry into Material Agreement", "1.02": "Termination of Material Agreement",
+    "1.03": "Bankruptcy/Receivership", "2.01": "Completion of Acquisition/Disposition",
+    "2.02": "Results of Operations (earnings)", "2.03": "Material Financial Obligation",
+    "2.04": "Triggering of an Obligation", "2.05": "Exit/Disposal Costs",
+    "2.06": "Material Impairment", "3.01": "Delisting/Listing Notice",
+    "3.02": "Unregistered Equity Sale", "3.03": "Modification to Securityholder Rights",
+    "4.01": "Change in Accountant", "4.02": "Non-Reliance on Prior Financials",
+    "5.01": "Change in Control", "5.02": "Director/Officer Departure or Election",
+    "5.03": "Amendments to Articles/Bylaws", "5.07": "Shareholder Vote Results",
+    "7.01": "Reg FD Disclosure", "8.01": "Other Events",
+    "9.01": "Financial Statements & Exhibits",
+}
+
+
+def label_items(items: str | None) -> str:
+    """'8.01,9.01' -> '8.01 Other Events; 9.01 Financial Statements & Exhibits'."""
+    if not items:
+        return ""
+    return "; ".join(
+        f"{c.strip()} {ITEM_8K_LABELS.get(c.strip(), '')}".strip()
+        for c in items.split(",") if c.strip()
+    )
+
+
+def html_to_text(html: str, max_chars: int = 2500) -> str:
+    """Strip a filing's HTML to collapsed plain text, truncated. Keeps the
+    Item narrative on the 8-K cover page; the LLM cites it as evidence."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    text = re.sub(r"\s+", " ", soup.get_text(separator=" ")).strip()
+    return text[:max_chars]
+
+
 @dataclass
 class MoveEvidence:
     """The hard facts about a move, assembled before any LLM call."""
