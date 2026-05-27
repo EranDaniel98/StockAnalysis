@@ -164,10 +164,20 @@ def main() -> int:
     if spy is None:
         raise SystemExit("no SPY data — cannot build a usable snapshot (trading-day calendar comes from SPY)")
 
+    # Freeze earnings (surprise %, reported EPS) so PEAD backtests reproduce off
+    # the snapshot instead of the live cache. Cache-only (large max-age) — never
+    # live-fetch ~500 tickers at build time.
+    from pathlib import Path as _Path
+
+    from src.factors.earnings_cache import load_earnings_histories
+    earnings = load_earnings_histories(universe, _Path("data/earnings_history"),
+                                       max_age_hours=87_600.0)
+    logger.info("froze earnings for %d/%d tickers (PEAD)", len(earnings), len(universe))
+
     manifest = write_snapshot(
         price_data=prices,
         fundamentals={},                 # EDGAR PIT is frozen separately by run_factor_backtest
-        earnings_history=None,           # PEAD support (--include-earnings) is a follow-up
+        earnings_history=earnings,       # surprise %/reported EPS frozen for reproducible PEAD
         spy_df=spy,
         vix_df=vix,
         universe_label=label,

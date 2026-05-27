@@ -335,6 +335,14 @@ def write_snapshot(
                               "earnings_date": pd.to_datetime(dates)})
             if d["earnings_date"].dt.tz is not None:
                 d["earnings_date"] = d["earnings_date"].dt.tz_localize(None)
+            # Freeze the PEAD inputs too — surprise % + reported EPS — not just
+            # dates, so a snapshot reproduces PEAD without the live cache.
+            sp = df["Surprise(%)"] if "Surprise(%)" in df.columns else None
+            re_ = df["Reported EPS"] if "Reported EPS" in df.columns else None
+            d["surprise_pct"] = (pd.to_numeric(sp, errors="coerce").to_numpy()
+                                 if sp is not None else pd.NA)
+            d["reported_eps"] = (pd.to_numeric(re_, errors="coerce").to_numpy()
+                                 if re_ is not None else pd.NA)
             rows.append(d)
             n_with_earn += 1
         if rows:
@@ -460,7 +468,9 @@ def load_snapshot(
         for ticker, group in earn_long.groupby("ticker"):
             # Engine consumes a DataFrame indexed by earnings date.
             df = group.drop(columns=["ticker"]).rename(
-                columns={"earnings_date": "Earnings Date"},
+                columns={"earnings_date": "Earnings Date",
+                         "surprise_pct": "Surprise(%)",
+                         "reported_eps": "Reported EPS"},
             ).copy()
             df = df.set_index("Earnings Date").sort_index()
             earnings_history[str(ticker)] = df

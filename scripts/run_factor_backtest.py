@@ -550,11 +550,17 @@ def _mark_to_market(
     return eq
 
 
-def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str]):
-    """PEAD analyzer needs per-ticker earnings histories. Loaded once
-    up front (parquet cache hits after the first run)."""
+def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str],
+                                     snap=None):
+    """PEAD analyzer needs per-ticker earnings histories. Prefer the snapshot's
+    FROZEN earnings (reproducible) when present; else fall back to the live
+    cache (older snapshots built without frozen earnings)."""
     if not args.include_pead:
         return None
+    frozen = getattr(snap, "earnings_history", None) if snap is not None else None
+    if frozen:
+        logger.info("Using FROZEN snapshot earnings for PEAD (%d tickers).", len(frozen))
+        return frozen
     from src.factors.earnings_cache import load_earnings_histories
     logger.info("Loading earnings histories for PEAD...")
     histories = load_earnings_histories(
@@ -1014,7 +1020,7 @@ def run(args: argparse.Namespace) -> dict:
             "scripts.build_snapshot to re-resolve membership per rebalance.",
             args.snapshot_id,
         )
-    earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers)
+    earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers, snap)
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
