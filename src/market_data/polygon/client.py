@@ -64,6 +64,28 @@ class PolygonClient:
             url = f"{nxt}&apiKey={self.api_key}" if nxt else None
         return results
 
+    def news(self, ticker: str, *, limit: int = 10, published_gte: str | None = None) -> list[dict]:
+        """Ticker-tagged news (desc by published_utc). Each item carries
+        ``insights`` = per-ticker sentiment when available. ``published_gte`` is
+        an ISO date/datetime to window the feed."""
+        url = f"{_BASE}/v2/reference/news?ticker={ticker}&order=desc&limit={limit}"
+        if published_gte:
+            url += f"&published_utc.gte={published_gte}"
+        return self._get(url + f"&apiKey={self.api_key}").get("results") or []
+
+    def related_companies(self, ticker: str) -> list[str]:
+        """Polygon's related-tickers (peer proxy) for ``ticker``."""
+        url = f"{_BASE}/v1/related-companies/{ticker}?apiKey={self.api_key}"
+        return [r.get("ticker") for r in (self._get(url).get("results") or []) if r.get("ticker")]
+
+    def short_interest(self, ticker: str, *, limit: int = 12) -> list[dict]:
+        """Bi-monthly short-interest settlements (desc). Denser coverage than the
+        FINRA-derived `short_interest` table. Fields incl. short_interest (shares),
+        avg_daily_volume, days_to_cover, settlement_date."""
+        url = (f"{_BASE}/stocks/v1/short-interest?ticker={ticker}"
+               f"&order=desc&limit={limit}&apiKey={self.api_key}")
+        return self._get(url).get("results") or []
+
     def _get(self, url: str) -> dict:
         for attempt in range(self._max_retries):
             resp = self._session.get(url, timeout=_TIMEOUT)
