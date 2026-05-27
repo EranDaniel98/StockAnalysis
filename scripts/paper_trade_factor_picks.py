@@ -826,6 +826,45 @@ def _write_execution_log(
 
 # ─── orchestration ───────────────────────────────────────────────────
 
+def _flatten_on_block(args, payload: dict) -> int:
+    """Regime gate is OFF (empty picks + a gate flag) -> exit the book to cash.
+
+    This realizes the backtest's --daily-regime exit LIVE: run daily, the book
+    flattens the day the gate flips off instead of holding through. Holding
+    through is what rode the COVID crash down -40% in backtest; flattening cut
+    that to ~-12%. Flattening is risk-REDUCING, so it deliberately bypasses the
+    buy-side pre-trade gates (sanity/kill-switch/drift) — you must always be able
+    to exit. NB: only fires the day daily_factor_picks emits the block, so the
+    daily pipeline must actually run daily for the protection to be realized.
+    """
+    gate = payload.get("gate", {})
+    reason = ("trend gate SPY<%s-SMA" % gate.get("trend_entry_sma") if gate.get("trend_blocked")
+              else "VIX gate" if gate.get("vix_blocked") else "regime gate")
+    logger.warning("REGIME GATE OFF (%s) for %s -> flatten to cash.",
+                   reason, payload.get("as_of"))
+    if args.execute:
+        os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
+    client, _ = _open_alpaca_client()
+    positions = client.get_positions()
+    if not positions:
+        logger.info("Gate off + already flat (no open positions) — nothing to do.")
+        return 0
+    if not args.execute:
+        for p in positions:
+            logger.info("  WOULD CLOSE %-6s shares=%s mv=%s",
+                        p["ticker"], p.get("shares"), p.get("market_value"))
+        logger.info("DRY-RUN: %d positions would be flattened to cash. Pass --execute.",
+                    len(positions))
+        return 0
+    underlying = client._client  # alpaca-py TradingClient
+    logger.warning("Cancelling open orders + closing %d positions to cash...", len(positions))
+    underlying.cancel_orders()
+    responses = underlying.close_all_positions(cancel_orders=True)
+    ok = sum(1 for r in responses if getattr(r, "status", 0) in (200, 207))
+    logger.warning("Flattened: %d close requests submitted (HTTP-ok %d).", len(responses), ok)
+    return 0
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -840,6 +879,10 @@ def main() -> int:
     if not long_short_mode:
         shorts = []
     if not longs:
+        gate = payload.get("gate", {})
+        if gate.get("trend_blocked") or gate.get("vix_blocked"):
+            # Regime gate is OFF -> flatten to cash (daily-regime exit, live).
+            return _flatten_on_block(args, payload)
         raise SystemExit("Picks file's longs list is empty.")
     logger.info(
         "Loaded %d longs%s for %s from strategy=%s",
