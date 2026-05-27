@@ -57,6 +57,7 @@ from src.factors.regime import (
     ENTRY_SMA_WINDOW as REGIME_DEFAULT_ENTRY_SMA,
     is_risk_on,
     trend_state_asymmetric_series,
+    trend_state_hysteresis_series,
     trend_state_series,
 )
 from src.factors.regime_weights import list_profiles, weights_for
@@ -117,6 +118,12 @@ def _parse_args() -> argparse.Namespace:
                    help=f"Re-entry SMA for --asymmetric-trend (default "
                         f"{REGIME_DEFAULT_ENTRY_SMA} td). Faster = catches "
                         f"recoveries earlier but more sensitive to chop.")
+    p.add_argument("--regime-band-pct", type=float, default=0.0,
+                   help="Hysteresis dead-band around the entry-SMA gate (e.g. 0.03 "
+                        "= +/-3%%): flip risk-ON only above SMA*(1+band), OFF only "
+                        "below SMA*(1-band), carry state inside. With --daily-regime "
+                        "this ignores marginal SMA crosses to cut slow-bear whipsaw. "
+                        "0 = plain level check.")
     p.add_argument("--regime-file",
                    help="JSON {YYYY-MM-DD: bool} risk-on/off series used as the "
                         "regime gate, OVERRIDING the SPY-SMA trend filter. For "
@@ -1018,9 +1025,14 @@ def run(args: argparse.Namespace) -> dict:
         trend_state = (_rs.reindex(_rs.index.union(_full)).sort_index()
                        .ffill().fillna(False).astype(bool))
     elif args.asymmetric_trend:
-        trend_state = trend_state_asymmetric_series(
-            spy, entry_sma=args.entry_sma,
-        )
+        if args.regime_band_pct > 0:
+            trend_state = trend_state_hysteresis_series(
+                spy, entry_sma=args.entry_sma, band_pct=args.regime_band_pct,
+            )
+        else:
+            trend_state = trend_state_asymmetric_series(
+                spy, entry_sma=args.entry_sma,
+            )
     else:
         trend_state = trend_state_series(spy)
     vix_state = _build_vix_state(args, snap, spy)

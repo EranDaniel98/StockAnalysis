@@ -89,6 +89,48 @@ def trend_state_asymmetric_series(
     return state.astype(bool)
 
 
+def trend_state_hysteresis_series(
+    spy_df: pd.DataFrame,
+    *,
+    entry_sma: int = ENTRY_SMA_WINDOW,
+    band_pct: float = 0.0,
+) -> pd.Series:
+    """SPY vs ``entry_sma`` with a HYSTERESIS DEAD-BAND to kill whipsaw.
+
+    Risk-on flips True only when SPY closes ABOVE ``sma * (1 + band_pct)``;
+    flips False only when it closes BELOW ``sma * (1 - band_pct)``; inside the
+    band it CARRIES the prior state (sticky). ``band_pct=0`` reduces to the
+    plain level check (``trend_state_asymmetric_series``).
+
+    Motivation: with daily regime evaluation the plain 75-SMA gate whipsaws a
+    choppy slow bear (2022 — exits every dip below the SMA, re-enters every
+    bounce, eroding CAPM-alpha). A dead-band ignores marginal crosses, keeping
+    the fast-crash protection + bull responsiveness while cutting the whipsaw.
+    Path-dependent, so it's a simple stateful walk. First ``entry_sma - 1``
+    rows are False (insufficient history); the pre-cross initial state is
+    False (defensive).
+    """
+    close = spy_df["Close"].astype(float)
+    sma = close.rolling(window=entry_sma, min_periods=entry_sma).mean()
+    upper = (sma * (1.0 + band_pct)).to_numpy()
+    lower = (sma * (1.0 - band_pct)).to_numpy()
+    valid = sma.notna().to_numpy()
+    prices = close.to_numpy()
+    out = [False] * len(prices)
+    state = False
+    for i in range(len(prices)):
+        if not valid[i]:
+            out[i] = False
+            continue
+        if prices[i] > upper[i]:
+            state = True
+        elif prices[i] < lower[i]:
+            state = False
+        # within [lower, upper] -> carry prior state (sticky)
+        out[i] = state
+    return pd.Series(out, index=close.index, dtype=bool)
+
+
 def is_risk_on(spy_df: pd.DataFrame, as_of: pd.Timestamp | str) -> bool:
     """True iff SPY's last close at or before ``as_of`` is ≥ its 200-SMA.
 
