@@ -1,0 +1,36 @@
+{
+  "snapshot": "ed270407fd89cf60",
+  "horizon": 21,
+  "step": 21,
+  "decay_days": 45,
+  "n_rebalances": 31,
+  "avg_eligible_names": 206.83870967741936,
+  "product": {
+    "n_dates": 31,
+    "mean_ic": -0.00022617359809853931,
+    "t_stat": -0.00774490629520525,
+    "pct_positive": 51.61290322580645
+  },
+  "additive": {
+    "n_dates": 31,
+    "mean_ic": -0.015870534478570054,
+    "t_stat": -0.8051757902968179,
+    "pct_positive": 38.70967741935484
+  },
+  "accrual_only": {
+    "n_dates": 31,
+    "mean_ic": -0.0023468100077924125,
+    "t_stat": -0.08220413769433356,
+    "pct_positive": 48.38709677419355
+  },
+  "permutation": {
+    "n_perm": 200,
+    "null_mean_ic_p95": 0.03715338566394704,
+    "p_value": 0.605
+  },
+  "gates": {
+    "g1a_beats_accrual_alone": true,
+    "g2_beats_additive": true,
+    "g3_beats_permutation_null": false
+  }
+}
