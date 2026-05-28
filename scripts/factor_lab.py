@@ -130,7 +130,7 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
     # accruals + raw-fact-derived EDGAR signals (from the accruals sidecar)
     if ctx.accr is not None:
         aod = _as_of_dt(ts)
-        acc, gp, ag, ng = {}, {}, {}, {}
+        acc, gp, ag, ng, sue = {}, {}, {}, {}, {}
         for t in ctx.accr.tickers:
             rec = ctx.accr.lookup(t, aod)
             if rec is None:
@@ -148,12 +148,21 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
                 ni0, ni4 = hist[-1].net_income, hist[-5].net_income
                 if ni4 and ni4 > 0:
                     ng[t] = ni0 / ni4 - 1.0  # YoY earnings momentum
-        for k, d in (("accruals", acc), ("gross_prof", gp), ("asset_growth", ag), ("ni_growth", ng)):
+            # SUE-lite: standardized NI-growth surprise (EDGAR NI, bypasses EPS bug)
+            if len(hist) >= 8:
+                nis = [r.net_income for r in hist]
+                dni = [nis[i] - nis[i - 4] for i in range(4, len(nis))]  # YoY ΔNI series
+                if len(dni) >= 4:
+                    sd = float(np.std(dni))
+                    if sd > 1e-9:
+                        sue[t] = dni[-1] / sd
+        for k, d in (("accruals", acc), ("gross_prof", gp), ("asset_growth", ag),
+                     ("ni_growth", ng), ("sue_lite", sue)):
             if d:
                 out[k] = pd.Series(d)
     # fundamental-trajectory + cash legs (need filing history)
     aod = _as_of_dt(ts)
-    dom, deg, fcta = {}, {}, {}
+    dom, deg, fcta, mcv, dlev_raw, d2e_lvl = {}, {}, {}, {}, {}, {}
     for t in ctx.universe:
         h = ctx.fund.history(t, aod)
         if len(h) < 2:
@@ -165,11 +174,26 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
             om_t, om_p = h[-1].operating_margin, h[-5].operating_margin
             if om_t is not None and om_p is not None:
                 dom[t] = (om_t - om_p) / (abs(om_p) + 0.05)
+            de_t, de_p = h[-1].debt_to_equity, h[-5].debt_to_equity
+            if de_t is not None and de_p is not None and de_t >= 0:
+                dlev_raw[t] = de_t - de_p  # de-leveraging; gated post-loop to high-D/E firms
+                d2e_lvl[t] = de_t
+        # margin durability (defensive low-beta): -CV of op_margin over last 8 filings
+        oms = [s.operating_margin for s in h[-8:] if s.operating_margin is not None]
+        if len(oms) >= 6:
+            mean = float(np.mean(oms))
+            if abs(mean) > 1e-9:
+                mcv[t] = -float(np.std(oms) / abs(mean))  # low CV = stable = bullish
         fcfs = [s.free_cash_flow for s in h[-4:] if s.free_cash_flow is not None]
         rec = ctx.accr.lookup(t, aod) if ctx.accr is not None else None
         if len(fcfs) >= 2 and rec is not None and rec.total_assets > 0:
             fcta[t] = (sum(fcfs) * 4.0 / len(fcfs)) / rec.total_assets  # FCF-to-assets (no PIT mcap)
-    for k, d in (("delta_opmargin", dom), ("delta_earn_growth", deg), ("fcf_to_assets", fcta)):
+    dlev = {}
+    if d2e_lvl:
+        med = float(np.median(list(d2e_lvl.values())))
+        dlev = {t: (-dlev_raw[t] if d2e_lvl[t] > med else 0.0) for t in dlev_raw}  # high-leverage only
+    for k, d in (("delta_opmargin", dom), ("delta_earn_growth", deg), ("fcf_to_assets", fcta),
+                 ("margin_cv", mcv), ("deleverage", dlev)):
         if d:
             out[k] = pd.Series(d)
     return {k: v.dropna() for k, v in out.items() if v is not None and len(v.dropna()) >= MIN_NAMES}
@@ -224,6 +248,9 @@ COMBOS = [
     ("combo_pead_rmmom", ["pead", "rm_mom"]),
     ("combo_pead_rmmom_ivol", ["pead", "rm_mom", "ivol"]),
     ("combo_rmmom_ivol", ["rm_mom", "ivol"]),
+    ("combo_defensive", ["margin_cv", "deleverage", "accruals"]),
+    ("combo_fundtrend", ["delta_opmargin", "sue_lite", "pead"]),
+    ("combo_sue_margin", ["sue_lite", "delta_opmargin"]),
 ]
 
 
