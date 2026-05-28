@@ -12,7 +12,8 @@ config/strategies.yaml.
 
 Usage:
     .venv/Scripts/python.exe scripts/strategy_debate.py --rounds 6
-    .venv/Scripts/python.exe scripts/strategy_debate.py --rounds 4 --opener gemini
+    .venv/Scripts/python.exe scripts/strategy_debate.py --mode collab \
+        --seed-file scripts/debate_seed_institutional_liquidity.md --rounds 6
     .venv/Scripts/python.exe scripts/strategy_debate.py --list-gemini-models
 """
 
@@ -32,7 +33,7 @@ OPUS_MODEL = "claude-opus-4-7"
 # Pro requires paid API billing (Tier 1+); free tier is limit:0 on 3.x Pro.
 # Fall back to --gemini-model gemini-3.5-flash if running on the free tier.
 GEMINI_MODEL = "gemini-3.1-pro-preview"
-OPUS_MAX_TOKENS = 2000
+OPUS_MAX_TOKENS = 3000  # closing-synthesis turns (spec + tables) need the headroom
 # Gemini 3.x Pro is a thinking model — reasoning tokens count against the output
 # budget, so a tight cap truncates the visible answer mid-sentence. Give it room.
 GEMINI_MAX_TOKENS = 8000
@@ -68,6 +69,61 @@ CLOSING = (
     "each justified by evidence and feasible on the stated data layer."
 )
 
+# --- collab mode: co-design ONE new strategy, not critique the existing one ---
+
+COLLAB_FRAMING = """You are one of two AI quant researchers COLLABORATING to design \
+ONE new equity strategy that can plausibly beat SPY net of costs. The other \
+researcher is {opponent}. This is co-design, not debate: build on each other's \
+ideas, fill the gaps in each other's proposals, and converge on a single concrete, \
+implementable specification.
+
+Ground rules:
+- HARD DATA CONSTRAINT: the strategy must be buildable on the dossier's data layer
+  (Polygon EOD US equities + EDGAR PIT fundamentals & 13F/Form-4 filings + yfinance
+  VIX/earnings + semi-monthly short interest + Alpaca). NO dark-pool prints,
+  options/dealer-gamma, intraday/L2, or paid alternative data. If a seed idea needs
+  unavailable data, adapt the *thesis* to an EOD-observable proxy or replace it.
+- Every signal must be defined precisely enough to implement: input data, formula,
+  lookback, cross-sectional rank/z-score, update frequency.
+- MEASURABILITY IS NON-NEGOTIABLE. Given this system's phase-luck reality (±20-30pp
+  envelope on 2yr/63d backtests), the strategy must ship with a falsifiable
+  validation plan: phase-averaged metrics, a permutation/null baseline, and a
+  pre-registered decision rule. An idea that can't be told apart from luck is not a
+  candidate — say so and fix it.
+- Be additive, not repetitive. Extend, correct, or fill a missing piece (signal
+  math, entry/exit, sizing, risk, validation). Keep each turn focused (~450 words)."""
+
+COLLAB_OPENING = (
+    "Open the co-design. Start from the seed proposal in the dossier's STARTING "
+    "POINT. Salvage what's sound about its thesis, discard what needs unavailable "
+    "data, and sketch v0 of an EOD-buildable strategy: the core inefficiency it "
+    "exploits, the precise signals, the universe, and why it could survive "
+    "arbitrage. Leave clear hooks for your collaborator to extend."
+)
+COLLAB_MIDDLE = (
+    "Build directly on your collaborator's latest design. Add or fix the missing "
+    "pieces — signal formulas, entry/exit logic, position sizing, rebalance cadence, "
+    "or the validation plan. Flag any data-layer violation or measurement gap and "
+    "repair it. Move the spec toward something implementable."
+)
+COLLAB_CLOSING = (
+    "CLOSING TURN. Consolidate everything into the FINAL strategy spec: (1) thesis + "
+    "the inefficiency exploited; (2) precise signal definitions (data, formula, "
+    "lookback, ranking); (3) universe, entry/exit, sizing, rebalance cadence; (4) the "
+    "pre-registered validation plan (phase-averaged metrics + permutation null + "
+    "decision rule); (5) an honest verdict — realistic edge, failure modes, and "
+    "whether it's worth building before the 2026-08-27 paper review."
+)
+
+MODES = {
+    "critique": (FRAMING, OPENING, MIDDLE, CLOSING),
+    "collab": (COLLAB_FRAMING, COLLAB_OPENING, COLLAB_MIDDLE, COLLAB_CLOSING),
+}
+MODE_LABEL = {
+    "critique": "symmetric critique of the live `src/factors/*` system",
+    "collab": "collaborative co-design of a new strategy",
+}
+
 
 def load_dossier() -> str:
     claude_md = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
@@ -93,17 +149,20 @@ def build_user_prompt(transcript: str, instruction: str, speaker: str) -> str:
     )
 
 
-def with_retries(fn, *, attempts: int = 3):
+def with_retries(fn, *, attempts: int = 4):
     last: Exception | None = None
     for i in range(attempts):
         try:
             return fn()
         except Exception as exc:  # noqa: BLE001 — surface after retries
             last = exc
-            wait = 2 ** i
-            print(f"  ! API error ({exc}); retry {i + 1}/{attempts} in {wait}s", file=sys.stderr)
+            # Per-minute token/request caps (429 RESOURCE_EXHAUSTED) need a longer
+            # wait than transient errors; both back off, capped at 60s.
+            rate_limited = "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+            wait = min(60, (20 if rate_limited else 5) * (i + 1))
+            print(f"  ! API error ({str(exc)[:120]}); retry {i + 1}/{attempts} in {wait}s", file=sys.stderr)
             time.sleep(wait)
-    raise RuntimeError(f"all {attempts} attempts failed") from last
+    raise RuntimeError(f"all {attempts} attempts failed; last: {last}") from last
 
 
 def opus_turn(client, system_text: str, user_text: str) -> str:
@@ -144,6 +203,10 @@ def main() -> int:
     ap.add_argument("--opus-model", default=OPUS_MODEL)
     ap.add_argument("--gemini-model", default=GEMINI_MODEL)
     ap.add_argument("--output", default=None, help="transcript path (default reports/debate_<date>.md)")
+    ap.add_argument("--mode", choices=list(MODES), default="critique",
+                    help="critique = stress-test the live system; collab = co-design a new strategy")
+    ap.add_argument("--seed-file", default=None,
+                    help="markdown file injected as STARTING POINT/GOAL (e.g. a strategy proposal)")
     ap.add_argument("--list-gemini-models", action="store_true")
     args = ap.parse_args()
 
@@ -165,7 +228,11 @@ def main() -> int:
 
     opus_client = Anthropic(max_retries=2)  # ANTHROPIC_API_KEY from env
     dossier = load_dossier()
+    if args.seed_file:
+        seed = Path(args.seed_file).read_text(encoding="utf-8")
+        dossier += "\n\n=== STARTING POINT / GOAL (seed for this session) ===\n\n" + seed
 
+    framing, opening, middle, closing = MODES[args.mode]
     speakers = ["Opus 4.7", "Gemini"]
     if args.opener == "gemini":
         speakers.reverse()
@@ -175,13 +242,13 @@ def main() -> int:
         speaker = speakers[i % 2]
         opponent = speakers[(i + 1) % 2]
         if i == 0:
-            instruction = OPENING
+            instruction = opening
         elif i >= args.rounds - 2:
-            instruction = CLOSING
+            instruction = closing
         else:
-            instruction = MIDDLE
+            instruction = middle
 
-        system_text = FRAMING.format(opponent=opponent) + "\n\n" + dossier
+        system_text = framing.format(opponent=opponent) + "\n\n" + dossier
         user_text = build_user_prompt(format_transcript(turns), instruction, speaker)
 
         print(f"[{i + 1}/{args.rounds}] {speaker} ...", file=sys.stderr)
@@ -198,7 +265,9 @@ def main() -> int:
         f"- **Opus model:** `{args.opus_model}`\n"
         f"- **Gemini model:** `{args.gemini_model}`\n"
         f"- **Rounds:** {args.rounds} · **Opener:** {speakers[0]}\n"
-        f"- **Format:** symmetric critique over the live `src/factors/*` system\n\n---\n\n"
+        f"- **Format:** {MODE_LABEL[args.mode]}\n"
+        + (f"- **Seed:** `{args.seed_file}`\n" if args.seed_file else "")
+        + "\n---\n\n"
     )
     out_path.write_text(header + format_transcript(turns) + "\n", encoding="utf-8")
     print(f"\nWrote transcript -> {out_path}", file=sys.stderr)
