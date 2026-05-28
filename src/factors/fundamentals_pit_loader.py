@@ -107,6 +107,30 @@ class FundamentalsPITLoader:
         # Highest source rank, then latest valid_from as tiebreak.
         return max(valid, key=lambda r: (_SOURCE_RANK.get(r.source, 0), r.valid_from))
 
+    def history(
+        self, ticker: str, as_of: datetime, *, edgar_only: bool = True
+    ) -> list[FundamentalSnapshot]:
+        """All snapshots valid on-or-before ``as_of`` (oldest first).
+
+        ``edgar_only`` keeps just 10-Q/10-K rows so callers computing
+        quarter-over-quarter trends (Δmargin, FCF-TTM) step on clean
+        filing boundaries rather than yfinance snapshot rows.
+        """
+        rows = self._by_ticker.get(ticker.upper())
+        if not rows:
+            return []
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        out = []
+        for r in rows:
+            vf = r.valid_from if r.valid_from.tzinfo else r.valid_from.replace(tzinfo=timezone.utc)
+            if vf > as_of:
+                continue
+            if edgar_only and r.source not in ("edgar_10q", "edgar_10k"):
+                continue
+            out.append(r)
+        return out
+
     def compute_eps_ttm(
         self, ticker: str, as_of: datetime
     ) -> float | None:

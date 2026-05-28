@@ -106,13 +106,51 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
         out["pead"] = _frame_z(pead_factor(ctx.earnings, ts, prices=ctx.prices))
     except Exception:
         pass
-    # accruals (-accrual = high quality), from sidecar
+    # accruals + raw-fact-derived EDGAR signals (from the accruals sidecar)
     if ctx.accr is not None:
         aod = _as_of_dt(ts)
-        acc = {t: -ctx.accr.lookup(t, aod).accrual for t in ctx.accr.tickers
-               if ctx.accr.lookup(t, aod) is not None}
-        if acc:
-            out["accruals"] = pd.Series(acc)
+        acc, gp, ag, ng = {}, {}, {}, {}
+        for t in ctx.accr.tickers:
+            rec = ctx.accr.lookup(t, aod)
+            if rec is None:
+                continue
+            acc[t] = -rec.accrual  # high accrual = low quality -> fade
+            # gross profitability (Novy-Marx): gross_profit / total_assets
+            f = ctx.fund.lookup(t, aod)
+            if f and f.gross_margin is not None and f.revenue and rec.total_assets > 0:
+                gp[t] = f.gross_margin * f.revenue / rec.total_assets
+            hist = ctx.accr.history(t, aod)
+            if len(hist) >= 5:
+                ta0, ta4 = hist[-1].total_assets, hist[-5].total_assets
+                if ta4 > 0:
+                    ag[t] = -(ta0 / ta4 - 1.0)  # asset growth = negative predictor
+                ni0, ni4 = hist[-1].net_income, hist[-5].net_income
+                if ni4 and ni4 > 0:
+                    ng[t] = ni0 / ni4 - 1.0  # YoY earnings momentum
+        for k, d in (("accruals", acc), ("gross_prof", gp), ("asset_growth", ag), ("ni_growth", ng)):
+            if d:
+                out[k] = pd.Series(d)
+    # fundamental-trajectory + cash legs (need filing history)
+    aod = _as_of_dt(ts)
+    dom, deg, fcta = {}, {}, {}
+    for t in ctx.universe:
+        h = ctx.fund.history(t, aod)
+        if len(h) < 2:
+            continue
+        eg_t, eg_p = h[-1].earnings_growth_yoy, h[-2].earnings_growth_yoy
+        if eg_t is not None and eg_p is not None:
+            deg[t] = eg_t - eg_p
+        if len(h) >= 5:
+            om_t, om_p = h[-1].operating_margin, h[-5].operating_margin
+            if om_t is not None and om_p is not None:
+                dom[t] = (om_t - om_p) / (abs(om_p) + 0.05)
+        fcfs = [s.free_cash_flow for s in h[-4:] if s.free_cash_flow is not None]
+        rec = ctx.accr.lookup(t, aod) if ctx.accr is not None else None
+        if len(fcfs) >= 2 and rec is not None and rec.total_assets > 0:
+            fcta[t] = (sum(fcfs) * 4.0 / len(fcfs)) / rec.total_assets  # FCF-to-assets (no PIT mcap)
+    for k, d in (("delta_opmargin", dom), ("delta_earn_growth", deg), ("fcf_to_assets", fcta)):
+        if d:
+            out[k] = pd.Series(d)
     return {k: v.dropna() for k, v in out.items() if v is not None and len(v.dropna()) >= MIN_NAMES}
 
 
@@ -134,6 +172,33 @@ def _z(s: pd.Series) -> pd.Series:
     return (s - s.mean()) / sd if sd and not np.isnan(sd) else s * 0.0
 
 
+def _sector_rank_norm(s: pd.Series, sector_of: dict) -> pd.Series:
+    """Rank within sector -> [-0.5, +0.5]; global rank for sub-8 sectors.
+    Winsorization-by-construction; immune to EDGAR heavy tails."""
+    sec = pd.Series({t: sector_of.get(t, "Unknown") for t in s.index})
+    out = pd.Series(np.nan, index=s.index, dtype=float)
+    for _, grp in s.groupby(sec):
+        if len(grp) >= 8:
+            out.loc[grp.index] = (grp.rank(method="average") - 1) / (len(grp) - 1) - 0.5
+    miss = out.index[out.isna()]
+    if len(miss) > 1:
+        out.loc[miss] = (s.loc[miss].rank(method="average") - 1) / (len(miss) - 1) - 0.5
+    return out.fillna(0.0)
+
+
+# QGF-6 (co-design): equal-weight sum of sector-rank-normalized legs, all higher=better
+QGF6_LEGS = ["gross_prof", "asset_growth", "delta_opmargin", "delta_earn_growth", "pead", "fcf_to_assets"]
+
+
+# additive combos (NOT products — interactions were dead) of sign-stable legs
+COMBOS = [
+    ("combo_qp", ["quality", "pead"]),
+    ("combo_qpg", ["quality", "pead", "gross_prof"]),
+    ("combo_qpm", ["quality", "pead", "mom_12_1"]),
+    ("combo_qp_ag", ["quality", "pead", "asset_growth"]),
+]
+
+
 def all_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
     base = base_signals(ctx, i)
     zb = {k: _z(v) for k, v in base.items()}
@@ -143,6 +208,26 @@ def all_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
             common = zb[a].index.intersection(zb[b].index)
             if len(common) >= MIN_NAMES:
                 out[name] = (zb[a].loc[common] * zb[b].loc[common])
+    for name, legs in COMBOS:
+        if all(leg in zb for leg in legs):
+            common = zb[legs[0]].index
+            for leg in legs[1:]:
+                common = common.intersection(zb[leg].index)
+            if len(common) >= MIN_NAMES:
+                out[name] = sum(zb[leg].loc[common] for leg in legs)
+    # QGF-6 composite: sector-rank-normalized equal-weight sum (>=4 of 6 legs present)
+    present = [leg for leg in QGF6_LEGS if leg in base]
+    if len(present) >= 5:
+        norm = pd.DataFrame({leg: _sector_rank_norm(base[leg], ctx.sector_of) for leg in present})
+        n_present = norm.notna().sum(axis=1)
+        comp = norm.fillna(0.0).sum(axis=1)[n_present >= 4]
+        if len(comp) >= MIN_NAMES:
+            out["QGF6"] = comp
+        # sector-rank baseline (quality+pead) for the lift comparison
+        if "quality" in base and "pead" in base:
+            qp = pd.DataFrame({"q": _sector_rank_norm(base["quality"], ctx.sector_of),
+                               "p": _sector_rank_norm(base["pead"], ctx.sector_of)})
+            out["QP2_baseline"] = qp.fillna(0.0).sum(axis=1)
     return out
 
 
