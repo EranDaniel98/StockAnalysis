@@ -188,6 +188,10 @@ def _sector_rank_norm(s: pd.Series, sector_of: dict) -> pd.Series:
 
 # QGF-6 (co-design): equal-weight sum of sector-rank-normalized legs, all higher=better
 QGF6_LEGS = ["gross_prof", "asset_growth", "delta_opmargin", "delta_earn_growth", "pead", "fcf_to_assets"]
+# Lean composite: drop the legs that fail the per-leg gate (delta_earn_growth not
+# significant, fcf_to_assets sign-flips) per the pre-registered trim rule.
+QGF_LEAN_LEGS = ["gross_prof", "asset_growth", "delta_opmargin", "pead"]
+GP_AG_LEGS = ["gross_prof", "asset_growth"]  # the two 100%-consistent standouts
 
 
 # additive combos (NOT products — interactions were dead) of sign-stable legs
@@ -228,6 +232,13 @@ def all_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
             qp = pd.DataFrame({"q": _sector_rank_norm(base["quality"], ctx.sector_of),
                                "p": _sector_rank_norm(base["pead"], ctx.sector_of)})
             out["QP2_baseline"] = qp.fillna(0.0).sum(axis=1)
+    for cname, legs in (("QGF_lean", QGF_LEAN_LEGS), ("GP_AG", GP_AG_LEGS)):
+        prs = [leg for leg in legs if leg in base]
+        if len(prs) == len(legs):
+            nm = pd.DataFrame({leg: _sector_rank_norm(base[leg], ctx.sector_of) for leg in prs})
+            comp = nm.fillna(0.0).sum(axis=1)[nm.notna().sum(axis=1) >= max(2, len(legs) - 1)]
+            if len(comp) >= MIN_NAMES:
+                out[cname] = comp
     return out
 
 
