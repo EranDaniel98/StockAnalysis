@@ -1,0 +1,124 @@
+{
+  "snapshot": "9f448161ca59e465",
+  "base_args": "--factor composite --composite-factors mqv --include-pead --long-short --top-decile 0.1 --short-decile 0.1 --hysteresis-bonus 0.75 --cost-bps 5.0 --no-regime-filter",
+  "n_phases": 9,
+  "per_phase": [
+    {
+      "offset": 0,
+      "alpha": -46.46,
+      "capm": 1.92,
+      "beta": -0.123,
+      "sharpe": -0.058,
+      "total": -1.92,
+      "maxdd": -16.46,
+      "wf_pass": false
+    },
+    {
+      "offset": 7,
+      "alpha": -49.52,
+      "capm": 0.9,
+      "beta": -0.146,
+      "sharpe": -0.186,
+      "total": -4.98,
+      "maxdd": -21.87,
+      "wf_pass": false
+    },
+    {
+      "offset": 14,
+      "alpha": -81.35,
+      "capm": -16.48,
+      "beta": -0.091,
+      "sharpe": -0.85,
+      "total": -36.81,
+      "maxdd": -45.02,
+      "wf_pass": false
+    },
+    {
+      "offset": 21,
+      "alpha": -66.29,
+      "capm": -8.22,
+      "beta": -0.125,
+      "sharpe": -0.711,
+      "total": -21.75,
+      "maxdd": -31.94,
+      "wf_pass": false
+    },
+    {
+      "offset": 28,
+      "alpha": -81.59,
+      "capm": -11.78,
+      "beta": -0.081,
+      "sharpe": -0.38,
+      "total": -37.04,
+      "maxdd": -54.62,
+      "wf_pass": false
+    },
+    {
+      "offset": 35,
+      "alpha": -81.15,
+      "capm": -12.17,
+      "beta": -0.065,
+      "sharpe": -0.393,
+      "total": -36.61,
+      "maxdd": -52.56,
+      "wf_pass": false
+    },
+    {
+      "offset": 42,
+      "alpha": -80.76,
+      "capm": -11.8,
+      "beta": -0.08,
+      "sharpe": -0.392,
+      "total": -36.22,
+      "maxdd": -53.37,
+      "wf_pass": false
+    },
+    {
+      "offset": 49,
+      "alpha": -77.81,
+      "capm": -10.72,
+      "beta": -0.044,
+      "sharpe": -0.345,
+      "total": -33.27,
+      "maxdd": -51.79,
+      "wf_pass": false
+    },
+    {
+      "offset": 56,
+      "alpha": -78.6,
+      "capm": -10.0,
+      "beta": -0.079,
+      "sharpe": -0.329,
+      "total": -34.06,
+      "maxdd": -52.8,
+      "wf_pass": false
+    }
+  ],
+  "envelope": {
+    "capm_alpha": {
+      "mean": -8.71,
+      "median": -10.72,
+      "std": 5.8,
+      "min": -16.48,
+      "max": 1.92,
+      "pct_phases_positive": 22.0
+    },
+    "excess_return": {
+      "mean": -71.5,
+      "median": -78.6,
+      "std": 13.35,
+      "min": -81.59,
+      "max": -46.46,
+      "pct_phases_positive": 0.0
+    },
+    "sharpe": {
+      "mean": -0.4,
+      "median": -0.38,
+      "std": 0.23,
+      "min": -0.85,
+      "max": -0.06
+    },
+    "wf_pass_rate_pct": 0.0
+  },
+  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset"
+}
