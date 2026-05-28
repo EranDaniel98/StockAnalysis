@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -28,7 +29,7 @@ DEFAULT_ARGS = ("--factor composite --composite-factors mqv --top-decile 0.03 "
 
 
 def _run_one(snap: str, rebal_days: int, offset: int, base_args: list[str]) -> dict:
-    out = ROOT / "reports" / f".phase_tmp_{offset}.json"
+    out = ROOT / "reports" / f".phase_tmp_{os.getpid()}_{offset}.json"
     cmd = [sys.executable, "-m", "scripts.run_factor_backtest",
            "--snapshot-id", snap, "--rebalance-days", str(rebal_days),
            "--rebal-offset", str(offset), "--output", str(out)] + base_args
