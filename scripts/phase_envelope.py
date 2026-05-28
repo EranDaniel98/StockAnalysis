@@ -55,9 +55,18 @@ def main():
 
     base = args.base_args.split()
     offsets = list(range(0, args.rebalance_days, args.step))
+    # Each _run_one spawns an independent run_factor_backtest subprocess, so the
+    # offsets are embarrassingly parallel. Run them concurrently across cores
+    # (subprocess.run releases the GIL while waiting) instead of one-at-a-time.
+    # Cap workers to bound RAM (each child loads the snapshot panel).
+    from concurrent.futures import ThreadPoolExecutor
+    workers = max(1, min(len(offsets), (os.cpu_count() or 4) // 2))
     print(f"phase envelope: {len(offsets)} phases (step {args.step}d) over a "
-          f"{args.rebalance_days}d cycle | snap={args.snapshot_id}")
-    rows = [_run_one(args.snapshot_id, args.rebalance_days, o, base) for o in offsets]
+          f"{args.rebalance_days}d cycle | snap={args.snapshot_id} | {workers} parallel workers")
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        rows = list(ex.map(
+            lambda o: _run_one(args.snapshot_id, args.rebalance_days, o, base), offsets
+        ))
 
     n = len(rows)
     capms = [r["capm"] for r in rows]     # Jensen alpha — primary, beta-adjusted
