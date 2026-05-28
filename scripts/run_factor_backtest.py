@@ -50,7 +50,7 @@ from src.factors.exposure_scaling import (
     exposure_at,
 )
 from src.factors.insider_cluster import insider_cluster_factor
-from src.factors.momentum import momentum_12_1
+from src.factors.momentum import momentum_12_1, risk_managed_momentum
 from src.factors.pead import pead_factor
 from src.factors.quality import quality_factor
 from src.factors.regime import (
@@ -292,13 +292,14 @@ def _parse_args() -> argparse.Namespace:
                         "rotation regimes.")
     p.add_argument("--momentum-flavor",
                    default="raw",
-                   choices=("raw", "residual"),
+                   choices=("raw", "residual", "risk_managed"),
                    help="Momentum implementation. 'raw' is the canonical "
                         "Jegadeesh-Titman 12-1 (current default). 'residual' "
                         "is Blitz-Huij-Martens 2011 residual momentum — "
-                        "strips SPY beta before cumulating. Applies to the "
-                        "'momentum' single factor and to the momentum sleeve "
-                        "inside 'composite'.")
+                        "strips SPY beta before cumulating. 'risk_managed' is "
+                        "Barroso-Santa-Clara 12-1/trailing-126d-vol (dampens the "
+                        "momentum crash). Applies to the 'momentum' single factor "
+                        "and the momentum sleeve inside 'composite'.")
     p.add_argument("--hysteresis-bonus", type=float, default=0.75,
                    help="Hysteresis (stickiness) bonus for currently-held "
                         "names, expressed as a fraction of the target N. "
@@ -386,6 +387,8 @@ def _resolve_ranking(
                     "momentum_flavor='residual' requires spy_df; got None/empty"
                 )
             return residual_momentum_12_1(p, spy_df, a)
+        if momentum_flavor == "risk_managed":
+            return risk_managed_momentum(p, a)
         return momentum_12_1(p, a)
 
     if factor == "momentum":
