@@ -51,6 +51,12 @@ class Ctx:
         self.prices = {t: g.set_index("date").sort_index() for t, g in raw.groupby("ticker")}
         self.panel = raw.pivot(index="date", columns="ticker", values="Close").sort_index()
         self.dates = self.panel.index
+        # SPY daily returns aligned to the panel (for the market-model IVOL leg)
+        spy = pd.read_parquet(d / "spy.parquet")
+        sdcol = next((c for c in ("date", "Date") if c in spy.columns), spy.columns[0])
+        sccol = next((c for c in ("Close", "close", "adj_close", "Adj Close") if c in spy.columns), None)
+        spy_close = spy.set_index(pd.to_datetime(spy[sdcol]))[sccol].sort_index()
+        self.spy_ret = spy_close.reindex(self.panel.index).pct_change()
         self.fund = FundamentalsPITLoader.from_json(d / "fundamentals_pit.json")
         ap = d / "accruals_pit.json"
         self.accr = AccrualsPITLoader.from_json(ap) if ap.exists() else None
@@ -85,6 +91,21 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
     if i >= 252:
         out["mom_12_1"] = _ret(p, i, 21, 252)
         out["mom_6_1"] = _ret(p, i, 21, 126)
+        # risk-managed momentum (Barroso & Santa-Clara): 12-1 mom / trailing 126d vol
+        vol126 = p.iloc[i - 126:i].pct_change().std()
+        out["rm_mom"] = _ret(p, i, 21, 252) / vol126.replace(0, np.nan)
+    if i >= 64:
+        # idiosyncratic vol (Ang-Hodrick-Xing-Zhang): -std of market-model residuals (low IVOL = bullish)
+        W = p.iloc[i - 63:i].pct_change().iloc[1:]
+        rm = ctx.spy_ret.reindex(W.index)
+        xm = rm - rm.mean()
+        denom = float((xm ** 2).sum())
+        if denom > 0:
+            Rc = W.subtract(W.mean())
+            beta = Rc.mul(xm, axis=0).sum() / denom
+            resid = Rc - pd.DataFrame(np.outer(xm.to_numpy(), beta.to_numpy()),
+                                      index=Rc.index, columns=Rc.columns)
+            out["ivol"] = -resid.std()
     if i >= 21:
         out["rev_21"] = -_ret(p, i, 0, 21)
     if i >= 5:
@@ -200,6 +221,9 @@ COMBOS = [
     ("combo_qpg", ["quality", "pead", "gross_prof"]),
     ("combo_qpm", ["quality", "pead", "mom_12_1"]),
     ("combo_qp_ag", ["quality", "pead", "asset_growth"]),
+    ("combo_pead_rmmom", ["pead", "rm_mom"]),
+    ("combo_pead_rmmom_ivol", ["pead", "rm_mom", "ivol"]),
+    ("combo_rmmom_ivol", ["rm_mom", "ivol"]),
 ]
 
 
