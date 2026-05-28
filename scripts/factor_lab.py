@@ -1,0 +1,253 @@
+"""Factor lab — rapid cross-sectional forward-IC screening with a permutation null.
+
+The try-and-error engine for strategy discovery. Evaluates a battery of candidate
+signals (price, EDGAR fundamentals, accruals, PEAD, and their interactions) by
+forward-return rank-IC across regimes, with a permutation null so we don't mistake
+noise for edge (the lesson from the Mirage null + the phase-luck capstone).
+
+Every signal is oriented "higher = more bullish". Base signals are z-scored
+cross-sectionally per date; interactions are products of those z-scores. IC is
+Spearman vs the H-day forward return on non-overlapping windows (step == horizon)
+so the per-date IC t-stat is honest.
+
+    uv run python -m scripts.factor_lab --snapshot-ids ed270407fd89cf60,1c1c314850bb7368 \
+        --horizons 21,63
+
+Reads data <= as_of only. Accrual/fundamental sidecars are optional per snapshot.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy.stats import spearmanr
+
+warnings.filterwarnings("ignore")
+
+from src.factors.accruals_pit import AccrualsPITLoader
+from src.factors.earnings_cache import load_earnings_histories
+from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
+from src.factors.momentum import momentum_12_1
+from src.factors.pead import pead_factor
+from src.factors.quality import quality_factor
+from src.factors.value import value_factor
+
+SNAP_ROOT = Path("data/snapshots")
+MIN_NAMES = 20
+
+
+class Ctx:
+    def __init__(self, snap_id: str):
+        d = SNAP_ROOT / snap_id
+        raw = pd.read_parquet(d / "prices.parquet")
+        raw["date"] = pd.to_datetime(raw["date"])
+        self.snap_id = snap_id
+        self.prices = {t: g.set_index("date").sort_index() for t, g in raw.groupby("ticker")}
+        self.panel = raw.pivot(index="date", columns="ticker", values="Close").sort_index()
+        self.dates = self.panel.index
+        self.fund = FundamentalsPITLoader.from_json(d / "fundamentals_pit.json")
+        ap = d / "accruals_pit.json"
+        self.accr = AccrualsPITLoader.from_json(ap) if ap.exists() else None
+        rows = json.loads((d / "fundamentals_pit.json").read_text(encoding="utf-8"))
+        self.sector_of = {r["ticker"]: r["sector"] for r in rows if r.get("sector")}
+        self.universe = sorted(set(self.panel.columns))
+        self.earnings = load_earnings_histories(self.universe, max_age_hours=10 ** 9)
+
+
+def _as_of_dt(ts: pd.Timestamp) -> _dt.datetime:
+    dt = ts.to_pydatetime()
+    return dt if dt.tzinfo else dt.replace(tzinfo=_dt.timezone.utc)
+
+
+def _frame_z(df: pd.DataFrame) -> pd.Series:
+    """Extract a ticker->z_score Series from a factor frame."""
+    if df is None or df.empty:
+        return pd.Series(dtype=float)
+    return df.set_index("ticker")["z_score"]
+
+
+# --- base signals: ctx, i (panel int-index) -> Series(ticker -> raw, higher=bullish) ---
+
+def _ret(panel: pd.DataFrame, i: int, lo: int, hi: int) -> pd.Series:
+    return panel.iloc[i - lo] / panel.iloc[i - hi] - 1.0
+
+
+def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
+    p, ts = ctx.panel, ctx.dates[i]
+    out: dict[str, pd.Series] = {}
+    # price (vectorized)
+    if i >= 252:
+        out["mom_12_1"] = _ret(p, i, 21, 252)
+        out["mom_6_1"] = _ret(p, i, 21, 126)
+    if i >= 21:
+        out["rev_21"] = -_ret(p, i, 0, 21)
+    if i >= 5:
+        out["rev_5"] = -_ret(p, i, 0, 5)
+    if i >= 60:
+        out["lowvol_60"] = -p.iloc[i - 60:i].pct_change().std()
+        # 52w-high proximity (anchoring): close / 252d-high
+        out["hi52w"] = p.iloc[i] / p.iloc[max(0, i - 252):i + 1].max()
+    # fundamentals (per-date, validated factors)
+    try:
+        out["quality"] = _frame_z(quality_factor(ctx.fund, ctx.universe, ts))
+    except Exception:
+        pass
+    try:
+        out["value"] = _frame_z(value_factor(ctx.fund, ctx.prices, ctx.universe, ts))
+    except Exception:
+        pass
+    try:
+        out["pead"] = _frame_z(pead_factor(ctx.earnings, ts, prices=ctx.prices))
+    except Exception:
+        pass
+    # accruals (-accrual = high quality), from sidecar
+    if ctx.accr is not None:
+        aod = _as_of_dt(ts)
+        acc = {t: -ctx.accr.lookup(t, aod).accrual for t in ctx.accr.tickers
+               if ctx.accr.lookup(t, aod) is not None}
+        if acc:
+            out["accruals"] = pd.Series(acc)
+    return {k: v.dropna() for k, v in out.items() if v is not None and len(v.dropna()) >= MIN_NAMES}
+
+
+# interactions: (name, legA, legB) — product of cross-sectional z-scores
+INTERACTIONS = [
+    ("mom_x_lowvol", "mom_12_1", "lowvol_60"),
+    ("mom_x_quality", "mom_12_1", "quality"),
+    ("qual_x_value", "quality", "value"),      # quality-at-a-reasonable-price
+    ("accr_x_value", "accruals", "value"),
+    ("rev_x_quality", "rev_5", "quality"),     # bounce the quality oversold
+    ("mom_x_value", "mom_12_1", "value"),
+    ("pead_x_quality", "pead", "quality"),
+    ("hi52w_x_mom", "hi52w", "mom_12_1"),
+]
+
+
+def _z(s: pd.Series) -> pd.Series:
+    sd = s.std(ddof=0)
+    return (s - s.mean()) / sd if sd and not np.isnan(sd) else s * 0.0
+
+
+def all_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
+    base = base_signals(ctx, i)
+    zb = {k: _z(v) for k, v in base.items()}
+    out = dict(base)
+    for name, a, b in INTERACTIONS:
+        if a in zb and b in zb:
+            common = zb[a].index.intersection(zb[b].index)
+            if len(common) >= MIN_NAMES:
+                out[name] = (zb[a].loc[common] * zb[b].loc[common])
+    return out
+
+
+def _ic(sig: pd.Series, fwd: pd.Series) -> float | None:
+    df = pd.concat([sig, fwd], axis=1).dropna()
+    if len(df) < MIN_NAMES:
+        return None
+    rho, _ = spearmanr(df.iloc[:, 0], df.iloc[:, 1])
+    return None if np.isnan(rho) else float(rho)
+
+
+def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[str, dict]:
+    dates = ctx.dates
+    idxs = list(range(252, len(dates) - horizon - 1, step))
+    per_sig_ic: dict[str, list[float]] = {}
+    per_sig_null: dict[str, list[list[float]]] = {}
+    for i in idxs:
+        sigs = all_signals(ctx, i)
+        fwd_all = ctx.panel.iloc[i + horizon] / ctx.panel.iloc[i] - 1.0
+        for name, s in sigs.items():
+            fwd = fwd_all.reindex(s.index)
+            ic = _ic(s, fwd)
+            if ic is None:
+                continue
+            per_sig_ic.setdefault(name, []).append(ic)
+            # permutation: shuffle signal across names
+            vals = s.to_numpy()
+            nulls = []
+            for _ in range(n_perm):
+                r = _ic(pd.Series(rng.permutation(vals), index=s.index), fwd)
+                if r is not None:
+                    nulls.append(r)
+            per_sig_null.setdefault(name, []).append(nulls)
+
+    res: dict[str, dict] = {}
+    for name, ics in per_sig_ic.items():
+        a = np.array(ics)
+        n = len(a)
+        mean = float(a.mean())
+        se = float(a.std(ddof=1) / np.sqrt(n)) if n > 1 else float("nan")
+        # pooled permutation null: mean across dates per perm-index
+        nulls = per_sig_null[name]
+        k = min((len(x) for x in nulls), default=0)
+        if k > 0:
+            mat = np.array([x[:k] for x in nulls])
+            null_means = mat.mean(axis=0)
+            p = float((np.abs(null_means) >= abs(mean)).mean())
+        else:
+            p = float("nan")
+        res[name] = {
+            "n_dates": n, "mean_ic": mean,
+            "t": (mean / se) if se and not np.isnan(se) else float("nan"),
+            "pct_pos": float((a > 0).mean() * 100),
+            "perm_p": p,
+        }
+    return res
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--snapshot-ids", required=True, help="comma-separated")
+    ap.add_argument("--horizons", default="21,63")
+    ap.add_argument("--step", type=int, default=21)
+    ap.add_argument("--n-perm", type=int, default=150)
+    ap.add_argument("--seed", type=int, default=11)
+    args = ap.parse_args()
+    snaps = args.snapshot_ids.split(",")
+    horizons = [int(h) for h in args.horizons.split(",")]
+    rng = np.random.default_rng(args.seed)
+
+    all_res: dict = {}  # (snap,H) -> {sig: stats}
+    for sid in snaps:
+        print(f"loading {sid} ...", flush=True)
+        ctx = Ctx(sid)
+        for H in horizons:
+            print(f"  scoring H={H} ...", flush=True)
+            all_res[f"{sid[:8]}|H{H}"] = run_snapshot(ctx, H, args.step, args.n_perm, rng)
+
+    # pool per signal across (snap,H) by simple mean of mean_ic, and count significant cells
+    sigs = sorted({s for cell in all_res.values() for s in cell})
+    rows = []
+    for sig in sigs:
+        cells = [(k, all_res[k][sig]) for k in all_res if sig in all_res[k]]
+        means = [c["mean_ic"] for _, c in cells]
+        n_sig = sum(1 for _, c in cells if c["perm_p"] < 0.05 and abs(c["mean_ic"]) > 0.01)
+        n_pos = sum(1 for m in means if m > 0)
+        rows.append({
+            "signal": sig, "n_cells": len(cells),
+            "avg_ic": float(np.mean(means)), "min_ic": float(np.min(means)), "max_ic": float(np.max(means)),
+            "n_signif": n_sig, "sign_consistency": max(n_pos, len(means) - n_pos) / len(means),
+        })
+    rows.sort(key=lambda r: -abs(r["avg_ic"]))
+
+    out = Path("reports") / "factor_lab_leaderboard.json"
+    out.write_text(json.dumps({"cells": all_res, "leaderboard": rows}, indent=2), encoding="utf-8")
+
+    print(f"\n=== IC LEADERBOARD ({len(snaps)} snapshots x {len(horizons)} horizons = {len(all_res)} cells) ===")
+    print(f"{'signal':16s}{'avg_ic':>9}{'min':>8}{'max':>8}{'signif/cells':>14}{'sign_cons':>11}")
+    for r in rows:
+        print(f"{r['signal']:16s}{r['avg_ic']:>+9.4f}{r['min_ic']:>+8.4f}{r['max_ic']:>+8.4f}"
+              f"{str(r['n_signif'])+'/'+str(r['n_cells']):>14}{r['sign_consistency']*100:>10.0f}%")
+    print(f"\n(signif = perm_p<0.05 AND |IC|>0.01; sign_cons = % cells agreeing on sign)")
+    print(f"wrote {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
