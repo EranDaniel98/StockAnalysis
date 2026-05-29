@@ -348,14 +348,25 @@ def _ic(sig: pd.Series, fwd: pd.Series) -> float | None:
 
 
 def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[str, dict]:
-    dates = ctx.dates
-    idxs = list(range(252, len(dates) - horizon - 1, step))
-    if _WITH_DB:
-        # precompute Postgres insider/SI signals for these rebalance dates (one session);
-        # dedupe across horizons by caching on ctx.
-        need = [dates[i] for i in idxs if pd.Timestamp(dates[i]) not in ctx.db_sig_by_ts]
-        if need:
-            ctx.db_sig_by_ts.update(load_db_signals(ctx.universe, need))
+    idxs = list(range(252, len(ctx.dates) - horizon - 1, step))
+    _ensure_db_signals(ctx, idxs)
+    ic, null = _score_idxs(ctx, idxs, horizon, n_perm, rng)
+    return _summarize(ic, null)
+
+
+def _ensure_db_signals(ctx: Ctx, idxs: list[int]) -> None:
+    """Precompute Postgres insider/SI signals for these rebalance dates (one
+    session), deduped against what's already cached on ctx."""
+    if not _WITH_DB:
+        return
+    need = [ctx.dates[i] for i in idxs if pd.Timestamp(ctx.dates[i]) not in ctx.db_sig_by_ts]
+    if need:
+        ctx.db_sig_by_ts.update(load_db_signals(ctx.universe, need))
+
+
+def _score_idxs(ctx: Ctx, idxs: list[int], horizon: int, n_perm: int, rng):
+    """Raw per-signal IC lists + permutation-null lists over the given rebalance
+    indices. Mergeable across chunks (lists just concatenate)."""
     per_sig_ic: dict[str, list[float]] = {}
     per_sig_null: dict[str, list[list[float]]] = {}
     for i in idxs:
@@ -367,27 +378,24 @@ def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[st
             if ic is None:
                 continue
             per_sig_ic.setdefault(name, []).append(ic)
-            # permutation: shuffle signal across names
             vals = s.to_numpy()
-            nulls = []
-            for _ in range(n_perm):
-                r = _ic(pd.Series(rng.permutation(vals), index=s.index), fwd)
-                if r is not None:
-                    nulls.append(r)
+            nulls = [r for _ in range(n_perm)
+                     if (r := _ic(pd.Series(rng.permutation(vals), index=s.index), fwd)) is not None]
             per_sig_null.setdefault(name, []).append(nulls)
+    return per_sig_ic, per_sig_null
 
+
+def _summarize(per_sig_ic: dict, per_sig_null: dict) -> dict[str, dict]:
     res: dict[str, dict] = {}
     for name, ics in per_sig_ic.items():
         a = np.array(ics)
         n = len(a)
         mean = float(a.mean())
         se = float(a.std(ddof=1) / np.sqrt(n)) if n > 1 else float("nan")
-        # pooled permutation null: mean across dates per perm-index
-        nulls = per_sig_null[name]
+        nulls = per_sig_null.get(name, [])
         k = min((len(x) for x in nulls), default=0)
         if k > 0:
-            mat = np.array([x[:k] for x in nulls])
-            null_means = mat.mean(axis=0)
+            null_means = np.array([x[:k] for x in nulls]).mean(axis=0)
             p = float((np.abs(null_means) >= abs(mean)).mean())
         else:
             p = float("nan")
@@ -400,6 +408,22 @@ def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[st
     return res
 
 
+def _run_cell(task: tuple) -> tuple[str, dict]:
+    """Worker: build one snapshot's Ctx ONCE and score a full (snapshot,horizon)
+    cell. One Ctx build per cell — no redundant panel/earnings reloads. Factor
+    scoring is GIL-bound, so cells run in separate PROCESSES (not threads) to use
+    multiple cores; parallelism is bounded by the number of cells."""
+    sid, horizon, step, n_perm, seed, with_db = task
+    global _WITH_DB
+    _WITH_DB = with_db
+    if with_db:
+        from dotenv import load_dotenv
+        load_dotenv()
+    ctx = Ctx(sid)
+    res = run_snapshot(ctx, horizon, step, n_perm, np.random.default_rng(seed))
+    return f"{sid[:8]}|H{horizon}", res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--snapshot-ids", required=True, help="comma-separated")
@@ -410,23 +434,38 @@ def main() -> int:
     ap.add_argument("--with-db-signals", action="store_true",
                     help="Add Postgres insider-cluster + short-interest-delta signals "
                          "(needs STOCKNEW_DATABASE_URL). Off by default.")
+    ap.add_argument("--workers", type=int, default=0,
+                    help="Parallel worker processes (0 = auto = all cores). Factor "
+                         "scoring is GIL-bound, so cores are used via PROCESSES, not "
+                         "threads. Lower this if a big-universe run is RAM-constrained.")
     args = ap.parse_args()
-    global _WITH_DB
-    _WITH_DB = args.with_db_signals
-    if _WITH_DB:
-        from dotenv import load_dotenv
-        load_dotenv()  # STOCKNEW_DATABASE_URL for the Postgres session
     snaps = args.snapshot_ids.split(",")
     horizons = [int(h) for h in args.horizons.split(",")]
-    rng = np.random.default_rng(args.seed)
 
-    all_res: dict = {}  # (snap,H) -> {sig: stats}
-    for sid in snaps:
-        print(f"loading {sid} ...", flush=True)
-        ctx = Ctx(sid)
-        for H in horizons:
-            print(f"  scoring H={H} ...", flush=True)
-            all_res[f"{sid[:8]}|H{H}"] = run_snapshot(ctx, H, args.step, args.n_perm, rng)
+    import os as _os
+    from concurrent.futures import ProcessPoolExecutor
+    # One task per (snapshot, horizon) cell — one Ctx build each, no redundant
+    # panel/earnings reloads. Cores used = min(workers, #cells); to use more
+    # cores, run more cells (snapshots x horizons), not more workers.
+    tasks = [
+        (sid, H, args.step, args.n_perm, args.seed + 1000 * hi + si, args.with_db_signals)
+        for si, sid in enumerate(snaps)
+        for hi, H in enumerate(horizons)
+    ]
+    workers = args.workers or max(1, min(len(tasks), _os.cpu_count() or 8))
+    print(f"scoring {len(tasks)} cells across {workers} processes "
+          f"(1 Ctx build/cell) ...", flush=True)
+    all_res: dict = {}
+    if workers == 1:
+        for t in tasks:
+            k, res = _run_cell(t)
+            all_res[k] = res
+            print(f"  done {k}", flush=True)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for k, res in ex.map(_run_cell, tasks):
+                all_res[k] = res
+                print(f"  done {k}", flush=True)
 
     # pool per signal across (snap,H) by simple mean of mean_ic, and count significant cells
     sigs = sorted({s for cell in all_res.values() for s in cell})
