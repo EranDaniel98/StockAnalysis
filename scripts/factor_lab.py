@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
 
 warnings.filterwarnings("ignore")
 
@@ -347,6 +347,31 @@ def _ic(sig: pd.Series, fwd: pd.Series) -> float | None:
     return None if np.isnan(rho) else float(rho)
 
 
+def _ic_and_null(sig: pd.Series, fwd: pd.Series, n_perm: int, rng) -> tuple[float, list] | tuple[None, None]:
+    """Real rank-IC + a vectorized permutation null in one shot.
+
+    Spearman IC = Pearson on ranks. Under permutation the rank multiset (hence
+    its norm) is invariant, so the whole null is one matmul: permute the centred
+    signal-ranks n_perm times and dot with the centred forward-ranks. Replaces
+    n_perm scipy.spearmanr calls with a single (n_perm x n) @ (n) product."""
+    df = pd.concat([sig, fwd], axis=1).dropna()
+    if len(df) < MIN_NAMES:
+        return None, None
+    s = rankdata(df.iloc[:, 0].to_numpy())
+    f = rankdata(df.iloc[:, 1].to_numpy())
+    s = s - s.mean()
+    f = f - f.mean()
+    ns = float(np.sqrt((s * s).sum()))
+    nf = float(np.sqrt((f * f).sum()))
+    if ns == 0 or nf == 0:
+        return None, None
+    ic = float((s * f).sum() / (ns * nf))
+    # Vectorized permutation: each row a permutation of the centred signal-ranks.
+    perms = rng.permuted(np.broadcast_to(s, (n_perm, s.size)), axis=1)
+    nulls = (perms @ f) / (ns * nf)  # row norm == ns for every permutation
+    return ic, nulls.tolist()
+
+
 def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[str, dict]:
     idxs = list(range(252, len(ctx.dates) - horizon - 1, step))
     _ensure_db_signals(ctx, idxs)
@@ -373,14 +398,10 @@ def _score_idxs(ctx: Ctx, idxs: list[int], horizon: int, n_perm: int, rng):
         sigs = all_signals(ctx, i)
         fwd_all = ctx.panel.iloc[i + horizon] / ctx.panel.iloc[i] - 1.0
         for name, s in sigs.items():
-            fwd = fwd_all.reindex(s.index)
-            ic = _ic(s, fwd)
+            ic, nulls = _ic_and_null(s, fwd_all.reindex(s.index), n_perm, rng)
             if ic is None:
                 continue
             per_sig_ic.setdefault(name, []).append(ic)
-            vals = s.to_numpy()
-            nulls = [r for _ in range(n_perm)
-                     if (r := _ic(pd.Series(rng.permutation(vals), index=s.index), fwd)) is not None]
             per_sig_null.setdefault(name, []).append(nulls)
     return per_sig_ic, per_sig_null
 
