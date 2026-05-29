@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import sys
 import warnings
 from pathlib import Path
 
@@ -40,6 +41,39 @@ from src.factors.value import value_factor
 
 SNAP_ROOT = Path("data/snapshots")
 MIN_NAMES = 20
+MIN_NAMES_SPARSE = 12  # insider/SI clusters are sparse — lower floor so they reach the IC test
+_WITH_DB = False  # toggled by --with-db-signals; gates the Postgres insider/SI signals
+
+
+def load_db_signals(tickers: list[str], dates: list[pd.Timestamp]) -> dict:
+    """Precompute PIT insider-cluster + short-interest-delta signals for the
+    given rebalance dates via ONE async Postgres session. Returns
+    ``{timestamp: {'insider_cluster': Series, 'si_delta': Series}}`` with raw
+    values oriented higher=bullish (insider = #distinct buyers; si = -delta,
+    i.e. shorts covering = bullish). Empty dict if Postgres is unreachable."""
+    from src.db.session import get_sessionmaker, run_with_dispose
+    from src.factors.insider_cluster import fetch_cluster_counts
+    from src.factors.short_interest_delta import fetch_short_delta
+
+    async def _go():
+        out: dict = {}
+        async with get_sessionmaker()() as session:
+            for ts in dates:
+                d: dict = {}
+                ins = await fetch_cluster_counts(session, tickers=tickers, as_of=ts)
+                if not ins.empty:
+                    d["insider_cluster"] = ins.set_index("ticker")["n_insiders"].astype(float)
+                si = await fetch_short_delta(session, tickers=tickers, as_of=ts)
+                if not si.empty:
+                    d["si_delta"] = -si.set_index("ticker")["delta_pct"].astype(float)
+                out[pd.Timestamp(ts)] = d
+        return out
+
+    try:
+        return run_with_dispose(_go())
+    except Exception as exc:  # noqa: BLE001 — DB optional; degrade to no db-signals
+        print(f"  ! db signals unavailable: {str(exc)[:120]}", file=sys.stderr)
+        return {}
 
 
 class Ctx:
@@ -64,6 +98,7 @@ class Ctx:
         self.sector_of = {r["ticker"]: r["sector"] for r in rows if r.get("sector")}
         self.universe = sorted(set(self.panel.columns))
         self.earnings = load_earnings_histories(self.universe, max_age_hours=10 ** 9)
+        self.db_sig_by_ts: dict = {}  # {ts: {'insider_cluster': Series, 'si_delta': Series}} (lazy, --with-db-signals)
 
 
 def _as_of_dt(ts: pd.Timestamp) -> _dt.datetime:
@@ -196,7 +231,14 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
                  ("margin_cv", mcv), ("deleverage", dlev)):
         if d:
             out[k] = pd.Series(d)
-    return {k: v.dropna() for k, v in out.items() if v is not None and len(v.dropna()) >= MIN_NAMES}
+    result = {k: v.dropna() for k, v in out.items() if v is not None and len(v.dropna()) >= MIN_NAMES}
+    # differentiated-data signals (Postgres insider-cluster + short-interest delta),
+    # precomputed in run_snapshot. Sparse by nature -> lower name floor so they reach IC.
+    for name, s in ctx.db_sig_by_ts.get(ts, {}).items():
+        s = s.dropna() if s is not None else None
+        if s is not None and len(s) >= MIN_NAMES_SPARSE:
+            result[name] = s
+    return result
 
 
 # interactions: (name, legA, legB) — product of cross-sectional z-scores
@@ -251,6 +293,10 @@ COMBOS = [
     ("combo_defensive", ["margin_cv", "deleverage", "accruals"]),
     ("combo_fundtrend", ["delta_opmargin", "sue_lite", "pead"]),
     ("combo_sue_margin", ["sue_lite", "delta_opmargin"]),
+    # differentiated-data combos (insider/SI): test whether they add to the PEAD core
+    ("combo_insider_pead", ["insider_cluster", "pead"]),
+    ("combo_si_pead", ["si_delta", "pead"]),
+    ("combo_insider_si", ["insider_cluster", "si_delta"]),
 ]
 
 
@@ -304,6 +350,12 @@ def _ic(sig: pd.Series, fwd: pd.Series) -> float | None:
 def run_snapshot(ctx: Ctx, horizon: int, step: int, n_perm: int, rng) -> dict[str, dict]:
     dates = ctx.dates
     idxs = list(range(252, len(dates) - horizon - 1, step))
+    if _WITH_DB:
+        # precompute Postgres insider/SI signals for these rebalance dates (one session);
+        # dedupe across horizons by caching on ctx.
+        need = [dates[i] for i in idxs if pd.Timestamp(dates[i]) not in ctx.db_sig_by_ts]
+        if need:
+            ctx.db_sig_by_ts.update(load_db_signals(ctx.universe, need))
     per_sig_ic: dict[str, list[float]] = {}
     per_sig_null: dict[str, list[list[float]]] = {}
     for i in idxs:
@@ -355,7 +407,15 @@ def main() -> int:
     ap.add_argument("--step", type=int, default=21)
     ap.add_argument("--n-perm", type=int, default=150)
     ap.add_argument("--seed", type=int, default=11)
+    ap.add_argument("--with-db-signals", action="store_true",
+                    help="Add Postgres insider-cluster + short-interest-delta signals "
+                         "(needs STOCKNEW_DATABASE_URL). Off by default.")
     args = ap.parse_args()
+    global _WITH_DB
+    _WITH_DB = args.with_db_signals
+    if _WITH_DB:
+        from dotenv import load_dotenv
+        load_dotenv()  # STOCKNEW_DATABASE_URL for the Postgres session
     snaps = args.snapshot_ids.split(",")
     horizons = [int(h) for h in args.horizons.split(",")]
     rng = np.random.default_rng(args.seed)
