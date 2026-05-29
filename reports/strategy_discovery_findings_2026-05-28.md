@@ -105,10 +105,12 @@ turned, and it reinforces the verdict: no differentiated edge beyond PEAD+qualit
 
 ## What would still unlock a genuinely new edge (needs spend, not more search)
 
-1. **LLM-as-alt-data (#3, OpenAI):** the one genuinely-*different* untried approach —
-   read the 12K-chunk EDGAR filing corpus for guidance-tone / risk-factor-delta /
-   event signals. Text at scale is under-arbed; a different *kind* of signal than the
-   numeric factors exhausted above. Costs OpenAI $/run, corpus coverage unverified.
+1. **LLM-as-alt-data (#3, OpenAI):** the one genuinely-*different* approach — but a
+   coverage check (2026-05-29) found the `filings_corpus` has only **54 tickers**
+   (~3% of broad), almost all **8-K**, with 10-K/10-Q text from **1 ticker each**. Not
+   buildable as a cross-sectional factor without first ingesting filings for the full
+   universe (500-2000 tickers) — a real data-engineering project + OpenAI extraction
+   cost. Deferred: needs universe-wide filing ingestion before it's even testable.
 2. **Analyst-estimate revisions** — the robust anomaly we have no clean proxy for.
 3. **Options / dealer-gamma flow** — where the institutional-footprint ideas died for
    lack of data.
