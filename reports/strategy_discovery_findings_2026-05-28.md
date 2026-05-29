@@ -85,18 +85,43 @@ out via a dollar-neutral long-short (top/bottom decile).
 - `src/factors/momentum.py:risk_managed_momentum` + `--momentum-flavor risk_managed`.
 - `scripts/phase_envelope.py` — now parallelized across cores (~8× on this box).
 
-## What would unlock a genuinely new edge (needs spend/data, not more search)
+## Differentiated data — TESTED 2026-05-29, NULL
 
-1. **Longer-history differentiated data.** Short-interest is only ~1yr (2025-26) and
-   insider-transaction dates are corrupted (parsing bug: years like 0025/2031) — so
-   neither could be regime-validated. Clean, long-history SI/insider is the cheapest
-   real lever; fixing the insider date parser may partially revive it.
+The highest-EV untested avenue (and a prematurely-closed one — the insider data was
+fine, 97.7% of 316K rows in 2018-26; the "corrupted" call was a min/max-glance error).
+Wired Postgres **insider-cluster** (CMP-2012 distinct open-market buyers, PIT) +
+**short-interest-delta** into the lab and tested 2024-26 S&P + broad × 5 horizons:
+
+- **insider_cluster:** faintly positive on the broad universe at long horizons
+  (+0.02..+0.04, H21-63) but **permutation p = 0.43-0.57 — never significant**;
+  negative/noisy on the S&P (only 5-8 names cluster). The famous CMP-2012 effect does
+  **not** replicate here.
+- **short-interest-delta:** mostly null. One cell (BROAD/H63 +0.047, p=0.01; SP/H5
+  p=0.04) but **2-of-10 ≈ chance**, adjacent horizons don't corroborate, and the SI
+  data is only ~1.5yr (2024-26) so it **can't be regime-validated**.
+
+→ Neither carries tradeable cross-sectional alpha here. The last numeric-data stone is
+turned, and it reinforces the verdict: no differentiated edge beyond PEAD+quality.
+
+## What would still unlock a genuinely new edge (needs spend, not more search)
+
+1. **LLM-as-alt-data (#3, OpenAI):** the one genuinely-*different* untried approach —
+   read the 12K-chunk EDGAR filing corpus for guidance-tone / risk-factor-delta /
+   event signals. Text at scale is under-arbed; a different *kind* of signal than the
+   numeric factors exhausted above. Costs OpenAI $/run, corpus coverage unverified.
 2. **Analyst-estimate revisions** — the robust anomaly we have no clean proxy for.
 3. **Options / dealer-gamma flow** — where the institutional-footprint ideas died for
    lack of data.
-4. **LLM-as-alt-data (#3, OpenAI):** read the 12K-chunk EDGAR filing corpus for
-   guidance-tone / risk-factor-delta signals. Genuinely differentiated (text at
-   scale is under-arbed), costs OpenAI $/run, corpus coverage unverified. Not yet run.
+4. **Longer-history short-interest** (current is ~1.5yr) — would let the faint
+   BROAD/H63 short-covering whisper be regime-tested instead of dismissed as noise.
+
+## Tooling perf (this session)
+
+`factor_lab` is now process-parallel per cell + a vectorized permutation null (one
+matmul vs n_perm scipy calls, verified to ~1e-17): a 10-cell battery runs in ~146s
+(~9 cores) vs ~15-20min single-core. `phase_envelope` parallelizes its offset
+subprocesses. Cores used = number of independent cells; finer-grained chunking was
+tried and reverted (redundant Ctx builds cost more than the parallelism saved).
 
 ## Status of the live system (unchanged)
 
