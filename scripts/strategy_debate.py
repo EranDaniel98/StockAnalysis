@@ -37,6 +37,8 @@ OPUS_MAX_TOKENS = 3000  # closing-synthesis turns (spec + tables) need the headr
 # Gemini 3.x Pro is a thinking model — reasoning tokens count against the output
 # budget, so a tight cap truncates the visible answer mid-sentence. Give it room.
 GEMINI_MAX_TOKENS = 8000
+OPENAI_MODEL = "gpt-5.5"  # flagship reasoning model; reasoning_effort set per call
+OPENAI_MAX_TOKENS = 16000  # reasoning tokens count against this — give deep-thinking room
 TIMEOUT_S = 240
 
 FRAMING = """You are one of two AI quant reviewers in a SYMMETRIC CRITIQUE of a \
@@ -122,7 +124,48 @@ MODES = {
 MODE_LABEL = {
     "critique": "symmetric critique of the live `src/factors/*` system",
     "collab": "collaborative co-design of a new strategy",
+    "panel": "3-model deep-thinking panel (Claude + Gemini + GPT-5.5)",
 }
+
+# --- panel mode: 3 frontier reasoning models, propose -> cross-critique -> synthesize ---
+
+PANEL_FRAMING = """You are {me}, one of THREE independent frontier AI quant researchers \
+on a deep-thinking panel (the others are {others}). This is a one-time, high-effort \
+search for NEW SCENARIO-CONDITIONAL trading strategies — approaches that work in a \
+SPECIFIC market scenario (an event, regime, or microstructure state), NOT another \
+universal cross-sectional factor (that space is exhausted; see the brief's ANTI-PATTERNS).
+
+Think hard and concretely. Every proposal MUST be: (a) computable on the stated data \
+layer (Polygon EOD + minute bars 2018+, EDGAR PIT fundamentals + raw NI/CFO/assets + \
+Form-4 insider + 8-K/10-K text, FINRA short-interest ~1.5yr, yfinance VIX/earnings, \
+Postgres); NO paid options/dealer-gamma, analyst revisions, or alt-data we lack. \
+(b) shipped with a FALSIFIABLE test on the scenario's own sample — forward-IC or \
+event-study + permutation null, phase-averaged, judged on Jensen's CAPM-α net of 30bps. \
+An idea that can't be told from luck on its scenario isn't a candidate."""
+
+PANEL_PROPOSE = (
+    "PROPOSE independently (you cannot see the other panelists yet). Give 3-5 "
+    "SCENARIO-CONDITIONAL strategy hypotheses. For each: (1) the exact scenario trigger; "
+    "(2) the data-layer-computable signal (fields, formula, lookback); (3) entry/exit; "
+    "(4) the persistence mechanism — why it isn't arbed away IN THAT SCENARIO; (5) the "
+    "precise falsifiable test. Prefer ideas orthogonal to the PEAD+quality core and to "
+    "the listed anti-patterns. Be concrete enough to implement."
+)
+PANEL_CRITIQUE = (
+    "CRITIQUE the other two panelists' proposals below. For each of their ideas: is it "
+    "actually computable on the data layer? already arbed or an anti-pattern in disguise? "
+    "does the test isolate the scenario edge from luck/beta? State which proposals "
+    "SURVIVE scrutiny and which to KILL, with reasons. Then name the 2-3 strongest ideas "
+    "across ALL THREE of us (including your own) worth implementing first."
+)
+PANEL_SYNTH = (
+    "SYNTHESIS. You have all three panelists' proposals and all three critiques. Produce "
+    "the FINAL ranked shortlist of 3-6 scenario-conditional strategies that survived "
+    "cross-model scrutiny. For each: scenario trigger, exact computable signal, entry/exit, "
+    "persistence mechanism, and the falsifiable test (forward-IC/event-study + permutation "
+    "null + Jensen's-α net-of-cost decision rule). Rank by expected edge × testability. "
+    "End with an honest note on which are most likely to be null and why."
+)
 
 
 def load_dossier() -> str:
@@ -196,6 +239,78 @@ def gemini_turn(client, gem_types, model: str, system_text: str, user_text: str)
     return with_retries(call)
 
 
+def openai_turn(client, model: str, system_text: str, user_text: str,
+                reasoning_effort: str = "high") -> str:
+    def call():
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "developer", "content": system_text},
+                      {"role": "user", "content": user_text}],
+            max_completion_tokens=OPENAI_MAX_TOKENS,
+            reasoning_effort=reasoning_effort,
+            timeout=600,
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+    return with_retries(call)
+
+
+def run_panel(opus_client, gem_client, gem_types, oai_client, dossier: str, args) -> int:
+    """3-model deep-thinking panel: propose (independent) -> cross-critique -> synthesize."""
+    panel = ["Opus", "Gemini", "GPT-5.5"]
+
+    def call(name: str, system: str, user: str) -> str:
+        if name == "Opus":
+            return opus_turn(opus_client, system, user)
+        if name == "Gemini":
+            return gemini_turn(gem_client, gem_types, args.gemini_model, system, user)
+        return openai_turn(oai_client, args.openai_model, system, user)
+
+    def system_for(name: str) -> str:
+        others = ", ".join(p for p in panel if p != name)
+        return PANEL_FRAMING.format(me=name, others=others) + "\n\n" + dossier
+
+    # Phase 1 — independent proposals.
+    proposals: dict[str, str] = {}
+    for name in panel:
+        print(f"[1/propose] {name} (deep thinking) ...", file=sys.stderr)
+        proposals[name] = call(name, system_for(name), PANEL_PROPOSE)
+
+    # Phase 2 — each critiques the other two.
+    critiques: dict[str, str] = {}
+    for name in panel:
+        others_props = "\n\n".join(
+            f"### {p}'s proposals\n{proposals[p]}" for p in panel if p != name
+        )
+        user = PANEL_CRITIQUE + "\n\n=== OTHER PANELISTS' PROPOSALS ===\n\n" + others_props
+        print(f"[2/critique] {name} ...", file=sys.stderr)
+        critiques[name] = call(name, system_for(name), user)
+
+    # Phase 3 — Opus synthesizes the cross-scrutinized set into the ranked shortlist.
+    all_prop = "\n\n".join(f"### {p} — proposals\n{proposals[p]}" for p in panel)
+    all_crit = "\n\n".join(f"### {p} — critique\n{critiques[p]}" for p in panel)
+    synth_user = (PANEL_SYNTH + "\n\n=== ALL PROPOSALS ===\n\n" + all_prop
+                  + "\n\n=== ALL CRITIQUES ===\n\n" + all_crit)
+    print("[3/synthesize] Opus ...", file=sys.stderr)
+    synthesis = call("Opus", system_for("Opus (synthesizer)"), synth_user)
+
+    out_path = Path(args.output) if args.output else REPO / "reports" / f"panel_{date.today().isoformat()}.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    parts = [
+        f"# 3-Model Deep-Thinking Panel — {date.today().isoformat()}\n",
+        f"- Panel: Opus `{args.opus_model}` · Gemini `{args.gemini_model}` · OpenAI `{args.openai_model}`",
+        f"- Seed: `{args.seed_file}`\n" if args.seed_file else "",
+        "\n## FINAL SYNTHESIS (ranked shortlist)\n\n" + synthesis,
+        "\n\n---\n\n## Phase 1 — Independent proposals\n",
+        *[f"\n### {p}\n\n{proposals[p]}\n" for p in panel],
+        "\n---\n\n## Phase 2 — Cross-critiques\n",
+        *[f"\n### {p}\n\n{critiques[p]}\n" for p in panel],
+    ]
+    out_path.write_text("\n".join(parts), encoding="utf-8")
+    print(f"\nWrote panel transcript -> {out_path}", file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Opus 4.7 <-> Gemini strategy debate")
     ap.add_argument("--rounds", type=int, default=6, help="total turns (alternating speakers)")
@@ -203,10 +318,12 @@ def main() -> int:
     ap.add_argument("--opus-model", default=OPUS_MODEL)
     ap.add_argument("--gemini-model", default=GEMINI_MODEL)
     ap.add_argument("--output", default=None, help="transcript path (default reports/debate_<date>.md)")
-    ap.add_argument("--mode", choices=list(MODES), default="critique",
-                    help="critique = stress-test the live system; collab = co-design a new strategy")
+    ap.add_argument("--mode", choices=list(MODES) + ["panel"], default="critique",
+                    help="critique = stress-test; collab = co-design; panel = 3-model "
+                         "deep-thinking panel (Claude+Gemini+GPT-5.5)")
     ap.add_argument("--seed-file", default=None,
                     help="markdown file injected as STARTING POINT/GOAL (e.g. a strategy proposal)")
+    ap.add_argument("--openai-model", default=OPENAI_MODEL)
     ap.add_argument("--list-gemini-models", action="store_true")
     args = ap.parse_args()
 
@@ -231,6 +348,10 @@ def main() -> int:
     if args.seed_file:
         seed = Path(args.seed_file).read_text(encoding="utf-8")
         dossier += "\n\n=== STARTING POINT / GOAL (seed for this session) ===\n\n" + seed
+
+    if args.mode == "panel":
+        from openai import OpenAI
+        return run_panel(opus_client, gem_client, gem_types, OpenAI(), dossier, args)
 
     framing, opening, middle, closing = MODES[args.mode]
     speakers = ["Opus 4.7", "Gemini"]
