@@ -1,0 +1,17 @@
+{
+  "n_periods": 93,
+  "features": [
+    "junk_quality_spread",
+    "vix",
+    "vix_chg20",
+    "spy_dd"
+  ],
+  "ungated_ann": 3.6575003895965152,
+  "soft_gated_ann": 2.175515943971533,
+  "hard_gated_ann": 1.698238183776712,
+  "lift_hard": -1.9592622058198033,
+  "duty": 0.8602150537634409,
+  "null_p": 0.742,
+  "phases_pos_ungated": 3,
+  "phases_pos_gated": 2
+}
