@@ -55,7 +55,8 @@ def _intraday_features(client, ticker: str, day: pd.Timestamp, adv20: float):
     if w30.empty or w30["v"].sum() <= 0:
         return None
     vwap30 = float((w30["c"] * w30["v"]).sum() / w30["v"].sum())
-    relvol30 = float(w30["v"].sum() / adv20) if adv20 > 0 else 0.0
+    # adv20 is DOLLAR volume -> first-30min DOLLAR volume for a unit-consistent ratio.
+    relvol30 = float((w30["c"] * w30["v"]).sum() / adv20) if adv20 > 0 else 0.0
 
     def at(tstr):
         sub = df[df["et"].dt.time <= pd.Timestamp(tstr).time()]
@@ -66,8 +67,9 @@ def _intraday_features(client, ticker: str, day: pd.Timestamp, adv20: float):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--snapshot-id", default="ed270407fd89cf60")
-    ap.add_argument("--max-events", type=int, default=400, help="cap total minute-bar fetches")
+    ap.add_argument("--snapshot-ids", default="ed270407fd89cf60",
+                    help="comma list — pool events across windows for power")
+    ap.add_argument("--max-events", type=int, default=400, help="cap minute-bar fetches PER snapshot")
     args = ap.parse_args()
 
     from dotenv import load_dotenv
@@ -75,52 +77,55 @@ def main() -> int:
     from src.factors.earnings_cache import load_earnings_histories
     from src.market_data.polygon import PolygonClient
 
-    snap = SNAP_ROOT / args.snapshot_id
-    manifest = json.loads((snap / "manifest.json").read_text(encoding="utf-8"))
-    universe = manifest["tickers"]
-    raw = pd.read_parquet(snap / "prices.parquet"); raw["date"] = pd.to_datetime(raw["date"])
-    close = raw.pivot(index="date", columns="ticker", values="Close").sort_index()
-    opn = raw.pivot(index="date", columns="ticker", values="Open").sort_index()
-    dollar = (raw.assign(dv=raw["Close"] * raw["Volume"])
-              .pivot(index="date", columns="ticker", values="dv").sort_index())
-    spy = _series(snap / "spy.parquet"); spy_sma50 = spy.rolling(50).mean()
-    vix = _series(snap / "vix.parquet")
-    dates = close.index
-    earnings = load_earnings_histories(universe, max_age_hours=10 ** 9)
-    earn_set = {t: set(pd.DatetimeIndex(eh.index).normalize()) for t, eh in earnings.items() if eh is not None}
-
-    # Build candidate gap-up events (EOD filters) -> arms by earnings/non-earnings.
-    cand = []  # (ticker, day, is_earnings, adv20)
-    for ti, t in enumerate(universe):
-        if t not in close.columns:
-            continue
-        c = close[t]; o = opn[t]
-        for i in range(60, len(dates) - 1):
-            d = dates[i]
-            if c.iloc[i - 1] <= 0 or pd.isna(o.iloc[i]) or pd.isna(c.iloc[i - 1]):
-                continue
-            gap = o.iloc[i] / c.iloc[i - 1] - 1.0
-            if gap <= GAP_MIN:
-                continue
-            # complacent regime (prior close): SPY > 50sma AND VIX < 15
-            sd = spy.index.asof(d); vd = vix.index.asof(d)
-            if pd.isna(sd) or spy.loc[sd] <= (spy_sma50.loc[sd] if sd in spy_sma50 else np.inf):
-                continue
-            if pd.isna(vd) or vix.loc[vd] >= VIX_MAX:
-                continue
-            adv20 = float(dollar[t].iloc[i - 20:i].median())
-            if adv20 < 50e6 or c.iloc[i] < 5:
-                continue
-            is_earn = d.normalize() in earn_set.get(t, set()) or (dates[i - 1].normalize() in earn_set.get(t, set()))
-            cand.append((t, d, is_earn, adv20))
-
     rng = np.random.default_rng(7)
+    cand = []  # (ticker, day, is_earnings, adv20)
+    for sid in args.snapshot_ids.split(","):
+        snap = SNAP_ROOT / sid
+        if not snap.exists():
+            continue
+        manifest = json.loads((snap / "manifest.json").read_text(encoding="utf-8"))
+        universe = manifest["tickers"]
+        raw = pd.read_parquet(snap / "prices.parquet"); raw["date"] = pd.to_datetime(raw["date"])
+        close = raw.pivot(index="date", columns="ticker", values="Close").sort_index()
+        opn = raw.pivot(index="date", columns="ticker", values="Open").sort_index()
+        dollar = (raw.assign(dv=raw["Close"] * raw["Volume"])
+                  .pivot(index="date", columns="ticker", values="dv").sort_index())
+        spy = _series(snap / "spy.parquet"); spy_sma50 = spy.rolling(50).mean()
+        vix = _series(snap / "vix.parquet")
+        dates = close.index
+        earnings = load_earnings_histories(universe, max_age_hours=10 ** 9)
+        earn_set = {t: set(pd.DatetimeIndex(eh.index).normalize()) for t, eh in earnings.items() if eh is not None}
+        snap_cand = []
+        for t in universe:
+            if t not in close.columns:
+                continue
+            c = close[t]; o = opn[t]
+            for i in range(60, len(dates) - 1):
+                d = dates[i]
+                if c.iloc[i - 1] <= 0 or pd.isna(o.iloc[i]) or pd.isna(c.iloc[i - 1]):
+                    continue
+                if o.iloc[i] / c.iloc[i - 1] - 1.0 <= GAP_MIN:
+                    continue
+                sd = spy.index.asof(d); vd = vix.index.asof(d)
+                if pd.isna(sd) or spy.loc[sd] <= (spy_sma50.loc[sd] if sd in spy_sma50 else np.inf):
+                    continue
+                if pd.isna(vd) or vix.loc[vd] >= VIX_MAX:
+                    continue
+                adv20 = float(dollar[t].iloc[i - 20:i].median())
+                if adv20 < 50e6 or c.iloc[i] < 5:
+                    continue
+                is_earn = d.normalize() in earn_set.get(t, set()) or (dates[i - 1].normalize() in earn_set.get(t, set()))
+                snap_cand.append((t, d, is_earn, adv20))
+        # per-snapshot cap (balanced earnings/non-earnings), then pool
+        rng.shuffle(snap_cand)
+        e = [x for x in snap_cand if x[2]][: args.max_events // 2]
+        ne = [x for x in snap_cand if not x[2]][: args.max_events - len(e)]
+        cand.extend(e + ne)
+        print(f"  {sid[:8]}: {len(snap_cand)} candidates -> {len(e)+len(ne)} sampled", flush=True)
     rng.shuffle(cand)
-    # balance: prioritize earnings events, then fill with non-earnings for arm C
-    earn_c = [x for x in cand if x[2]][: args.max_events // 2]
-    non_c = [x for x in cand if not x[2]][: args.max_events - len(earn_c)]
-    todo = earn_c + non_c
-    print(f"{len(cand)} gap-up candidates ({sum(x[2] for x in cand)} earnings) | fetching {len(todo)} minute-bar days", flush=True)
+    todo = cand  # already per-snapshot balanced + capped above
+    print(f"{len(cand)} pooled gap-up candidates ({sum(x[2] for x in cand)} earnings) | "
+          f"fetching {len(todo)} minute-bar days", flush=True)
 
     client = PolygonClient()
     rows = []
@@ -142,7 +147,7 @@ def main() -> int:
             print(f"  {n}/{len(todo)} fetched", flush=True)
 
     df = pd.DataFrame(rows)
-    out = snap / "gap_crap_events.json"
+    out = Path("reports") / "gap_crap_events_pooled.json"
     df.to_json(out, orient="records")
     print(f"\nwrote {out} | {len(df)} usable events")
     if df.empty:
