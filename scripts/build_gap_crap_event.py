@@ -38,10 +38,24 @@ def _series(p, cols=("Close", "close", "adj_close", "Adj Close")):
     return df.set_index(pd.to_datetime(df[dc]))[cc].sort_index()
 
 
-def _intraday_features(client, ticker: str, day: pd.Timestamp, adv20: float):
-    """Fetch one session's minute bars; return (open, vwap30, px1000, px1001, px1555, relvol30) or None."""
+_MIN_CACHE = Path("data/minute_cache")
+
+
+def _fetch_minute_cached(client, ticker: str, day: pd.Timestamp):
+    """One session's raw minute bars, disk-cached so parameter sweeps don't re-fetch."""
+    _MIN_CACHE.mkdir(parents=True, exist_ok=True)
+    p = _MIN_CACHE / f"{ticker}_{day.strftime('%Y%m%d')}.json"
+    if p.exists():
+        return json.loads(p.read_text())
     bars = client.aggregates(ticker, day.date(), day.date(), timespan="minute",
                              multiplier=1, adjusted=False)
+    p.write_text(json.dumps(bars))
+    return bars
+
+
+def _intraday_features(client, ticker: str, day: pd.Timestamp, adv20: float):
+    """Minute-bar features; return (open, vwap30, px1000, px1001, px1555, relvol30) or None."""
+    bars = _fetch_minute_cached(client, ticker, day)
     if not bars:
         return None
     df = pd.DataFrame(bars)
@@ -70,7 +84,9 @@ def main() -> int:
     ap.add_argument("--snapshot-ids", default="ed270407fd89cf60",
                     help="comma list — pool events across windows for power")
     ap.add_argument("--max-events", type=int, default=400, help="cap minute-bar fetches PER snapshot")
+    ap.add_argument("--gap-min", type=float, default=GAP_MIN, help="gap-up threshold (sweep for robustness)")
     args = ap.parse_args()
+    gap_min = args.gap_min
 
     from dotenv import load_dotenv
     load_dotenv()
@@ -104,7 +120,7 @@ def main() -> int:
                 d = dates[i]
                 if c.iloc[i - 1] <= 0 or pd.isna(o.iloc[i]) or pd.isna(c.iloc[i - 1]):
                     continue
-                if o.iloc[i] / c.iloc[i - 1] - 1.0 <= GAP_MIN:
+                if o.iloc[i] / c.iloc[i - 1] - 1.0 <= gap_min:
                     continue
                 sd = spy.index.asof(d); vd = vix.index.asof(d)
                 if pd.isna(sd) or spy.loc[sd] <= (spy_sma50.loc[sd] if sd in spy_sma50 else np.inf):
