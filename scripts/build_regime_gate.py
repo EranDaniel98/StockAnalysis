@@ -188,6 +188,24 @@ def main() -> int:
     print(f"DECISION (pre-registered): lift >= +2.0%/yr AND phases>=4/4 better AND null p<0.05 -> "
           f"{'PASS' if (real_lift>=2.0 and pos_g>=pos_un and p<0.05) else 'FAIL'}")
 
+    # --- DIAGNOSTIC: is the regime DETECTABLE at all (in-sample), or is the OOS gate
+    # just underpowered? Separates "premise wrong" from "not enough history". ---
+    from sklearn.metrics import roc_auc_score
+    sc_all = StandardScaler().fit(X)
+    lr_all = LogisticRegression(max_iter=500).fit(sc_all.transform(X), y)
+    auc_in = roc_auc_score(y, lr_all.predict_proba(sc_all.transform(X))[:, 1])
+    gate_in = (lr_all.predict_proba(sc_all.transform(X))[:, 1] > 0.5)
+    lift_in = ann(sleeve * gate_in) - ann(sleeve)  # best-case (in-sample) gate lift
+    print("\n--- DIAGNOSTIC (in-sample upper bound; NOT tradeable) ---")
+    print(f"  in-sample logistic AUC: {auc_in:.3f}  (0.5 = features carry NO regime info)")
+    for c in feat_cols:
+        pb = np.corrcoef(df[c].to_numpy(), (sleeve > 0).astype(float))[0, 1]
+        print(f"  corr({c:22s}, sleeve>0) = {pb:+.3f}")
+    print(f"  in-sample (full-fit) hard-gate lift: {lift_in:+.1f}%/yr")
+    print("  READ: AUC~0.5 & lift<=0 -> premise dead (regime not detectable). "
+          "AUC>>0.5 & in-sample-lift>0 but OOS fail -> underpowered (too few bad-regime examples).")
+
+    df.to_json(Path("reports") / f"regime_gate_periods_H{H}.json", orient="records")
     out = Path("reports") / f"regime_gate_test_H{H}.json"
     out.write_text(json.dumps({
         "n_periods": len(df), "features": feat_cols,
