@@ -76,11 +76,36 @@ Optional secondary guard: a hard sleeve-level kill at −15% cumulative drawdown
 5. **Capacity.** Decile 0.20 (~50 names/leg) is the capacity-friendly setting; size to
    ADV so the book is liquidatable in the COVID tail.
 
-## 6. Honest verdict
+## 6. Longer-history validation (2026-05-31) — VERDICT DOWNGRADED
 
-A **real, robust, modest market-neutral alpha** (+3-5%/yr net in normal regimes,
-cost- and borrow-survivable, plateau-stable) on S&P-500 large-caps, with a known
-~25% factor-crash tail managed by sizing. It is the best-supported deployable artifact
-from the discovery search — but it is a **satellite sleeve**, not a market-beating core,
-and its magnitude is small enough that financing/operational frictions matter. Build
-the execution + longer-history validation, deploy small after the August review.
+Running the hardened config (21d, d0.15) across **all four** contiguous 2018-2026
+windows — not just the two the robustness sweep used — materially corrects the earlier
+"robust/all-weather" read:
+
+| Window | median CAPM-α | verdict |
+|---|---|---|
+| 2018-20 | **−1.8%** | FRAGILE |
+| 2020-22 (COVID) | **−2.9%** | FRAGILE |
+| 2022-24 (bear/value rotation) | +3.0% | ROBUST |
+| 2024-26 (bull) | +2.5% | ROBUST |
+
+**Positive in only 2 of 4 windows — the recent half (2022-2026).** The earlier
+robustness was an artifact: the sweep tested only bull-2024-26 + bear-2022-24, which
+happen to be the two favorable windows. This is a **long-quality / short-junk regime
+bet, not regime-neutral alpha**: it pays in flight-to-quality / value rotations
+(2022-26) and **loses when junk rallies** (2019 melt-up, 2020 H2 V-shape) — the same
+family as the COVID crash tail, now seen to extend across whole regimes, not just fast
+crashes. Over the full available history it is roughly break-even-to-modest, not a
+reliable positive.
+
+## 7. Honest verdict
+
+A **modest, REGIME-DEPENDENT** long-quality/short-junk sleeve on S&P-500 large-caps:
++2.5-3% CAPM-α in flight-to-quality regimes (2022-2026), but **negative in junk-rally
+regimes (2018-2022)** and a ~25% factor-crash tail. It is NOT the robust all-weather
+market-neutral alpha the 2-window sweep suggested. It remains the best-supported
+artifact from the search, but as a **tactical, regime-conditional tilt** — only worth
+deploying if paired with a regime view (favor it in value/quality rotations, avoid or
+shrink in momentum melt-ups) and sized for the tail. Given it's break-even over the
+full history, the bar for live deployment is **not yet met**; treat it as a researched
+candidate, not a go-live sleeve. The durable edge remains the live PEAD+quality core.
