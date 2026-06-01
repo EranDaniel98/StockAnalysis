@@ -44,12 +44,23 @@ except ImportError:
 logger = logging.getLogger("ai_sanity_check")
 
 
-SYSTEM_PROMPT = """You are a strategy-fit reviewer auditing whether
-today's algorithmic picks faithfully implement the d03 composite strategy.
+def _build_system_prompt(
+    strategy: str | None, top_n: int | None, universe_size: int | None,
+) -> str:
+    """Strategy-fit reviewer prompt, parameterized by the actual run.
+
+    The basket size / universe / label are read from the picks payload so
+    the gate never drifts out of sync with the live strategy on a rollover
+    (the prior bug: a hardcoded ``d03`` spec reviewing ``d05`` picks)."""
+    label = strategy or "the live composite"
+    n = f"~{top_n}" if top_n else "~24"
+    uni = f"a ~{universe_size}-name" if universe_size else "the"
+    return f"""You are a strategy-fit reviewer auditing whether
+today's algorithmic picks faithfully implement the `{label}` composite strategy.
 
 STRATEGY UNDER REVIEW (do NOT second-guess its design choices):
-- Equal-weight long-only basket of ~15 names, rebalanced quarterly.
-- Top 3% by composite z-score on point-in-time Russell 1000.
+- Equal-weight long-only basket of {n} names, rebalanced quarterly (~63 trading days).
+- Top names by composite z-score on {uni} point-in-time universe.
 - Composite = rank-blend of:
     * Momentum (Jegadeesh-Titman 12-1, raw)
     * Quality (multi-component fundamental, sector-neutral)
@@ -57,8 +68,9 @@ STRATEGY UNDER REVIEW (do NOT second-guess its design choices):
     * PEAD (Bernard-Thomas post-earnings drift, opt-in)
 - Hysteresis bonus 0.75 (held names with modest rank slippage are retained).
 - Sector cap 30%. Asymmetric 75-SMA trend filter for entry/exit.
-- d03 deliberately concentrates (top 3% vs prior top 5%) to widen
-  cross-window alpha, accepting wider DD as a known cost.
+
+The authoritative strategy label, basket size (top_n) and universe size are
+in the user message — defer to THOSE if they differ from the round numbers above.
 
 YOUR JOB: confirm the picks correctly implement the strategy. Flag a
 pick ONLY when something looks like a BUG, LOOKAHEAD, or DATA ERROR
@@ -67,7 +79,9 @@ The strategy is designed to take measured factor-based risk; that is
 not your concern.
 
 Specifically check:
-1. Each pick's composite z-score is above ~1.7 (consistent with top 3% cut).
+1. Each pick's composite z-score is positive and consistent with a
+   top-of-universe selection. The basket cutoff is defined by the
+   top_n-th name's z -- do NOT impose an absolute z floor.
 2. Factor breakdowns: high composite z should be supported by above-
    median ranks on AT LEAST two of the four factors. PEAD NaN is normal
    for names with no recent earnings event -- do not penalize.
@@ -80,7 +94,7 @@ Specifically check:
    reports TOMORROW).
 
 DO NOT penalize for:
-- Borderline z-scores at the bottom of the list (top-3% includes
+- Borderline z-scores at the bottom of the list (the top_n cut includes
   borderline by definition; that is the cutoff).
 - Concentration in commodity/cyclical sectors (composite picks them in
   certain regimes; that IS the strategy working).
@@ -284,7 +298,11 @@ async def _run(args: argparse.Namespace) -> int:
                 args.model, len(picks_data["picks"]))
     response = await client.create(
         model=args.model,
-        system=SYSTEM_PROMPT,
+        system=_build_system_prompt(
+            picks_data.get("strategy"),
+            picks_data.get("top_n"),
+            picks_data.get("universe_size"),
+        ),
         messages=messages,
         tools=[],
         max_tokens=args.max_tokens,
