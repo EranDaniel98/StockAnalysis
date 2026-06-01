@@ -34,6 +34,15 @@ Rows without EPS_TTM (fewer than 4 quarterly EPS rows on/before
 as_of, or any quarter missing diluted EPS) are dropped — they
 neither help nor hurt the composite under
 ``composite.combine(min_overlap=...)``.
+
+Derived-EPS note: some filers (e.g. HSY) stop tagging
+``EarningsPerShareDiluted`` and report EPS only under a company-extension
+tag the SEC companyfacts API does not expose. For those the EDGAR parser
+derives ``eps_diluted = net_income / shares_outstanding`` at parse time, so
+they still earn a value rank. It is an approximation (period-end shares
+rather than weighted-average-diluted; when only the 10-K carries shares the
+TTM degrades to the trailing fiscal-year EPS) — accurate to within
+share-count drift, accepted as the price of value coverage.
 """
 
 from __future__ import annotations
