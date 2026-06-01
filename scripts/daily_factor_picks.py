@@ -80,9 +80,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--earnings-cache-dir", default="data/earnings_history",
                    help="Where to cache per-ticker earnings parquets so "
                         "subsequent --include-pead runs are fast.")
-    p.add_argument("--max-sector-pct", type=float, default=30.0,
-                   help="Per-sector cap as %% of top_n (default 30). 100 or "
-                        "negative disables the cap (legacy naive top-N).")
+    p.add_argument("--max-sector-pct", type=float, default=None,
+                   help="Per-sector cap as %% of top_n. Default: config "
+                        "risk_management.position_sizing.max_sector_pct (30). "
+                        "100 or negative disables the cap (legacy naive top-N).")
     p.add_argument("--trend-gate", action=argparse.BooleanOptionalAction,
                    default=True,
                    help="When SPY closes below its --trend-entry-sma, emit "
@@ -239,6 +240,43 @@ def _write_outputs(result: FactorPicksResult, output_dir: Path) -> None:
     logger.info("Wrote %s and %s", out_json, out_md)
 
 
+def _configured_fetcher():
+    """(config, fetcher) wired from settings.yaml — shared by the pre-pipeline gates."""
+    from src.config_loader import Config
+    from src.data.cache import DataCache
+    from src.data.fetcher_factory import get_data_fetcher
+
+    config = Config()
+    cache = DataCache(
+        expiry_hours=config.get("data", "cache_expiry_hours", default=24),
+        market_hours_expiry_minutes=config.get(
+            "data", "market_hours_cache_minutes", default=5,
+        ),
+    )
+    return config, get_data_fetcher(config, cache)
+
+
+def _write_blocked_picks(output_dir, as_of, snapshot_id, gate: dict) -> Path:
+    """Write an empty-picks payload when a pre-pipeline gate blocks the rebalance,
+    so downstream tooling sees the gate explicitly instead of yesterday's stale file."""
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_json = out_dir / f"{as_of.date().isoformat()}.json"
+    out_json.write_text(json.dumps({
+        "as_of": as_of.date().isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "strategy": strategy_name(),
+        "factors": [],
+        "universe_size": 0,
+        "top_n": 0,
+        "picks": [],
+        "snapshot_id": snapshot_id,
+        "sector_cap_skipped": [],
+        "gate": gate,
+    }, indent=2, default=str), encoding="utf-8")
+    return out_json
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -258,18 +296,7 @@ def main() -> int:
     # Backed by the 2026-05-18 asymmetric-filter backtest (75-SMA: +10.87pp
     # on 2022-2024 stress, bit-identical on 2024-2026 recent).
     if args.trend_gate:
-        from src.config_loader import Config
-        from src.data.cache import DataCache
-        from src.data.fetcher_factory import get_data_fetcher
-
-        config = Config()
-        cache = DataCache(
-            expiry_hours=config.get("data", "cache_expiry_hours", default=24),
-            market_hours_expiry_minutes=config.get(
-                "data", "market_hours_cache_minutes", default=5,
-            ),
-        )
-        fetcher = get_data_fetcher(config, cache)
+        _config, fetcher = _configured_fetcher()
         spy_data = fetcher.fetch_batch(["SPY"]).get("SPY")
         if spy_data is None or spy_data.empty:
             logger.warning(
@@ -302,44 +329,20 @@ def main() -> int:
                         as_of.date(), latest_close, args.trend_entry_sma,
                         latest_sma,
                     )
-                    output_dir = Path(args.output_dir)
-                    output_dir.mkdir(parents=True, exist_ok=True)
-                    out_json = output_dir / f"{as_of.date().isoformat()}.json"
-                    out_json.write_text(json.dumps({
-                        "as_of": as_of.date().isoformat(),
-                        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                        "strategy": strategy_name(),
-                        "factors": [],
-                        "universe_size": 0,
-                        "top_n": 0,
-                        "picks": [],
-                        "snapshot_id": args.snapshot_id,
-                        "sector_cap_skipped": [],
-                        "gate": {
-                            "trend_blocked": True,
-                            "trend_entry_sma": args.trend_entry_sma,
-                            "spy_close": round(latest_close, 2),
-                            "spy_sma": round(latest_sma, 2),
-                        },
-                    }, indent=2, default=str), encoding="utf-8")
+                    _write_blocked_picks(args.output_dir, as_of, args.snapshot_id, {
+                        "trend_blocked": True,
+                        "trend_entry_sma": args.trend_entry_sma,
+                        "spy_close": round(latest_close, 2),
+                        "spy_sma": round(latest_sma, 2),
+                    })
                     return 0
 
     # VIX gate (opt-in) — pulled BEFORE the heavy factor pipeline so we
     # short-circuit the expensive EDGAR load when the gate blocks us.
     if args.vix_gate:
-        from src.config_loader import Config
-        from src.data.cache import DataCache
-        from src.data.fetcher_factory import get_data_fetcher
         from src.factors.vix_regime import is_calm
 
-        config = Config()
-        cache = DataCache(
-            expiry_hours=config.get("data", "cache_expiry_hours", default=24),
-            market_hours_expiry_minutes=config.get(
-                "data", "market_hours_cache_minutes", default=5,
-            ),
-        )
-        fetcher = get_data_fetcher(config, cache)
+        _config, fetcher = _configured_fetcher()
         vix_data = fetcher.fetch_batch(["^VIX"]).get("^VIX")
         if vix_data is None or vix_data.empty:
             logger.warning(
@@ -361,29 +364,19 @@ def main() -> int:
                     "returning empty picks. Skip the rebalance.",
                     as_of.date(), args.vix_cutoff,
                 )
-                # Emit empty picks so downstream tooling sees the gate
-                # explicitly rather than yesterday's stale file.
-                output_dir = Path(args.output_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                out_json = output_dir / f"{as_of.date().isoformat()}.json"
-                out_json.write_text(json.dumps({
-                    "as_of": as_of.date().isoformat(),
-                    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "strategy": strategy_name(),
-                    "factors": [],
-                    "universe_size": 0,
-                    "top_n": 0,
-                    "picks": [],
-                    "snapshot_id": args.snapshot_id,
-                    "sector_cap_skipped": [],
-                    "gate": {"vix_blocked": True,
-                              "vix_cutoff": args.vix_cutoff,
-                              "vix_window": args.vix_window},
-                }, indent=2, default=str), encoding="utf-8")
+                _write_blocked_picks(args.output_dir, as_of, args.snapshot_id, {
+                    "vix_blocked": True,
+                    "vix_cutoff": args.vix_cutoff,
+                    "vix_window": args.vix_window,
+                })
                 return 0
 
     max_sector_pct: float | None = args.max_sector_pct
-    if max_sector_pct is not None and (max_sector_pct >= 100 or max_sector_pct <= 0):
+    if max_sector_pct is None:
+        from src.config_loader import Config
+        max_sector_pct = float(Config().get(
+            "risk_management", "position_sizing", "max_sector_pct", default=30.0))
+    if max_sector_pct >= 100 or max_sector_pct <= 0:
         max_sector_pct = None
 
     # Load yesterday's picks for hysteresis. The most recent JSON in
