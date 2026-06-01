@@ -32,6 +32,7 @@ from scipy.stats import rankdata, spearmanr
 warnings.filterwarnings("ignore")
 
 from src.factors.accruals_pit import AccrualsPITLoader
+from src.factors.net_share_issuance import NetShareIssuancePITLoader
 from src.factors.earnings_cache import load_earnings_histories
 from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 from src.factors.momentum import momentum_12_1
@@ -94,6 +95,8 @@ class Ctx:
         self.fund = FundamentalsPITLoader.from_json(d / "fundamentals_pit.json")
         ap = d / "accruals_pit.json"
         self.accr = AccrualsPITLoader.from_json(ap) if ap.exists() else None
+        np_ = d / "nsi_pit.json"
+        self.nsi = NetShareIssuancePITLoader.from_json(np_) if np_.exists() else None
         rows = json.loads((d / "fundamentals_pit.json").read_text(encoding="utf-8"))
         self.sector_of = {r["ticker"]: r["sector"] for r in rows if r.get("sector")}
         self.universe = sorted(set(self.panel.columns))
@@ -195,6 +198,14 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
                      ("ni_growth", ng), ("sue_lite", sue)):
             if d:
                 out[k] = pd.Series(d)
+    # net-share-issuance (Pontiff-Woodgate): -log(shares_t / shares_{t-1y}),
+    # so net repurchasers (buybacks) score high = bullish.
+    if ctx.nsi is not None:
+        aod_n = _as_of_dt(ts)
+        nsi = {t: -rec.nsi_1y for t in ctx.nsi.tickers
+               if (rec := ctx.nsi.lookup(t, aod_n)) is not None}
+        if nsi:
+            out["net_share_issuance"] = pd.Series(nsi)
     # fundamental-trajectory + cash legs (need filing history)
     aod = _as_of_dt(ts)
     dom, deg, fcta, mcv, dlev_raw, d2e_lvl = {}, {}, {}, {}, {}, {}
