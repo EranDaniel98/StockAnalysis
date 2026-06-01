@@ -74,21 +74,22 @@ def _write(payload: dict) -> Path:
 def _spy_window(window_days: int) -> Optional[dict]:
     """Pull SPY prices for a window roughly matching ``window_days``.
 
-    Returns ``{starting_price, current_price, return_pct}`` or None if
-    yfinance returned nothing useful. We use yfinance directly here
-    rather than the project's DataFetcher because this script wants a
-    single ticker over a known window — DataFetcher's machinery is
-    overkill and would pull more history than needed.
+    Returns ``{starting_price, current_price, return_pct}`` or None if the
+    fetch returned nothing useful. SPY is a plain equity, so we route
+    through the project's configured fetcher (Polygon = deterministic,
+    not rate-limited) rather than calling yfinance directly.
     """
-    import yfinance as yf
+    from src.config_loader import Config
+    from src.data.fetcher_factory import get_data_fetcher
 
     # Choose a period one band larger so we always have enough rows.
     period_map = {30: "3mo", 90: "6mo", 180: "1y", 365: "2y"}
     period = period_map.get(window_days, "1y")
     try:
-        df = yf.Ticker("SPY").history(period=period, auto_adjust=True)
+        fetcher = get_data_fetcher(Config())
+        df = fetcher.fetch_price_data("SPY", period=period)
     except Exception as e:
-        logger.warning("yfinance SPY fetch failed: %s", e)
+        logger.warning("SPY fetch failed: %s", e)
         return None
     if df is None or df.empty:
         return None
