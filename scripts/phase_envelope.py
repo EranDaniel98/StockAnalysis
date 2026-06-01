@@ -88,12 +88,29 @@ def main():
     }
     # Judge on CAPM alpha, not excess return: a regime-gated/cash-heavy book's
     # excess return flatters it (sitting in cash through a selloff beats a
-    # falling SPY = "alpha" with zero skill), Jensen's alpha doesn't. An edge
-    # should be mostly-positive with spread small relative to the mean.
+    # falling SPY = "alpha" with zero skill), Jensen's alpha doesn't.
+    #
+    # But CAPM alpha alone is too generous: a beta-suppressed book can keep a
+    # positive Jensen alpha while failing walk-forward in most phases and
+    # swinging tens of points in excess return. A config is ROBUST only if it is
+    # mostly-positive, passes WF in a majority of phases, AND its spread is bounded
+    # both relative to the mean and in absolute points. Below MIN_PHASES the sweep
+    # is too sparse to judge at all -- refuse a verdict rather than bless 3 points.
+    MIN_PHASES = 8
     c = env["capm_alpha"]
-    robust = c["median"] > 0 and pct_pos_capm >= 70 and c["std"] < abs(c["mean"]) * 1.5 + 5
-    verdict = ("ROBUST across phases" if robust
-               else "PHASE-LUCK / FRAGILE -- do not trust a single offset")
+    if n < MIN_PHASES:
+        verdict = (f"INCONCLUSIVE -- only {n} phases sampled (need >= {MIN_PHASES}; "
+                   f"lower --step for a denser sweep before trusting a verdict)")
+    else:
+        robust = (
+            c["median"] > 0
+            and pct_pos_capm >= 70
+            and wf_rate >= 60
+            and c["std"] < abs(c["mean"]) * 1.5
+            and (c["max"] - c["min"]) <= 25
+        )
+        verdict = ("ROBUST across phases" if robust
+                   else "PHASE-LUCK / FRAGILE -- do not trust a single offset")
 
     report = {"snapshot": args.snapshot_id, "base_args": args.base_args,
               "n_phases": n, "per_phase": rows, "envelope": env, "verdict": verdict}
