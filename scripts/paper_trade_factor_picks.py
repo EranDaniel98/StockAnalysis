@@ -84,10 +84,12 @@ def _parse_args() -> argparse.Namespace:
                    help="bracket (default) attaches an ATR-based stop + "
                         "take-profit to every BUY. market submits naked "
                         "market orders (legacy behaviour, NOT recommended).")
-    p.add_argument("--atr-multiplier", type=float, default=2.0,
-                   help="Stop = entry - atr_multiplier * ATR14 (default 2.0).")
-    p.add_argument("--risk-reward", type=float, default=3.0,
-                   help="Take-profit = entry + RR * (entry - stop) (default 3.0).")
+    p.add_argument("--atr-multiplier", type=float, default=None,
+                   help="Stop = entry - atr_multiplier * ATR14. Default: config "
+                        "risk_management.stop_loss.atr_multiplier (2.0).")
+    p.add_argument("--risk-reward", type=float, default=None,
+                   help="Take-profit = entry + RR * (entry - stop). Default: config "
+                        "risk_management.take_profit.risk_reward_ratio (3.0).")
     p.add_argument("--confirm", action="store_true",
                    help="With --execute, force a Y/N prompt before submitting. "
                         "Strongly recommended interactively. Skipped in cron.")
@@ -876,6 +878,17 @@ def main() -> int:
     )
     args = _parse_args()
 
+    # Bracket defaults live in config (nothing hardcoded); CLI flags override.
+    if args.atr_multiplier is None or args.risk_reward is None:
+        from src.config_loader import Config
+        _cfg = Config()
+        if args.atr_multiplier is None:
+            args.atr_multiplier = float(_cfg.get(
+                "risk_management", "stop_loss", "atr_multiplier", default=2.0))
+        if args.risk_reward is None:
+            args.risk_reward = float(_cfg.get(
+                "risk_management", "take_profit", "risk_reward_ratio", default=3.0))
+
     payload = _load_picks(args.picks_dir, args.picks_date)
     longs = payload["picks"]
     shorts = payload.get("shorts") or []
@@ -910,7 +923,12 @@ def main() -> int:
     # back to disk -- env-only override.
     if args.execute:
         os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
-        logger.warning("EXECUTE MODE: orders will be submitted to Alpaca PAPER.")
+        logger.warning(
+            "EXECUTE MODE: orders will be submitted to Alpaca PAPER. NOTE: "
+            "--execute force-enables trading via env override, intentionally "
+            "bypassing config trading.trading_enabled -- that YAML flag does NOT "
+            "gate this script. The real safety stop here is NOT passing --execute."
+        )
     else:
         logger.info(
             "DRY-RUN: no orders will be submitted. Pass --execute to trade."
