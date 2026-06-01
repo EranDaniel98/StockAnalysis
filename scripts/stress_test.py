@@ -1,23 +1,25 @@
-"""Portfolio stress-testing — what happens to today's picks in various
-adverse scenarios.
+"""Beta-sensitivity approximation for today's picks under adverse scenarios.
 
-Uses per-stock beta (from yfinance .info, captured in the analysis
-JSON) and sector classifications to estimate portfolio behavior in:
+This is a back-of-envelope per-name beta shock, NOT a true portfolio stress
+test of the live strategy. It assumes a FULLY-INVESTED, equal-weight book and
+applies CAPM beta + sector shocks to each current pick:
 
   - Broad market scenarios (SPY +/-10%, +/-20%, COVID-style -30%)
   - Sector-specific shocks (financials, energy, tech)
   - Rate-hike / inflation regimes (CAPM-adjusted)
   - Beta-stress (if every stock moves at 1.5x its beta)
 
-Output: per-position impact + portfolio summary + worst-case loss.
+What it deliberately does NOT model (so do not read its "worst case" as the
+strategy's real crash exposure):
+  - The regime/trend gate that takes the strategy to CASH in a downtrend —
+    in a real -30% selloff the live book is likely flat, not fully invested.
+  - Rebalancing, factor rotation, or stop-losses during the shock window.
+  For an actual crash replay, run the strategy over a frozen crash snapshot
+  (e.g. the 2020 COVID snapshot) via run_factor_backtest, not this tool.
 
-Important caveats:
-  - Beta is a noisy measure; estimated from trailing 60mo of returns
-    by yfinance. Not stable across regimes.
-  - Sector shocks assume sector-uniform impact; real-world dispersion
-    within sectors is large.
-  - These are POINT ESTIMATES, not confidence intervals. Treat as
-    rough magnitude checks, not precise predictions.
+Beta is computed deterministically from Polygon prices (cov/var vs SPY over a
+trailing window), consistent with the rest of the system — NOT from yfinance
+.info (which is non-deterministic and banned elsewhere here).
 
 Output: reports/stress_test_YYYY-MM-DD.md
 """
@@ -159,6 +161,48 @@ def _stress_one(
     return market_part + sector_part
 
 
+def _deterministic_betas(
+    tickers: list[str], lookback_days: int = 252,
+) -> tuple[dict[str, float], list[str]]:
+    """Beta = cov(name_ret, spy_ret) / var(spy_ret) from Polygon prices.
+
+    Deterministic replacement for yfinance .info beta. Returns
+    ``(betas, fell_back)`` where ``fell_back`` lists tickers with too little
+    overlapping history to estimate (beta omitted, caller defaults to 1.0)."""
+    if not tickers:
+        return {}, []
+    import pandas as pd
+    from src.config_loader import Config
+    from src.data.fetcher_factory import get_data_fetcher
+
+    fetcher = get_data_fetcher(Config())
+    spy = fetcher.fetch_price_data("SPY", period="2y")
+    if spy is None or spy.empty:
+        return {}, list(tickers)
+    spy_ret = spy["Close"].astype(float).pct_change().dropna()
+
+    betas: dict[str, float] = {}
+    fell_back: list[str] = []
+    px = fetcher.fetch_batch(tickers, period="2y")
+    for t in tickers:
+        df = px.get(t)
+        if df is None or df.empty:
+            fell_back.append(t)
+            continue
+        r = df["Close"].astype(float).pct_change().dropna()
+        joined = pd.concat([r, spy_ret], axis=1, join="inner").dropna().tail(lookback_days)
+        if len(joined) < 60:
+            fell_back.append(t)
+            continue
+        var = float(joined.iloc[:, 1].var())
+        if var <= 0:
+            fell_back.append(t)
+            continue
+        cov = float(joined.iloc[:, 0].cov(joined.iloc[:, 1]))
+        betas[t] = cov / var
+    return betas, fell_back
+
+
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -181,28 +225,24 @@ def main() -> int:
     n = len(picks)
     logger.info("Stress-testing %d picks (equity $%.2f)", n, equity)
 
-    # Augment picks with beta from a side-channel if missing (we
-    # only stored target/sector/etc. in the analysis JSON; beta needs
-    # yfinance refetch). For now, fall back to default beta=1.0 when
-    # missing.
-    pick_betas = []
+    # Beta per pick, computed DETERMINISTICALLY from Polygon prices (cov/var vs
+    # SPY) rather than yfinance .info — the latter is non-deterministic and
+    # banned across the rest of the system. Names whose beta can't be computed
+    # (too little history) fall back to 1.0 and are surfaced, not silently hidden.
+    missing = [p["ticker"] for p in picks if p.get("beta") is None]
+    betas, fell_back = _deterministic_betas(missing)
     for p in picks:
-        b = p.get("beta")
-        if b is None:
-            # We didn't put beta into the JSON. Add a yfinance lookup.
-            import yfinance as yf
-            try:
-                info = yf.Ticker(p["ticker"]).info or {}
-                b = info.get("beta")
-            except Exception:  # noqa: BLE001
-                b = None
-            if b is None:
-                b = 1.0  # default
-            p["beta"] = b
-        pick_betas.append(b)
+        if p.get("beta") is None:
+            p["beta"] = betas.get(p["ticker"], 1.0)
+    pick_betas = [p["beta"] for p in picks]
+    if fell_back:
+        logger.warning(
+            "Beta fell back to 1.0 for %d name(s) (insufficient history): %s",
+            len(fell_back), ", ".join(sorted(fell_back)),
+        )
 
     avg_beta = sum(pick_betas) / max(1, len(pick_betas))
-    logger.info("Average portfolio beta: %.2f", avg_beta)
+    logger.info("Average portfolio beta: %.2f (deterministic, Polygon cov/var vs SPY)", avg_beta)
 
     # Run each scenario
     results = []
