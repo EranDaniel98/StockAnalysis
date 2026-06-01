@@ -21,6 +21,18 @@ A genuine but modest standalone signal. The open question is **incremental value
 ## Known limitation
 EDGAR share counts are as-reported (not split-adjusted), so a split looks like issuance. The extractor drops |nsi_1y| > 0.5 as a crude split/M&A guard. If NSI proves incrementally valuable, replace this with proper Polygon split-ratio adjustment before any ship decision.
 
+## Incremental-composite result — DO NOT SHIP into the composite
+
+Added NSI as a 5th leg (`--composite-factors mqvn`, top 5%, +PEAD, daily-regime) and ran the WF-gated phase-envelope vs the `mqv` baseline across all 3 regimes:
+
+| Regime | mqv CAPM-α | mqvn CAPM-α | Δ | WF-pass |
+|---|---|---|---|---|
+| COVID-2020 | +22.6% | +24.6% | +2.0 | 33% → 22% ↓ |
+| 2022 bear | +1.9% | +3.1% | +1.2 | 0% → 0% |
+| 2024-26 bull | +8.1% | +6.4% | −1.7 | 33% → 22% ↓ |
+
+NSI nudges α up in 2 windows, down in the bull, **walk-forward-pass is equal-or-worse in all three**, and every delta sits inside the per-window noise band (~3–5pp std). Both arms remain FRAGILE. **Verdict: redundant — it overlaps the crowded premia already in the book and does not earn a composite slot.** A clean demonstration that on this dataset even a positively-screening factor adds no money. The `--composite-factors n` leg is kept in `run_factor_backtest` as reusable test infrastructure, off by default.
+
 ## Build
 - `src/factors/net_share_issuance.py` — PIT extractor + loader + `net_share_issuance_factor()` (ticker/raw/rank/z_score).
 - `scripts/build_nsi_sidecar.py` — per-snapshot `nsi_pit.json` (reuses cached companyfacts; ~90% coverage, ~24k records/snapshot).

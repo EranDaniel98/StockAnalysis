@@ -60,6 +60,10 @@ from src.factors.regime import (
     trend_state_hysteresis_series,
     trend_state_series,
 )
+from src.factors.net_share_issuance import (
+    NetShareIssuancePITLoader,
+    net_share_issuance_factor,
+)
 from src.factors.regime_weights import list_profiles, weights_for
 from src.factors.residual_momentum import residual_momentum_12_1
 from src.factors.value import value_factor
@@ -373,6 +377,7 @@ def _resolve_ranking(
     include_pead: bool = False,
     earnings_histories: dict | None = None,
     pead_drift_window: int = 60,
+    nsi_loader: NetShareIssuancePITLoader | None = None,
 ) -> tuple[pd.DataFrame, str]:
     """Dispatch to the requested factor. Returns ``(ranking, regime_label)``.
 
@@ -454,6 +459,13 @@ def _resolve_ranking(
             frames.append(pead)
             # PEAD coverage is ~60-70% of names (quarterly cycle + 60d
             # window); weight on par with momentum.
+            weights.append(float(weights[0]))
+        if "n" in composite_factors and nsi_loader is not None:
+            # Net-share-issuance leg (Pontiff-Woodgate); ~90% coverage,
+            # weight on par with momentum. min_overlap keeps names ranked
+            # even when NSI is missing for a ticker.
+            nsi = net_share_issuance_factor(nsi_loader, universe_tickers, as_of)
+            frames.append(nsi)
             weights.append(float(weights[0]))
         # Permissive overlap: a ticker that's in 2 of N factors still
         # gets ranked. Strict overlap (must be in all) drops too many
@@ -629,6 +641,21 @@ def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: lis
         100.0 * n_covered / max(1, len(universe_tickers)),
     )
     return loader
+
+
+def _load_nsi_if_needed(args: argparse.Namespace):
+    """Net-share-issuance sidecar — loaded only when 'n' is in the composite.
+    Regenerable via ``scripts.build_nsi_sidecar``; deterministic per snapshot."""
+    if args.factor != "composite" or "n" not in args.composite_factors:
+        return None
+    path = Path("data/snapshots") / args.snapshot_id / "nsi_pit.json"
+    if not path.exists():
+        raise SystemExit(
+            f"--composite-factors includes 'n' but {path} is missing — build it:\n"
+            f"  uv run python -m scripts.build_nsi_sidecar --snapshot-id {args.snapshot_id}"
+        )
+    logger.info("Loading net-share-issuance sidecar: %s", path)
+    return NetShareIssuancePITLoader.from_json(path)
 
 
 def _load_sectors_if_sn_quality(args: argparse.Namespace, universe_tickers: list[str]) -> dict[str, str]:
@@ -1027,6 +1054,7 @@ def run(args: argparse.Namespace) -> dict:
         )
     earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers, snap)
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
+    nsi_loader = _load_nsi_if_needed(args)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
     if args.regime_file:
@@ -1154,6 +1182,7 @@ def run(args: argparse.Namespace) -> dict:
                 include_pead=args.include_pead,
                 earnings_histories=earnings_histories,
                 pead_drift_window=args.pead_drift_window,
+                nsi_loader=nsi_loader,
             )
             if ranking.empty:
                 # audit C2: don't silently skip — a skipped rebalance drifts
