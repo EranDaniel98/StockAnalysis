@@ -51,7 +51,11 @@ load_dotenv()
 
 logger = logging.getLogger("paper_trade_factor_picks")
 
-STRATEGY_LABEL = "factor_composite_d05_r63"
+# Execution identity: kill-switch rollover key + Alpaca order-id namespace.
+# Value (factor_<name>) is sourced from config/settings.yaml strategy.name.
+from src.factors.strategy_id import execution_label
+
+STRATEGY_LABEL = execution_label()
 
 
 # ─── arg parsing ─────────────────────────────────────────────────────

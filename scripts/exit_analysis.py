@@ -140,7 +140,7 @@ def main() -> int:
                  f"**Equity:** ${equity:,.2f} | "
                  f"**Positions:** {len(positions)}")
     lines.append("")
-    lines.append(f"Today's strategy (`composite_d05_r63`) selected {len(picks)} "
+    lines.append(f"Today's strategy (`{payload.get('strategy', 'composite')}`) selected {len(picks)} "
                  f"names. The account holds {len(positions)} positions — "
                  f"{len(keep)} overlap with the new target set, "
                  f"{len(exit_list)} do not and should be CLOSED.")
@@ -263,8 +263,10 @@ def main() -> int:
             f"- Per new position: ~${needed/(len(picks) - len(keep)):,.2f}"
         )
     lines.append("")
-    lines.append("Refer to `reports/portfolio_analysis_2026_05_16.md` for the "
-                 "per-stock entry plan on the new buys.")
+    lines.append(
+        f"Refer to `reports/portfolio_analysis_{as_of.replace('-', '_')}.md` "
+        "for the per-stock entry plan on the new buys."
+    )
     lines.append("")
 
     out_path = Path(args.output)

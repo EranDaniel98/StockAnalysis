@@ -107,39 +107,83 @@ class FundamentalsPITLoader:
         # Highest source rank, then latest valid_from as tiebreak.
         return max(valid, key=lambda r: (_SOURCE_RANK.get(r.source, 0), r.valid_from))
 
+    def history(
+        self, ticker: str, as_of: datetime, *, edgar_only: bool = True
+    ) -> list[FundamentalSnapshot]:
+        """All snapshots valid on-or-before ``as_of`` (oldest first).
+
+        ``edgar_only`` keeps just 10-Q/10-K rows so callers computing
+        quarter-over-quarter trends (Δmargin, FCF-TTM) step on clean
+        filing boundaries rather than yfinance snapshot rows.
+        """
+        rows = self._by_ticker.get(ticker.upper())
+        if not rows:
+            return []
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        out = []
+        for r in rows:
+            vf = r.valid_from if r.valid_from.tzinfo else r.valid_from.replace(tzinfo=timezone.utc)
+            if vf > as_of:
+                continue
+            if edgar_only and r.source not in ("edgar_10q", "edgar_10k"):
+                continue
+            out.append(r)
+        return out
+
     def compute_eps_ttm(
         self, ticker: str, as_of: datetime
     ) -> float | None:
-        """Trailing-12-month EPS — sum of diluted EPS across the 4 most recent
-        edgar_10q rows valid on-or-before as_of.
+        """Trailing-12-month diluted EPS, point-in-time at ``as_of``.
 
-        Returns None when fewer than 4 quarters are available or any of them
-        is missing diluted EPS. The adapter falls back to "no pe_trailing"
-        rather than fabricate a TTM from a partial year.
+        Uses the standard TTM roll:
 
-        10-K rows are excluded — they report annual EPS, which would
-        double-count with the quarterly sum. Pure 10-K coverage (rare for
-        recent filings) means callers see no TTM.
+            TTM = latest_annual_EPS (10-K, FY)
+                  + Σ this-FY quarters reported since that 10-K
+                  − Σ prior-FY matching quarters (the 10-Q ~365d earlier)
+
+        This is correct where the old "sum the 4 most recent 10-Q rows" was not:
+        there are only THREE 10-Qs per fiscal year (Q4 is reported in the 10-K),
+        so summing four 10-Qs silently OMITS the Q4 quarter and spans ~5 quarters.
+        The 10-K's annual figure supplies Q4; each post-10-K quarter is rolled in
+        and its prior-year counterpart rolled out. 10-Q ``eps_diluted`` is the
+        discrete quarter (parser ``_period_ok`` rejects the YTD double-report);
+        10-K ``eps_diluted`` is the fiscal-year total.
+
+        Returns None when there is no 10-K on/before as_of (can't anchor the year)
+        or a needed prior-year quarter is missing — we don't fabricate a TTM.
         """
         rows = self._by_ticker.get(ticker.upper())
         if not rows:
             return None
         if as_of.tzinfo is None:
             as_of = as_of.replace(tzinfo=timezone.utc)
-        quarterly: list[FundamentalSnapshot] = []
-        for r in rows:
-            if r.source != "edgar_10q":
-                continue
-            vf = r.valid_from if r.valid_from.tzinfo else r.valid_from.replace(tzinfo=timezone.utc)
-            if vf > as_of:
-                continue
-            if r.eps_diluted is None:
-                continue
-            quarterly.append(r)
-        if len(quarterly) < 4:
-            return None
-        last_four = sorted(quarterly, key=lambda r: r.valid_from)[-4:]
-        return sum(r.eps_diluted for r in last_four)  # type: ignore[misc]
+
+        def _vf(r):
+            return r.valid_from if r.valid_from.tzinfo else r.valid_from.replace(tzinfo=timezone.utc)
+
+        avail = [r for r in rows if _vf(r) <= as_of and r.eps_diluted is not None]
+        tenk = [r for r in avail if r.source == "edgar_10k"]
+        tenq = sorted((r for r in avail if r.source == "edgar_10q"), key=_vf)
+        if not tenk:
+            # No annual anchor — fall back to 4 most-recent 10-Q (legacy; omits Q4
+            # but better than nothing for tickers with only quarterly coverage).
+            return sum(r.eps_diluted for r in tenq[-4:]) if len(tenq) >= 4 else None
+
+        anchor = max(tenk, key=_vf)            # latest fiscal-year 10-K
+        fy_eps = float(anchor.eps_diluted)     # type: ignore[arg-type]
+        anchor_vf = _vf(anchor)
+        ttm = fy_eps
+        for q in (r for r in tenq if _vf(r) > anchor_vf):   # quarters since the 10-K
+            qd = _vf(q)
+            prior = min(                                     # same fiscal quarter, ~1y earlier
+                (p for p in tenq if 300 <= (qd - _vf(p)).days <= 430),
+                key=lambda p: abs((qd - _vf(p)).days - 365), default=None,
+            )
+            if prior is None:
+                return None                                  # can't match — don't guess
+            ttm += float(q.eps_diluted) - float(prior.eps_diluted)  # type: ignore[arg-type]
+        return ttm
 
     def coverage(self) -> dict[str, int]:
         """Per-ticker row count. Useful for sanity-checking the universe at

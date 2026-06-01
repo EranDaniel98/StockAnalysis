@@ -1,0 +1,36 @@
+{
+  "snapshot": "1c1c314850bb7368",
+  "horizon": 21,
+  "step": 21,
+  "decay_days": 45,
+  "n_rebalances": 25,
+  "avg_eligible_names": 221.04,
+  "product": {
+    "n_dates": 25,
+    "mean_ic": 0.03947061582805737,
+    "t_stat": 1.1270165029732644,
+    "pct_positive": 56.00000000000001
+  },
+  "additive": {
+    "n_dates": 25,
+    "mean_ic": 0.02300646376394634,
+    "t_stat": 0.9654125460768841,
+    "pct_positive": 48.0
+  },
+  "accrual_only": {
+    "n_dates": 25,
+    "mean_ic": 0.039163558155075176,
+    "t_stat": 1.2714667459869844,
+    "pct_positive": 52.0
+  },
+  "permutation": {
+    "n_perm": 200,
+    "null_mean_ic_p95": 0.03561441430076072,
+    "p_value": 0.04
+  },
+  "gates": {
+    "g1a_beats_accrual_alone": true,
+    "g2_beats_additive": true,
+    "g3_beats_permutation_null": true
+  }
+}

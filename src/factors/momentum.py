@@ -139,3 +139,49 @@ def momentum_12_1(
         as_of_ts.date(), len(out), mu, sigma,
     )
     return out
+
+
+def risk_managed_momentum(
+    prices: Mapping[str, pd.DataFrame],
+    as_of: pd.Timestamp | str,
+    *,
+    min_history_days: int = LOOKBACK_DAYS,
+    vol_window: int = 126,
+) -> pd.DataFrame:
+    """12-1 momentum scaled by trailing realized volatility (Barroso &
+    Santa-Clara 2015).
+
+    ``raw = (12-1 return) / std(daily returns over the last ``vol_window``
+    sessions)``. Dividing each name's momentum by its own volatility
+    compresses the momentum-crash left tail (crashes cluster in high-vol
+    rebound regimes) without changing the calm-regime ordering much.
+    Same lookahead discipline as ``momentum_12_1`` — only prices ≤ as_of,
+    and the return itself skips the most recent month.
+    """
+    as_of_ts = pd.Timestamp(as_of)
+    rows: list[dict] = []
+    for ticker, df in prices.items():
+        if df is None or df.empty:
+            continue
+        eligible = df[df.index <= as_of_ts]
+        if len(eligible) < min_history_days:
+            continue
+        recent = _close_at_offset(df, as_of_ts, SKIP_DAYS)
+        old = _close_at_offset(df, as_of_ts, LOOKBACK_DAYS)
+        if recent is None or old is None or old <= 0:
+            continue
+        mom = recent / old - 1.0
+        vol = eligible["Close"].tail(vol_window + 1).pct_change().std()
+        if vol is None or pd.isna(vol) or vol <= 0:
+            continue
+        rows.append({"ticker": ticker, "raw": mom / float(vol)})
+
+    if not rows:
+        return pd.DataFrame(columns=["ticker", "raw", "rank", "z_score"])
+
+    out = pd.DataFrame(rows)
+    out["rank"] = out["raw"].rank(ascending=False, method="min").astype(int)
+    mu = float(out["raw"].mean())
+    sigma = float(out["raw"].std(ddof=0))
+    out["z_score"] = (out["raw"] - mu) / sigma if sigma > 0 else 0.0
+    return out.sort_values("rank").reset_index(drop=True)

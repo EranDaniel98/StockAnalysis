@@ -24,6 +24,8 @@ from typing import Optional
 
 import pandas as pd
 
+from src.factors.strategy_id import strategy_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,13 +40,17 @@ class FactorPicksResult:
     composite: pd.DataFrame  # all names, columns: ticker, raw, rank, z_score, mean_normalized_rank
     top_n: pd.DataFrame      # top-N picks with per-factor rank columns merged in
     snapshot_id: Optional[str] = None
-    strategy: str = "composite_d05_r63"
+    strategy: str = field(default_factory=strategy_name)
     coverage: dict[str, int] = field(default_factory=dict)
     sector_cap_skipped: list[dict] = field(default_factory=list)
     # When the caller asked for the long-short variant, ``shorts`` holds
     # the bottom-N picks (worst composite → expected to underperform).
     # Empty otherwise.
     shorts: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # Per-ticker EDGAR fundamental row counts (loader.coverage()). Lets the
+    # per-stock factor-analysis endpoint flag thin-history names (e.g. a recent
+    # spin-off with few quarters) whose quality/value ranks are unreliable.
+    per_ticker_coverage: dict[str, int] = field(default_factory=dict)
 
 
 # Known share-class groups -- when two tickers represent the same
@@ -474,6 +480,10 @@ def run_factor_picks(
             shorts = shorts[~shorts["ticker"].isin(set(top["ticker"]))]
         shorts = _attach_per_factor_ranks(shorts, mom, qual, val, pead_display)
 
+    # Attach per-factor ranks to the FULL composite (not just the picks) so any
+    # ticker's breakdown is available for the per-stock factor-analysis view.
+    composite = _attach_per_factor_ranks(composite, mom, qual, val, pead_display)
+
     return FactorPicksResult(
         as_of=as_of,
         factors_used=factors_used,
@@ -484,4 +494,5 @@ def run_factor_picks(
         coverage={"fundamentals_covered": n_covered, "universe": len(universe)},
         sector_cap_skipped=sector_cap_skipped,
         shorts=shorts,
+        per_ticker_coverage=dict(coverage),
     )

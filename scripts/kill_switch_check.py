@@ -26,10 +26,11 @@ from src.execution.kill_switch import (
     write_report,
 )
 
-# Must match scripts/paper_trade_factor_picks.py:STRATEGY_LABEL. Hard-coding
-# rather than importing to keep this script independent of the live-trading
-# entrypoint.
-DEFAULT_STRATEGY_LABEL = "factor_composite_d05_r63"
+# Same execution label as paper_trade_factor_picks (factor_<name>), sourced
+# from config/settings.yaml strategy.name so the two never drift apart.
+from src.factors.strategy_id import execution_label
+
+DEFAULT_STRATEGY_LABEL = execution_label()
 
 logger = logging.getLogger("kill_switch_check")
 

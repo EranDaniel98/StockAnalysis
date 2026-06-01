@@ -143,7 +143,7 @@ def main() -> int:
     lines: list[str] = []
     lines.append(f"# Morning Briefing — {date_str}")
     lines.append("")
-    lines.append(f"*Strategy:* `composite_d05_r63` (top 5% factor blend, quarterly rebalance)")
+    lines.append(f"*Strategy:* `{picks.get('strategy', 'composite')}` (top 5% factor blend, quarterly rebalance)")
     lines.append("")
 
     # ---- EDGE-CAVEAT BANNER ----

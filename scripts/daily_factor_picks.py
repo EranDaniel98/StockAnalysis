@@ -47,6 +47,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.factors.pipeline import FactorPicksResult, run_factor_picks
+from src.factors.strategy_id import strategy_name
 
 logger = logging.getLogger("daily_factor_picks")
 
@@ -307,7 +308,7 @@ def main() -> int:
                     out_json.write_text(json.dumps({
                         "as_of": as_of.date().isoformat(),
                         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                        "strategy": "composite_d05_r63",
+                        "strategy": strategy_name(),
                         "factors": [],
                         "universe_size": 0,
                         "top_n": 0,
@@ -368,7 +369,7 @@ def main() -> int:
                 out_json.write_text(json.dumps({
                     "as_of": as_of.date().isoformat(),
                     "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "strategy": "composite_d05_r63",
+                    "strategy": strategy_name(),
                     "factors": [],
                     "universe_size": 0,
                     "top_n": 0,
