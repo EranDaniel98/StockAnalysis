@@ -24,6 +24,8 @@ from typing import Optional
 
 import pandas as pd
 
+from src.factors.strategy_id import strategy_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,7 @@ class FactorPicksResult:
     composite: pd.DataFrame  # all names, columns: ticker, raw, rank, z_score, mean_normalized_rank
     top_n: pd.DataFrame      # top-N picks with per-factor rank columns merged in
     snapshot_id: Optional[str] = None
-    strategy: str = "composite_d05_r63"
+    strategy: str = field(default_factory=strategy_name)
     coverage: dict[str, int] = field(default_factory=dict)
     sector_cap_skipped: list[dict] = field(default_factory=list)
     # When the caller asked for the long-short variant, ``shorts`` holds

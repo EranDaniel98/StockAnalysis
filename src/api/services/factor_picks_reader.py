@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.api.schemas.scan import BuySignal
+from src.factors.strategy_id import strategy_name
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def load_latest_factor_picks(
     if not picks:
         return []
 
-    strategy = payload.get("strategy", "composite_d05_r63")
+    strategy = payload.get("strategy") or strategy_name()
     as_of_str = payload.get("as_of", "")
     universe_size = int(payload.get("universe_size") or len(picks))
     run_id = f"factor:{strategy}:{as_of_str}"

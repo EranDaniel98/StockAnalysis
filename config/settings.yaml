@@ -3,6 +3,12 @@
 # All parameters are configurable - NOTHING is hardcoded in the code
 # =============================================================================
 
+strategy:
+  # Single source of truth for the live strategy label. Picks/reports/API use
+  # `name`; the execution layer (kill-switch rollover key + Alpaca order-id
+  # namespace) uses `factor_<name>`. On a rollover, change it HERE only.
+  name: "composite_d05_r63"
+
 data:
   source: "polygon"                 # yfinance | polygon (Polygon = deterministic, delisting-inclusive)
   history_years: 5

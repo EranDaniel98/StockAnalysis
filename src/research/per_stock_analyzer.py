@@ -32,12 +32,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.factors.strategy_id import strategy_name
+
 logger = logging.getLogger(__name__)
 
 
-# Strategy assumptions (matches reports/factor_strategy_report_2026_05_16.md
-# winner configuration: d05_r63).
-STRATEGY_LABEL = "composite_d05_r63"
+# Strategy label sourced from config/settings.yaml strategy.name.
+STRATEGY_LABEL = strategy_name()
 REBALANCE_TRADING_DAYS = 63          # quarterly
 PER_PICK_TARGET_RETURN_PCT = 8.0     # median expected over hold window
 PER_PICK_BULL_RETURN_PCT = 18.0      # 75th percentile rough estimate
