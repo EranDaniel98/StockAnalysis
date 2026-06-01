@@ -216,6 +216,7 @@ def parse_company_facts(
     # Build FundamentalSnapshot per filed-date. Pick the form from the most
     # common form across that filing's fields (in practice they all agree).
     snapshots: list[FundamentalSnapshot] = []
+    n_derived_eps = 0
     for filed_str, fields in sorted(field_values.items()):
         # Determine source from the dominant form across reported fields
         forms = [form for (_, form) in fields.values()]
@@ -235,6 +236,22 @@ def parse_company_facts(
         ocf = fields.get("operating_cash_flow", (None, ""))[0]
         capex = fields.get("capex", (None, ""))[0]
         eps_diluted = fields.get("eps_diluted", (None, ""))[0]
+        # Derive EPS when the filer doesn't tag it directly (e.g. HSY stopped
+        # tagging EarningsPerShareDiluted after 2010). net_income and the share
+        # count for THIS filing's period both pass _period_ok, so for a 10-Q
+        # this yields a discrete-quarter EPS and for a 10-K an annual EPS — the
+        # exact granularity compute_eps_ttm's roll expects. Approximate: the
+        # share count drifts with buybacks across the TTM terms, and period-end
+        # shares are a proxy when weighted-average-diluted isn't tagged.
+        diluted_shares = fields.get("diluted_shares", (None, ""))[0]
+        if eps_diluted is None and net_income is not None and diluted_shares:
+            try:
+                shares = float(diluted_shares)
+                if shares > 0:
+                    eps_diluted = float(net_income) / shares
+                    n_derived_eps += 1
+            except (TypeError, ValueError):
+                pass
         operating_income = fields.get("operating_income", (None, ""))[0]
         current_assets = fields.get("current_assets", (None, ""))[0]
         current_liabilities = fields.get("current_liabilities", (None, ""))[0]
@@ -280,6 +297,12 @@ def parse_company_facts(
                 total_cash=float(cash) if cash is not None else None,
                 total_debt=total_debt,
             )
+        )
+
+    if n_derived_eps:
+        logger.info(
+            "%s: derived eps_diluted = net_income/shares for %d filing(s) "
+            "lacking a direct EPS tag", ticker, n_derived_eps,
         )
 
     # Sort once by filing date so chain + YoY passes can rely on temporal order.

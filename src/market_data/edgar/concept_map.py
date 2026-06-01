@@ -82,6 +82,17 @@ CONCEPT_MAP: list[tuple[str, list[str]]] = [
 # the same intermediate dict.
 DERIVED_CONCEPTS: dict[str, list[str]] = {
     "net_income": ["NetIncomeLoss", "ProfitLoss"],
+    # Denominator for DERIVING eps_diluted = net_income / shares when a filer
+    # stops tagging EarningsPerShareDiluted (e.g. HSY abandoned it after 2010,
+    # reporting EPS only under a company extension companyfacts doesn't expose).
+    # Prefer the weighted-average diluted share count (the textbook EPS
+    # denominator); fall back to period-end common shares outstanding. The
+    # parser only uses these to derive EPS when the direct tag is absent.
+    "diluted_shares": [
+        "WeightedAverageNumberOfDilutedSharesOutstanding",
+        "WeightedAverageNumberOfSharesOutstandingDiluted",
+        "CommonStockSharesOutstanding",
+    ],
     "stockholders_equity": [
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
@@ -138,6 +149,8 @@ DERIVED_CONCEPTS: dict[str, list[str]] = {
 EXPECTED_UNIT_BY_FIELD: dict[str, str] = {
     # EPS is per-share, so the unit is USD per share.
     "eps_diluted": "USD/shares",
+    # Share counts are reported in the 'shares' unit bucket, not USD.
+    "diluted_shares": "shares",
     # All other fields in CONCEPT_MAP + DERIVED_CONCEPTS are USD-denominated
     # quantities (revenue, debt, cash flow, equity, ...). Default applies.
 }

@@ -68,9 +68,41 @@ def _facts_payload() -> dict:
     }
 
 
+def _eps_derivation_payload(include_direct_eps: bool) -> dict:
+    """One 10-K filing with net income + shares outstanding but (optionally) no
+    direct EPS tag — exercises the derive-EPS-from-NI/shares fallback (HSY case)."""
+    us = {
+        "NetIncomeLoss": {"units": {"USD": [
+            _fact("2025-12-31", "2026-02-17", 440.0, form="10-K"),
+        ]}},
+        "CommonStockSharesOutstanding": {"units": {"shares": [
+            _fact("2025-12-31", "2026-02-17", 200.0, form="10-K"),
+        ]}},
+    }
+    if include_direct_eps:
+        us["EarningsPerShareDiluted"] = {"units": {"USD/shares": [
+            _fact("2025-12-31", "2026-02-17", 1.50, form="10-K"),
+        ]}}
+    return {"facts": {"us-gaap": us}}
+
+
 def test_parser_emits_one_snapshot_per_filing():
     snapshots = parse_company_facts("TEST", _facts_payload())
     assert len(snapshots) == 2
+
+
+def test_eps_derived_when_direct_tag_absent():
+    snaps = parse_company_facts("HSYLIKE", _eps_derivation_payload(include_direct_eps=False))
+    assert len(snaps) == 1
+    # 440 net income / 200 shares = 2.2
+    assert snaps[0].eps_diluted == 2.2
+
+
+def test_direct_eps_not_overridden_by_derivation():
+    snaps = parse_company_facts("AAPLLIKE", _eps_derivation_payload(include_direct_eps=True))
+    assert len(snaps) == 1
+    # direct EarningsPerShareDiluted wins over the 2.2 derivation
+    assert snaps[0].eps_diluted == 1.50
 
 
 def test_2024_snapshot_has_all_derived_ratios():
