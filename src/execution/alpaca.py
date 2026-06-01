@@ -433,6 +433,16 @@ class AlpacaClient:
         order-value gate is skipped for this submission.
         """
         notional = float(qty) * float(reference_price) if reference_price else 0.0
+        if not reference_price:
+            # notional=0 makes the order-value circuit breaker (max_order_value_usd)
+            # a no-op for this submission. Surface it so a skipped gate is never
+            # silent -- the caller passes reference_price for closes/resizes to keep
+            # the cap live.
+            logger.warning(
+                "order-value gate SKIPPED for %s %s %s sh: no reference_price "
+                "(notional=0, max_order_value_usd not enforced on this order)",
+                side, qty, ticker,
+            )
         session = session_state or self._build_session_state()
         self._safety_gate.check_pre_submit(
             ticker=ticker,
