@@ -148,6 +148,9 @@ def _rebalance(state: dict, as_of: pd.Timestamp, *, verbose: bool = True) -> dic
     if top.empty:
         raise SystemExit("momentum ranking empty — no rebalance")
     targets = top["ticker"].tolist()
+    # Per-name momentum stats — the ONLY selection criterion, so this IS the "why".
+    mom = {r["ticker"]: {"mom_raw": float(r["raw"]), "mom_rank": int(r["rank"]),
+                         "mom_z": float(r["z_score"])} for _, r in top.iterrows()}
     px = {t: _last_close(prices.get(t), as_of) for t in targets}
     targets = [t for t in targets if px.get(t) and px[t] > 0]
 
@@ -171,7 +174,7 @@ def _rebalance(state: dict, as_of: pd.Timestamp, *, verbose: bool = True) -> dic
     cost = turnover * cost_rate
 
     holdings = {t: {"shares": per_name / px[t], "entry_px": px[t],
-                    "entry_date": end, "last_px": px[t]} for t in targets}
+                    "entry_date": end, "last_px": px[t], **mom[t]} for t in targets}
     invested = per_name * len(targets)
     state["holdings"] = holdings
     state["cash"] = equity - invested - cost
@@ -228,8 +231,25 @@ def _print_status(state: dict) -> None:
               f"excess {last.get('excess_vs_spy_pct'):+.2f}%")
     held = state.get("holdings", {})
     if held:
-        names = sorted(held, key=lambda t: -held[t]["shares"] * held[t].get("last_px", held[t]["entry_px"]))
-        print("\nholdings:", " ".join(names))
+        uni_n = state.get("universe_n", "?")
+        # Sort by momentum rank (the selection order); fall back to held value.
+        names = sorted(held, key=lambda t: (held[t].get("mom_rank", 1e9),
+                                            -held[t]["shares"] * held[t].get("last_px", held[t]["entry_px"])))
+        print(f"\nholdings ({len(held)}) — sorted by momentum rank | "
+              f"'why' = sole criterion is 12-1 momentum (no fundamentals):")
+        print(f"  {'#':>3} {'ticker':>6} {'12-1 mom':>9} {'z':>6} {'since entry':>11}   why")
+        for t in names:
+            h = held[t]
+            raw = h.get("mom_raw")
+            rank = h.get("mom_rank")
+            z = h.get("mom_z")
+            since = (h.get("last_px", h["entry_px"]) / h["entry_px"] - 1.0) if h.get("entry_px") else None
+            mom_s = f"{raw*100:+.0f}%" if raw is not None else "—"
+            z_s = f"{z:+.2f}" if z is not None else "—"
+            since_s = f"{since*100:+.2f}%" if since is not None else "—"
+            why = (f"#{rank}/{uni_n} by 12-1 momentum (trailing skip-1m return {raw*100:+.0f}%)"
+                   if raw is not None else "(pre-notes rebalance — run --force-rebalance to backfill)")
+            print(f"  {rank if rank is not None else '—':>3} {t:>6} {mom_s:>9} {z_s:>6} {since_s:>11}   {why}")
     print("\n*** RISK: ~2x-beta bull bet; backtested -38% max DD; downside protection "
           "UNTESTED (trend never broke in-sample). This forward run is to watch exactly that. ***")
 
