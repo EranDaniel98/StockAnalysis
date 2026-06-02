@@ -74,6 +74,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))  # so `src` imports work when run as a script
 TD_PER_YEAR = 252
+SKIP_DAYS = 21              # skip-the-most-recent-month (controls short-term reversal)
 START_CASH = 100_000_000.0  # large by design: keeps integer-share rounding < 0.1%/name
 MIN_PHASES = 8              # below this the sweep is too sparse to judge (cf. phase_envelope.py)
 
@@ -159,19 +160,36 @@ def _exit_signal_frames(closes: pd.DataFrame, rule: str, exit_sma: int,
     raise SystemExit(f"unknown --exit-rule {rule!r}")
 
 
-def _momentum_rank(price_data: dict, as_of: pd.Timestamp, cache: dict) -> pd.DataFrame:
-    """12-1 momentum ranking, cached by as_of date (offsets in a sweep reuse)."""
+def _momentum_rank(closes: pd.DataFrame, as_of: pd.Timestamp, lookback: int,
+                   skip: int, cache: dict) -> pd.DataFrame:
+    """Cross-sectional (lookback-skip) momentum, vectorized off the close matrix.
+
+    raw_t = close[t-skip] / close[t-lookback] - 1  (Jegadeesh-Titman form; 12-1 =>
+    lookback=252, skip=21). Shorter lookback lets NEWER names in: a name needs only
+    `lookback` rows of history, so a 3-1 (lookback=63) screen can rank a stock with
+    ~3mo of trading, which 12-1 cannot. Lookahead-safe: uses only rows <= t-skip;
+    leading-NaN (pre-listing) names drop out automatically. Cached by as_of date."""
     key = as_of.normalize()
-    if key not in cache:
-        from src.factors.momentum import momentum_12_1
-        cache[key] = momentum_12_1(price_data, as_of)
+    if key in cache:
+        return cache[key]
+    idx = closes.index
+    pos = idx.get_loc(as_of) if as_of in idx else int(idx.searchsorted(as_of, "right")) - 1
+    if pos - lookback < 0:
+        cache[key] = pd.DataFrame(columns=["ticker", "raw", "rank"])
+        return cache[key]
+    recent = closes.iloc[pos - skip]
+    old = closes.iloc[pos - lookback]
+    raw = (recent / old - 1.0)[old > 0].dropna()
+    out = pd.DataFrame({"ticker": raw.index, "raw": raw.values})
+    out["rank"] = out["raw"].rank(ascending=False, method="min").astype(int)
+    cache[key] = out.sort_values("rank").reset_index(drop=True)
     return cache[key]
 
 
 def run_books(price_data: dict, spy: pd.DataFrame, calendar: pd.DatetimeIndex,
               closes: pd.DataFrame, *, top_n: int, rebalance_days: int,
               rebal_offset: int, cost_bps: float, exit_rule: str, exit_sma: int,
-              trail_pct: float, mom_cache: dict) -> dict:
+              trail_pct: float, mom_lookback: int, mom_cache: dict) -> dict:
     """Run SPY / HOLD / RIDE books over the calendar. Returns daily equity series
     (one per book), the held-name day counts, and exit/turnover diagnostics."""
     cost = cost_bps / 10_000.0
@@ -260,7 +278,7 @@ def run_books(price_data: dict, spy: pd.DataFrame, calendar: pd.DatetimeIndex,
             _ride_exits(d)  # intra-period per-name exits happen BEFORE marking
         is_rebal = (i % rebal_every == rebal_offset % rebal_every)
         if is_rebal:
-            ranking = _momentum_rank(price_data, d, mom_cache)
+            ranking = _momentum_rank(closes, d, mom_lookback, SKIP_DAYS, mom_cache)
             if not ranking.empty:
                 targets = [t for t in ranking["ticker"].tolist() if t in universe][:top_n]
                 tset = set(targets)
@@ -308,7 +326,7 @@ def single_run(snap, calendar, closes, args, mom_cache) -> dict:
         top_n=args.top_n, rebalance_days=args.rebalance_days,
         rebal_offset=args.rebal_offset, cost_bps=args.cost_bps,
         exit_rule=args.exit_rule, exit_sma=args.exit_sma, trail_pct=args.trail_pct,
-        mom_cache=mom_cache,
+        mom_lookback=args.mom_lookback, mom_cache=mom_cache,
     )
     spy_eq = bk["spy_eq"]
     spy_daily = spy_eq.pct_change().dropna()
@@ -331,7 +349,7 @@ def single_run(snap, calendar, closes, args, mom_cache) -> dict:
     }
 
 
-def held_names(snap, calendar, args, mom_cache, top_k: int = 25) -> list[dict]:
+def held_names(snap, closes, calendar, args, mom_cache, top_k: int = 25) -> list[dict]:
     """Which tickers the momentum screen actually surfaces (held-day weighted),
     at the base offset. The 'what AI names show up' answer."""
     counts: dict[str, int] = {}
@@ -339,9 +357,9 @@ def held_names(snap, calendar, args, mom_cache, top_k: int = 25) -> list[dict]:
     held: list[str] = []
     for i, d in enumerate(calendar):
         if i % rebal_every == args.rebal_offset % rebal_every:
-            ranking = _momentum_rank(snap.price_data, d, mom_cache)
+            ranking = _momentum_rank(closes, d, args.mom_lookback, SKIP_DAYS, mom_cache)
             held = ([t for t in ranking["ticker"].tolist()
-                     if t in snap.price_data and t != "SPY"][:args.top_n]
+                     if t in closes.columns and t != "SPY"][:args.top_n]
                     if not ranking.empty else held)
         for t in held:
             counts[t] = counts.get(t, 0) + 1
@@ -441,7 +459,7 @@ def smoke() -> dict:
     calendar = window
     args = argparse.Namespace(
         top_n=8, rebalance_days=63, rebal_offset=0, cost_bps=5.0,
-        exit_rule="sma", exit_sma=50, trail_pct=0.2, step=21,
+        exit_rule="sma", exit_sma=50, trail_pct=0.2, step=21, mom_lookback=252,
     )
     mom_cache: dict = {}
     res = single_run(snap, calendar, closes, args, mom_cache)
@@ -462,6 +480,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Trend-ride study (broad-universe momentum + per-name trend exit).")
     ap.add_argument("--snapshot-id", help="frozen snapshot id (broad_pit recommended)")
     ap.add_argument("--top-n", type=int, default=20, help="names held (default 20).")
+    ap.add_argument("--mom-lookback", type=int, default=252,
+                    help="momentum lookback in trading days, skip-month fixed at 21 "
+                         "(default 252 = classic 12-1; 126 = 6-1, 63 = 3-1). Shorter "
+                         "catches newer trends/names but is noisier / higher-turnover.")
     ap.add_argument("--rebalance-days", type=int, default=63, help="re-rank cadence (default 63 = quarterly).")
     ap.add_argument("--rebal-offset", type=int, default=0, help="phase offset for a single run.")
     ap.add_argument("--cost-bps", type=float, default=5.0, help="one-way cost bps (default 5).")
@@ -502,10 +524,11 @@ def main() -> int:
         "universe_label": snap.manifest.universe_label,
         "window": {"start": start.date().isoformat(), "end": end.date().isoformat(),
                    "n_trading_days": int(len(calendar))},
-        "params": {"top_n": args.top_n, "rebalance_days": args.rebalance_days,
+        "params": {"top_n": args.top_n, "mom_lookback": args.mom_lookback,
+                   "rebalance_days": args.rebalance_days,
                    "cost_bps": args.cost_bps, "exit_rule": args.exit_rule,
                    "exit_sma": args.exit_sma, "trail_pct": args.trail_pct},
-        "held_names_momentum_surfaced": held_names(snap, calendar, args, mom_cache),
+        "held_names_momentum_surfaced": held_names(snap, closes, calendar, args, mom_cache),
     }
     if args.phase_sweep:
         report["phase_sweep"] = phase_sweep(snap, calendar, closes, args, mom_cache)
