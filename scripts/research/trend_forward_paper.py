@@ -86,12 +86,33 @@ def _polygon_daily(tickers: list[str], start: str, end: str,
     return out
 
 
-def _momentum_top_n(prices: dict[str, pd.DataFrame], as_of: pd.Timestamp, top_n: int) -> pd.DataFrame:
+def _close_at_offset(df: pd.DataFrame, as_of: pd.Timestamp, offset: int) -> float | None:
+    """Close `offset` trading rows before the last row <= as_of (offset=252 ≈ 1y ago)."""
+    if df is None or df.empty or "Close" not in df.columns:
+        return None
+    elig = df[df.index <= as_of]["Close"]
+    if len(elig) <= offset:
+        return None
+    v = elig.iloc[-(offset + 1)]
+    return None if pd.isna(v) else float(v)
+
+
+def _momentum_top_n(prices: dict[str, pd.DataFrame], as_of: pd.Timestamp, top_n: int,
+                    hist_floor: float = 0.0) -> pd.DataFrame:
     """12-1 momentum ranking, top-N. Reuses the production factor (lookahead-safe:
-    reads <= as_of, skips the most recent month)."""
-    from src.factors.momentum import momentum_12_1
+    reads <= as_of, skips the most recent month).
+
+    hist_floor > 0 drops names whose price at the 12-1 DENOMINATOR (~252 td ago) was
+    below the floor — i.e. "was it a real >=$floor stock a year ago, not a penny that
+    100x'd". Filters the full ranking BEFORE head(top_n) so we still get top_n names."""
+    from src.factors.momentum import LOOKBACK_DAYS, momentum_12_1
 
     rank = momentum_12_1(prices, as_of)
+    if hist_floor and hist_floor > 0 and not rank.empty:
+        keep = [t for t in rank["ticker"]
+                if (a := _close_at_offset(prices.get(t), as_of, LOOKBACK_DAYS)) is not None
+                and a >= hist_floor]
+        rank = rank[rank["ticker"].isin(keep)]
     return rank.head(top_n).reset_index(drop=True)
 
 
@@ -144,7 +165,7 @@ def _rebalance(state: dict, as_of: pd.Timestamp, *, verbose: bool = True) -> dic
     prices = _polygon_daily(universe, start, end)
     print(f"  got history for {len(prices)}/{len(universe)} names")
 
-    top = _momentum_top_n(prices, as_of, p["top_n"])
+    top = _momentum_top_n(prices, as_of, p["top_n"], hist_floor=p.get("hist_price_floor", 0.0))
     if top.empty:
         raise SystemExit("momentum ranking empty — no rebalance")
     targets = top["ticker"].tolist()
@@ -261,6 +282,10 @@ def main() -> int:
     ap.add_argument("--top-n", type=int, default=20)
     ap.add_argument("--rebalance-days", type=int, default=63, help="trading-day cadence (default 63).")
     ap.add_argument("--cost-bps", type=float, default=5.0)
+    ap.add_argument("--hist-price-floor", type=float, default=5.0,
+                    help="Drop names whose price ~1y ago (the 12-1 denominator) was "
+                         "below this (default $5). Removes was-penny lottery names that "
+                         "100x'd; keeps genuine >=$5-a-year-ago leaders. 0 disables.")
     ap.add_argument("--baseline", type=float, default=100_000.0, help="virtual starting equity.")
     ap.add_argument("--as-of", default=None, help="override mark date YYYY-MM-DD (testing).")
     ap.add_argument("--force-rebalance", action="store_true")
@@ -289,7 +314,8 @@ def main() -> int:
             "start_date": as_of.date().isoformat(),
             "universe_file": str(uf), "universe_n": len(universe),
             "params": {"top_n": args.top_n, "rebalance_days": args.rebalance_days,
-                       "cost_bps": args.cost_bps, "lookback": LOOKBACK_DAYS, "skip": SKIP_DAYS},
+                       "cost_bps": args.cost_bps, "hist_price_floor": args.hist_price_floor,
+                       "lookback": LOOKBACK_DAYS, "skip": SKIP_DAYS},
             "baseline_equity": args.baseline, "cash": args.baseline,
             "holdings": {}, "rebalances": [], "history": [],
         }
