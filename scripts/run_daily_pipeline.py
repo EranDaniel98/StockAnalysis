@@ -41,8 +41,14 @@ STEPS = [
     "ai_sanity_check",
     "morning_briefing",
     "paper_vs_spy_snapshot",
+    "mark_ai_book",
     "kill_switch_check",
 ]
+
+# Research / advisory steps — surfaced in the summary but never fail the run.
+# The AI forward book is a LOCAL paper book isolated from the live config; a
+# Polygon hiccup marking it must not flip the daily pipeline's exit code.
+_ADVISORY = {"mark_ai_book"}
 
 
 def _run(args: list[str], step: str) -> bool:
@@ -162,6 +168,15 @@ def main() -> int:
         "paper_vs_spy_snapshot",
     )
 
+    # 8.5 Mark the AI forward book to live prices (research, non-gating).
+    # State already holds its universe_file, so no --universe-file needed; the
+    # mark is idempotent per date. Rebalances itself when its 63td cadence is due.
+    results["mark_ai_book"] = _run(
+        ["scripts.research.trend_forward_paper", "--book", "ai",
+         "--as-of", date_str],
+        "mark_ai_book",
+    )
+
     # 9. Kill-switch check (advisory in this pipeline -- the hard gate lives
     # in paper_trade_factor_picks.py before order submission). --soft makes
     # this step never fail the daily run; it just refreshes the report and
@@ -183,14 +198,16 @@ def main() -> int:
     print("=" * 60)
     for step in STEPS:
         ok = results.get(step, False)
-        marker = "[OK]" if ok else "[FAIL]"
-        print(f"  {marker} {step}")
+        advisory = " (advisory)" if step in _ADVISORY else ""
+        marker = "[OK]" if ok else ("[skip]" if step in _ADVISORY else "[FAIL]")
+        print(f"  {marker} {step}{advisory}")
     print()
     print(f"Outputs in: reports/ and data/daily_picks/")
     print()
     print("Next: review reports/morning_briefing_{}.md first.".format(date_us))
     print()
-    return 0 if all(results.values()) else 1
+    # Advisory/research steps don't gate the exit code.
+    return 0 if all(results.get(s, False) for s in STEPS if s not in _ADVISORY) else 1
 
 
 if __name__ == "__main__":
