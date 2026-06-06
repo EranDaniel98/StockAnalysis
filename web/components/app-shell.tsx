@@ -18,6 +18,7 @@ import {
   Home,
   LineChart,
   Microscope,
+  Newspaper,
   Play,
   Search,
   Sparkles,
@@ -75,6 +76,12 @@ const NAV: NavLink[] = [
     label: "Today's actions",
     icon: TrendingUp,
     description: "NEW BUY / KEEP / EXIT with stops, sanity, earnings",
+  },
+  {
+    href: "/news",
+    label: "Market news",
+    icon: Newspaper,
+    description: "Market-moving headlines + sentiment across holdings",
   },
   {
     href: "/research/ai-book",

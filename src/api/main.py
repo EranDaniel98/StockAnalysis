@@ -28,6 +28,7 @@ from src.api.routers import (
     health,
     ic_reports,
     market,
+    news,
     pipeline,
     portfolio,
     recommendations,
@@ -131,6 +132,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         prefix="/api/research",
         tags=["research"],
     )
+    app.include_router(news.router, prefix="/api/news", tags=["news"])
 
     return app
 
