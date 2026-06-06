@@ -12,6 +12,7 @@ import {
   Activity,
   BarChart3,
   Briefcase,
+  Cpu,
   Grid3x3,
   HelpCircle,
   Home,
@@ -74,6 +75,12 @@ const NAV: NavLink[] = [
     label: "Today's actions",
     icon: TrendingUp,
     description: "NEW BUY / KEEP / EXIT with stops, sanity, earnings",
+  },
+  {
+    href: "/research/ai-book",
+    label: "AI book",
+    icon: Cpu,
+    description: "Broad-AI 12-1 momentum forward-paper book",
   },
   {
     href: "/backtests",

@@ -31,6 +31,7 @@ from src.api.routers import (
     pipeline,
     portfolio,
     recommendations,
+    research,
     scans,
     stocks,
     stream,
@@ -124,6 +125,11 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         executions.router,
         prefix="/api/executions",
         tags=["executions"],
+    )
+    app.include_router(
+        research.router,
+        prefix="/api/research",
+        tags=["research"],
     )
 
     return app
