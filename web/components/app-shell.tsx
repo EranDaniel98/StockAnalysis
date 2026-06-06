@@ -13,6 +13,7 @@ import {
   BarChart3,
   Briefcase,
   Cpu,
+  Gauge,
   Grid3x3,
   HelpCircle,
   Home,
@@ -76,6 +77,12 @@ const NAV: NavLink[] = [
     label: "Today's actions",
     icon: TrendingUp,
     description: "NEW BUY / KEEP / EXIT with stops, sanity, earnings",
+  },
+  {
+    href: "/outlook",
+    label: "Market outlook",
+    icon: Gauge,
+    description: "Risk-on/off lean + pre/post-market moves",
   },
   {
     href: "/news",

@@ -73,6 +73,19 @@ class PolygonClient:
             url += f"&published_utc.gte={published_gte}"
         return self._get(url + f"&apiKey={self.api_key}").get("results") or []
 
+    def open_close(self, ticker: str, date, *, adjusted: bool = True) -> dict:
+        """Daily OHLC for ``date`` (YYYY-MM-DD) INCLUDING ``preMarket`` and
+        ``afterHours`` prints — the only Polygon endpoint that exposes extended-
+        hours levels. Returns {} for a non-session date (weekend/holiday) rather
+        than raising, so callers can treat 'no extended session' as empty."""
+        d = _as_date_str(date)
+        url = (f"{_BASE}/v1/open-close/{ticker}/{d}"
+               f"?adjusted={'true' if adjusted else 'false'}&apiKey={self.api_key}")
+        try:
+            return self._get(url)
+        except PolygonError:
+            return {}
+
     def related_companies(self, ticker: str) -> list[str]:
         """Polygon's related-tickers (peer proxy) for ``ticker``."""
         url = f"{_BASE}/v1/related-companies/{ticker}?apiKey={self.api_key}"

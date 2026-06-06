@@ -155,15 +155,14 @@ def _gather_news(tickers: list[str], lookback_days: int) -> list[NewsArticle]:
     return articles[:_MAX_ARTICLES]
 
 
-@router.get("", response_model=NewsResponse)
-async def get_market_news(
-    lookback_days: int = Query(default=4, ge=1, le=30),
-    include_holdings: bool = Query(
-        default=True,
-        description="Fold today's picks + AI-book holdings into the fan-out.",
-    ),
-    config: Config = Depends(get_config),
+async def compute_market_news(
+    config: Config,
+    lookback_days: int = 4,
+    include_holdings: bool = True,
 ) -> NewsResponse:
+    """Cache-aware market news aggregation. Shared by the /api/news endpoint
+    and the market-outlook signal so both hit the same 5-min in-process cache
+    rather than double-fanning the Polygon fan-out."""
     tickers = _bellwethers(config)
     if include_holdings:
         seen = set(tickers)
@@ -194,3 +193,15 @@ async def get_market_news(
     )
     _cache[cache_key] = (now, resp)
     return resp
+
+
+@router.get("", response_model=NewsResponse)
+async def get_market_news(
+    lookback_days: int = Query(default=4, ge=1, le=30),
+    include_holdings: bool = Query(
+        default=True,
+        description="Fold today's picks + AI-book holdings into the fan-out.",
+    ),
+    config: Config = Depends(get_config),
+) -> NewsResponse:
+    return await compute_market_news(config, lookback_days, include_holdings)
