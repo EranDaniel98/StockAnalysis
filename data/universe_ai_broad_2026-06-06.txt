@@ -1,0 +1,87 @@
+# Broad-market AI universe — FROZEN start 2026-06-06 for the AI forward-paper book.
+# Curated theme basket (NOT a PIT index): semiconductors, storage/hardware,
+# networking/optical interconnect, data-center power & electric utilities,
+# and cloud / AI-platform software. ~70 names; the 12-1 momentum book holds
+# the top-20 each quarter. Prune freely — this is a curation, not an index.
+#
+# Frozen-forward = survivorship-safe for the test: names that IPO after start
+# simply lack the ~1yr history the 12-1 signal needs and are skipped.
+
+# --- Semiconductors & equipment (chips) ---
+NVDA
+AMD
+AVGO
+TSM
+MU
+INTC
+QCOM
+MRVL
+ARM
+ASML
+AMAT
+LRCX
+KLAC
+ADI
+TXN
+NXPI
+MCHP
+ON
+MPWR
+SMCI
+ALAB
+CRDO
+ENTG
+TER
+
+# --- Storage / memory / servers / hardware ---
+WDC
+STX
+PSTG
+NTAP
+DELL
+HPE
+
+# --- Networking / optical interconnect ---
+ANET
+CIEN
+COHR
+LITE
+FN
+
+# --- Data-center power, electrical, cooling & electric utilities ---
+VRT
+ETN
+PWR
+POWL
+VST
+CEG
+NRG
+TLN
+GEV
+NEE
+SO
+D
+AEP
+EXC
+OKLO
+SMR
+
+# --- Cloud / AI-platform / infra software ---
+MSFT
+GOOGL
+AMZN
+META
+ORCL
+CRM
+NOW
+SNOW
+DDOG
+NET
+MDB
+PLTR
+PANW
+CRWD
+ZS
+APP
+PATH
+AI

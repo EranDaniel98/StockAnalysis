@@ -240,7 +240,8 @@ def _mark(state: dict, as_of: pd.Timestamp) -> dict:
 
 
 def _print_status(state: dict) -> None:
-    print("\n=== 12-1 broad-momentum FORWARD PAPER (local, no Alpaca) ===")
+    print(f"\n=== 12-1 broad-momentum FORWARD PAPER [{state.get('book', 'default')}] "
+          "(local, no Alpaca) ===")
     print(f"start={state['start_date']}  baseline=${state['baseline_equity']:,.2f}  "
           f"universe={Path(state['universe_file']).name} ({state.get('universe_n','?')} names)")
     print(f"last rebalance={state.get('last_rebalance')}  holdings={len(state.get('holdings',{}))}")
@@ -277,8 +278,14 @@ def _print_status(state: dict) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--book", default=None,
+                    help="named sub-book → isolated state file "
+                         "reports/trend_forward_paper_<book>_state.json. Omit for the "
+                         "original broad-momentum book. Lets a themed book (e.g. --book ai) "
+                         "run alongside without touching the default book's state.")
     ap.add_argument("--universe-file", default=None,
-                    help="frozen broad PIT universe (default: latest data/universe_broad_pit_*.txt)")
+                    help="frozen broad PIT universe (default: latest data/universe_broad_pit_*.txt). "
+                         "Required when initializing a --book (no glob fallback).")
     ap.add_argument("--top-n", type=int, default=20)
     ap.add_argument("--rebalance-days", type=int, default=63, help="trading-day cadence (default 63).")
     ap.add_argument("--cost-bps", type=float, default=5.0)
@@ -294,6 +301,11 @@ def main() -> int:
 
     as_of = (pd.Timestamp(args.as_of) if args.as_of
              else pd.Timestamp.now(tz=timezone.utc).normalize().tz_localize(None))
+
+    if args.book:
+        global STATE_PATH
+        STATE_PATH = ROOT / "reports" / f"trend_forward_paper_{args.book}_state.json"
+
     state = _load_state()
 
     if args.status:
@@ -304,6 +316,9 @@ def main() -> int:
         return 0
 
     if state is None:
+        if args.book and not args.universe_file:
+            raise SystemExit(f"--book {args.book} init needs an explicit --universe-file "
+                             "(no broad-PIT glob fallback for themed books).")
         uf = Path(args.universe_file) if args.universe_file else _latest_universe_file()
         if uf is None or not uf.exists():
             raise SystemExit("no universe file — run scripts/research/build_broad_universe.py first.")
@@ -311,6 +326,7 @@ def main() -> int:
         print(f"INIT forward book: start={as_of.date()} universe={uf.name} ({len(universe)} names)")
         state = {
             "strategy": "trend12_1_broad_top20_hold",
+            "book": args.book or "default",
             "start_date": as_of.date().isoformat(),
             "universe_file": str(uf), "universe_n": len(universe),
             "params": {"top_n": args.top_n, "rebalance_days": args.rebalance_days,

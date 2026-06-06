@@ -1,0 +1,243 @@
+{
+  "strategy": "trend12_1_broad_top20_hold",
+  "book": "ai",
+  "start_date": "2026-06-06",
+  "universe_file": "data\\universe_ai_broad_2026-06-06.txt",
+  "universe_n": 69,
+  "params": {
+    "top_n": 20,
+    "rebalance_days": 63,
+    "cost_bps": 5.0,
+    "hist_price_floor": 5.0,
+    "lookback": 252,
+    "skip": 21
+  },
+  "baseline_equity": 100000.0,
+  "cash": -50.0,
+  "holdings": {
+    "LITE": {
+      "shares": 5.789315239793438,
+      "entry_px": 863.66,
+      "entry_date": "2026-06-06",
+      "last_px": 863.66,
+      "mom_raw": 10.762331838565022,
+      "mom_rank": 1,
+      "mom_z": 4.727203177128722
+    },
+    "WDC": {
+      "shares": 9.770968498397561,
+      "entry_px": 511.72,
+      "entry_date": "2026-06-06",
+      "last_px": 511.72,
+      "mom_raw": 7.876538673525628,
+      "mom_rank": 2,
+      "mom_z": 3.295587184611688
+    },
+    "CIEN": {
+      "shares": 10.24149443886852,
+      "entry_px": 488.21,
+      "entry_date": "2026-06-06",
+      "last_px": 488.21,
+      "mom_raw": 5.875551317201096,
+      "mom_rank": 3,
+      "mom_z": 2.3029153830276416
+    },
+    "MU": {
+      "shares": 5.786970058216919,
+      "entry_px": 864.01,
+      "entry_date": "2026-06-06",
+      "last_px": 864.01,
+      "mom_raw": 5.456077481840194,
+      "mom_rank": 4,
+      "mom_z": 2.094818192133877
+    },
+    "STX": {
+      "shares": 5.899913861257626,
+      "entry_px": 847.47,
+      "entry_date": "2026-06-06",
+      "last_px": 847.47,
+      "mom_raw": 5.161234722657474,
+      "mom_rank": 5,
+      "mom_z": 1.948549355393435
+    },
+    "INTC": {
+      "shares": 50.418473328627606,
+      "entry_px": 99.17,
+      "entry_date": "2026-06-06",
+      "last_px": 99.17,
+      "mom_raw": 4.580740740740741,
+      "mom_rank": 6,
+      "mom_z": 1.6605715203428264
+    },
+    "POWL": {
+      "shares": 17.551865763330643,
+      "entry_px": 284.87,
+      "entry_date": "2026-06-06",
+      "last_px": 284.87,
+      "mom_raw": 4.415659931048825,
+      "mom_rank": 7,
+      "mom_z": 1.5786764177846424
+    },
+    "TER": {
+      "shares": 13.969211857067023,
+      "entry_px": 357.93,
+      "entry_date": "2026-06-06",
+      "last_px": 357.93,
+      "mom_raw": 3.660979770899342,
+      "mom_rank": 8,
+      "mom_z": 1.2042863888684265
+    },
+    "COHR": {
+      "shares": 13.262951271917027,
+      "entry_px": 376.99,
+      "entry_date": "2026-06-06",
+      "last_px": 376.99,
+      "mom_raw": 3.222344726203602,
+      "mom_rank": 9,
+      "mom_z": 0.9866834946373448
+    },
+    "AMD": {
+      "shares": 10.720871392426776,
+      "entry_px": 466.38,
+      "entry_date": "2026-06-06",
+      "last_px": 466.38,
+      "mom_raw": 2.5536346770113005,
+      "mom_rank": 10,
+      "mom_z": 0.6549424633055022
+    },
+    "LRCX": {
+      "shares": 16.486415193880244,
+      "entry_px": 303.28,
+      "entry_date": "2026-06-06",
+      "last_px": 303.28,
+      "mom_raw": 2.505603397428336,
+      "mom_rank": 11,
+      "mom_z": 0.6311145781940305
+    },
+    "VRT": {
+      "shares": 16.638381418255634,
+      "entry_px": 300.51,
+      "entry_date": "2026-06-06",
+      "last_px": 300.51,
+      "mom_raw": 2.180505095259194,
+      "mom_rank": 12,
+      "mom_z": 0.46983623913499223
+    },
+    "FN": {
+      "shares": 8.048289738430583,
+      "entry_px": 621.25,
+      "entry_date": "2026-06-06",
+      "last_px": 621.25,
+      "mom_raw": 1.8380558341691744,
+      "mom_rank": 13,
+      "mom_z": 0.29995024566136747
+    },
+    "AMAT": {
+      "shares": 11.037283945166774,
+      "entry_px": 453.01,
+      "entry_date": "2026-06-06",
+      "last_px": 453.01,
+      "mom_raw": 1.6469462113258815,
+      "mom_rank": 14,
+      "mom_z": 0.20514248337926994
+    },
+    "MRVL": {
+      "shares": 18.97749269366531,
+      "entry_px": 263.47,
+      "entry_date": "2026-06-06",
+      "last_px": 263.47,
+      "mom_raw": 1.596530920060332,
+      "mom_rank": 15,
+      "mom_z": 0.18013191154842986
+    },
+    "CRDO": {
+      "shares": 24.16743196867901,
+      "entry_px": 206.89,
+      "entry_date": "2026-06-06",
+      "last_px": 206.89,
+      "mom_raw": 1.5933821606068532,
+      "mom_rank": 16,
+      "mom_z": 0.1785698403491491
+    },
+    "MPWR": {
+      "shares": 3.375983255123055,
+      "entry_px": 1481.05,
+      "entry_date": "2026-06-06",
+      "last_px": 1481.05,
+      "mom_raw": 1.378337531486146,
+      "mom_rank": 17,
+      "mom_z": 0.07188813707125799
+    },
+    "GOOGL": {
+      "shares": 13.567416492551489,
+      "entry_px": 368.53,
+      "entry_date": "2026-06-06",
+      "last_px": 368.53,
+      "mom_raw": 1.3685807795299016,
+      "mom_rank": 18,
+      "mom_z": 0.06704790031943574
+    },
+    "KLAC": {
+      "shares": 2.591747874766743,
+      "entry_px": 1929.2,
+      "entry_date": "2026-06-06",
+      "last_px": 1929.2,
+      "mom_raw": 1.3223542047590429,
+      "mom_rank": 19,
+      "mom_z": 0.04411531300757187
+    },
+    "GEV": {
+      "shares": 5.355555317530874,
+      "entry_px": 933.61,
+      "entry_date": "2026-06-06",
+      "last_px": 933.61,
+      "mom_raw": 1.2923401552865017,
+      "mom_rank": 20,
+      "mom_z": 0.0292256134457182
+    }
+  },
+  "rebalances": [
+    {
+      "date": "2026-06-06",
+      "picks": [
+        "LITE",
+        "WDC",
+        "CIEN",
+        "MU",
+        "STX",
+        "INTC",
+        "POWL",
+        "TER",
+        "COHR",
+        "AMD",
+        "LRCX",
+        "VRT",
+        "FN",
+        "AMAT",
+        "MRVL",
+        "CRDO",
+        "MPWR",
+        "GOOGL",
+        "KLAC",
+        "GEV"
+      ],
+      "n": 20,
+      "equity_pre": 100000.0,
+      "turnover": 100000.0,
+      "cost": 50.0
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-06-06",
+      "equity": 99950.0,
+      "ret_pct": -0.05,
+      "spy_close": 737.55,
+      "spy_ret_pct": 0.0,
+      "excess_vs_spy_pct": -0.05
+    }
+  ],
+  "last_rebalance": "2026-06-06",
+  "spy_start_close": 737.55,
+  "last_marked": "2026-06-06"
+}
