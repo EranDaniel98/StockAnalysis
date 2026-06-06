@@ -18,22 +18,31 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from src.api.dependencies import get_config
 from src.api.schemas.news import NewsArticle, NewsInsight, NewsResponse
+from src.config_loader import Config
 from src.market_data.polygon import PolygonClient, PolygonError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Broad-market bellwethers: index/sector ETFs + the mega-caps that actually
-# move the tape. News tagged to these covers macro + market-structure stories,
-# not just single names (Polygon tags market-wide pieces to SPY/QQQ).
-_BELLWETHERS = [
-    "SPY", "QQQ", "DIA", "IWM", "SMH",          # index + semis ETF
+# Fallback bellwethers if config/settings.yaml::market_news.bellwethers is
+# missing — index/sector ETFs + mega-cap movers. News tagged to these covers
+# macro + market-structure stories (Polygon tags market-wide pieces to SPY/QQQ).
+_BELLWETHERS_FALLBACK = [
+    "SPY", "QQQ", "DIA", "IWM", "SMH",
     "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL",
-    "META", "AVGO", "TSLA", "JPM",              # mega-cap movers
+    "META", "AVGO", "TSLA", "JPM",
 ]
+
+
+def _bellwethers(config: Config) -> list[str]:
+    vals = config.get("market_news", "bellwethers", default=None)
+    if not isinstance(vals, list) or not vals:
+        return list(_BELLWETHERS_FALLBACK)
+    return [str(t).upper() for t in vals]
 
 PICKS_DIR = Path("data/daily_picks")
 AI_BOOK_STATE = Path("reports") / "trend_forward_paper_ai_state.json"
@@ -153,8 +162,9 @@ async def get_market_news(
         default=True,
         description="Fold today's picks + AI-book holdings into the fan-out.",
     ),
+    config: Config = Depends(get_config),
 ) -> NewsResponse:
-    tickers = list(_BELLWETHERS)
+    tickers = _bellwethers(config)
     if include_holdings:
         seen = set(tickers)
         for t in _today_holdings_tickers():

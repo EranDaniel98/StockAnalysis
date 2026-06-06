@@ -28,6 +28,27 @@ markets:
   min_price: 5.0                    # filter penny stocks
   exclude_otc: true
 
+market_news:
+  # Bellwethers the /api/news feed fans out over (Polygon news is ticker-tagged,
+  # so market-wide stories are pulled via these proxies). Index/sector ETFs +
+  # mega-cap movers. Today's picks + AI-book holdings are folded in on top.
+  bellwethers:
+    - "SPY"
+    - "QQQ"
+    - "DIA"
+    - "IWM"
+    - "SMH"
+    - "NVDA"
+    - "AAPL"
+    - "MSFT"
+    - "AMZN"
+    - "GOOGL"
+    - "META"
+    - "AVGO"
+    - "TSLA"
+    - "JPM"
+  lookback_days: 4                  # default news window for the feed + outlook
+
 screening:
   stage1_max_stocks: 500            # max stocks after initial filter
   stage2_max_stocks: 50             # max stocks for deep analysis
