@@ -28,6 +28,7 @@ import { FactorChips } from "@/components/factor-chips";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
+import { TradingViewChart } from "@/components/tradingview-widget";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -308,7 +309,22 @@ function StockDetail({
           <Card>
             <CardHeader>
               <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-                Price + plan
+                Price chart — TradingView
+              </CardTitle>
+              <CardDescription className="text-[11px]">
+                Live interactive chart. Indicators &amp; timeframe via the
+                widget toolbar. Our trade levels are below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TradingViewChart symbol={ticker} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                Trade plan — entry / stop / target
               </CardTitle>
               <CardDescription className="text-[11px]">
                 {history.length}d of OHLC.
