@@ -76,11 +76,12 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 - **News sentiment IC** (`scripts/research/news_sentiment_ic.py`): weak 1d IC +0.078 (t=2.15), decays to noise by 3d. NOT tradeable at the 63d cadence → sentiment stays dashboard-only, NOT in the composite.
 - **2026-05-25 audit caveats**: ALL fixed (value-EPS, universe-freeze, CAPM-α) — verified, doc updated above.
 - **3-window validation** (production config, corrected pipeline, phase-averaged): CAPM-α median COVID **+22.8%** / bear +1.0% / bull +9.2% — all positive, ALL FRAGILE (WF 0–44%). COVID is a WIN (overturns the old −7.9%): the daily-regime gate dodges the 2020 crash (timing, not selection; β~0.30). Reports: `reports/phase_envelope_{2c853f10c6638fc0,1c1c314850bb7368,fe045eff04a15142}.json`.
-- **Bear gate A/B**: slow gate (`--no-daily-regime`) beats daily +4.1% vs +1.0% CAPM-α (Sharpe 0.32 vs 0.11) in the bear → production trades ~3pp bear-edge for COVID crash-survival. Both still FRAGILE. `reports/phase_envelope_bear_{daily,slow}.json`.
+- **Gate A/B (daily vs slow), CONFIRMED both halves** — daily-regime (production) vs `--no-daily-regime`, CAPM-α median: COVID daily **+22.8%** / slow **−3.5%**; bear daily +1.0% / slow **+4.1%**. The daily gate trades ~3pp of bear-edge for ~26pp of COVID crash-survival (asymmetric WIN → production gate validated). Slow-COVID −3.5% explains the old covid_breadth −7.9% (that was the slow gate; daily flipped it). All four FRAGILE (WF 0–33%) — robustness is orthogonal to gate choice. `reports/phase_envelope_{covid,bear}_{daily,slow}.json`.
+- **PEAD 2020 coverage CONFIRMED real** (34/40 sampled tickers have earnings ≤2020, ~quarterly in 2020-21) → the COVID +22.8% is a genuine mqv+PEAD run, not a silent mqv degrade.
 
-**Net verdict:** positive beta-adjusted alpha in all 3 regimes on clean data, but not robust fold-by-fold (WF fails everywhere). Real-in-aggregate, phase-fragile. Forward-paper validation of the live config still runs (review ~2026-08-27); don't resume tuning until then.
+**Net verdict:** positive beta-adjusted alpha in all 3 regimes on clean data, but not robust fold-by-fold (WF fails everywhere). Real-in-aggregate, phase-fragile. The daily-regime gate is the validated production choice. Forward-paper validation of the live config still runs (review ~2026-08-27); don't resume tuning until then.
 
-**Open threads:** breadth is the real blocker (more OOS windows); slow-gate-on-COVID not yet A/B'd (the "trades bear-edge for crash-survival" COVID half is inferred, not freshly tested); PEAD 2020 coverage unconfirmed (COVID may degrade to mqv).
+**Open thread:** breadth is the real blocker — more OOS windows (the edge is real-in-aggregate but fold-fragile; only one ~2yr window per regime). Everything else from this session is closed.
 
 ### Other-PC setup (what's NOT in git)
 
