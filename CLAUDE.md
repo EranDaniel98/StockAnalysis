@@ -41,11 +41,12 @@ uv run python -m scripts.run_factor_backtest --snapshot-id <id> --output reports
 ## Evaluation discipline (read before trusting ANY backtest number)
 
 - **NEVER trust a single-offset backtest.** A 2yr/63-day window (~8 rebalances) has a **±20–30pp phase-noise envelope** — the headline "+9.26%" was a lucky-phase outlier (median ~−19% across phases). Always evaluate phase-averaged: `uv run python scripts/phase_envelope.py --snapshot-id <id> --base-args "..."` → judge on the mean/median ± spread + %-positive, not one number. See `project_phase_luck_capstone`.
-- **Open correctness caveats (2026-05-25 audit), fix before trusting results:**
-  - **value factor is suspect** — EDGAR EPS facts aren't disambiguated by period (quarterly vs YTD), so `compute_eps_ttm` can mix durations. Treat value/full-composite numbers as unreliable until fixed.
-  - **universe is frozen at the snapshot's as-of date**, not re-resolved per rebalance (eligibility bias).
-  - **`alpha_vs_spy_pct` is raw excess return, not CAPM α** — meaningless for low-beta / regime-gated / long-short books (use Sharpe + DD there, or compute Jensen's α).
-  - Lookahead/PIT discipline itself audited CLEAN.
+- **2026-05-25 audit caveats — all three RESOLVED (commits `ff13d8b`, `c5b38f2`):**
+  - **value factor** — FIXED. `_period_ok` (edgar/parser.py) now rejects YTD 10-Q durations (10-Q EPS = single quarter ~80-100d, 10-K = ~year), and `compute_eps_ttm` does a proper 10-K-anchor + quarter roll. No more duration mixing.
+  - **universe freeze** — FIXED (#16). `build_snapshot` freezes full-window membership (additions + removals) and the backtest re-resolves per rebalance. The old freeze was *flattering* — median α +4.5% → +2.8% once corrected.
+  - **CAPM α** — FIXED. Backtest computes Jensen's α + market β via OLS (`run_factor_backtest.py`), not raw excess; `alpha_vs_spy_pct` is retained but α is the headline for regime-gated books.
+  - Lookahead/PIT discipline audited CLEAN.
+  - Net: the phase-luck capstone still stands (edge is in the noise envelope), but it's now phase-luck on *correct* fundamentals + universe + α, not stacked on the old defects.
 
 ## Conventions
 
