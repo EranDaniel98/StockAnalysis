@@ -1,0 +1,124 @@
+{
+  "snapshot": "fe045eff04a15142",
+  "base_args": "--factor momentum --top-decile 0.05 --cost-bps 5.0 --asymmetric-trend --entry-sma 75 --daily-regime --regime-band-pct 0.03 --momentum-flavor raw --starting-cash 100000000",
+  "n_phases": 9,
+  "per_phase": [
+    {
+      "offset": 0,
+      "alpha": 44.65,
+      "capm": 19.86,
+      "beta": 0.875,
+      "sharpe": 1.356,
+      "total": 89.19,
+      "maxdd": -23.2,
+      "wf_pass": true
+    },
+    {
+      "offset": 7,
+      "alpha": 37.7,
+      "capm": 18.03,
+      "beta": 0.854,
+      "sharpe": 1.295,
+      "total": 82.24,
+      "maxdd": -25.23,
+      "wf_pass": true
+    },
+    {
+      "offset": 14,
+      "alpha": 40.83,
+      "capm": 18.52,
+      "beta": 0.887,
+      "sharpe": 1.296,
+      "total": 85.37,
+      "maxdd": -24.85,
+      "wf_pass": true
+    },
+    {
+      "offset": 21,
+      "alpha": 30.56,
+      "capm": 15.28,
+      "beta": 0.886,
+      "sharpe": 1.18,
+      "total": 75.1,
+      "maxdd": -26.42,
+      "wf_pass": true
+    },
+    {
+      "offset": 28,
+      "alpha": 24.84,
+      "capm": 14.23,
+      "beta": 0.836,
+      "sharpe": 1.147,
+      "total": 69.38,
+      "maxdd": -25.03,
+      "wf_pass": true
+    },
+    {
+      "offset": 35,
+      "alpha": 25.32,
+      "capm": 15.16,
+      "beta": 0.788,
+      "sharpe": 1.192,
+      "total": 69.86,
+      "maxdd": -23.21,
+      "wf_pass": true
+    },
+    {
+      "offset": 42,
+      "alpha": 4.11,
+      "capm": 8.19,
+      "beta": 0.754,
+      "sharpe": 0.95,
+      "total": 48.65,
+      "maxdd": -21.11,
+      "wf_pass": true
+    },
+    {
+      "offset": 49,
+      "alpha": 3.62,
+      "capm": 8.13,
+      "beta": 0.749,
+      "sharpe": 0.94,
+      "total": 48.16,
+      "maxdd": -19.49,
+      "wf_pass": true
+    },
+    {
+      "offset": 56,
+      "alpha": 4.89,
+      "capm": 8.33,
+      "beta": 0.766,
+      "sharpe": 0.949,
+      "total": 49.43,
+      "maxdd": -24.36,
+      "wf_pass": true
+    }
+  ],
+  "envelope": {
+    "capm_alpha": {
+      "mean": 13.97,
+      "median": 15.16,
+      "std": 4.4,
+      "min": 8.13,
+      "max": 19.86,
+      "pct_phases_positive": 100.0
+    },
+    "excess_return": {
+      "mean": 24.06,
+      "median": 25.32,
+      "std": 15.34,
+      "min": 3.62,
+      "max": 44.65,
+      "pct_phases_positive": 100.0
+    },
+    "sharpe": {
+      "mean": 1.15,
+      "median": 1.18,
+      "std": 0.15,
+      "min": 0.94,
+      "max": 1.36
+    },
+    "wf_pass_rate_pct": 100.0
+  },
+  "verdict": "ROBUST across phases"
+}
