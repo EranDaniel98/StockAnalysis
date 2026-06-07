@@ -91,7 +91,9 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 
 - **Clean re-run ($100M + post-guard) — verdict SURVIVES.** Breadth 6/7 positive, median **+4.8%** (was +5.0%; <1pp/window change → contamination did not mislead the headline). **2024-26 (bull) is now ROBUST** (WF 78%, +12.9%) — $10k rounding was hiding it → 1/7 ROBUST not 0/7. Gate matrix holds: COVID daily +22.9/slow −2.4; bear daily +0.4/slow +4.7. `reports/breadth_summary_2018_2026.txt`.
 
-**Open threads (priority order):** (1) Robustness — WF still fails 6/7 windows; the fix is construction/signal quality, not more data. (2) The live-config forward-paper test (review ~2026-08-27) is the only un-overfit evidence — let it run. Pre-2016 breadth needs a Polygon tier upgrade.
+- **Right-tail harness — BUILT + run** (`scripts/research/right_tail_harness.py`, panel green-lit #1). Scores the composite RANKING vs realized top-decile forward-X risers (pure signal, no gate/cost). **The composite HAS modest tail skill: precision@24 = 0.125 (lift ~1.25) at catching top-decile risers, consistent across 1/3/6-mo, 6-7/7 windows beat random.** sel-return + IC GROW with horizon (+0.85%/1mo → +4.09%/6mo) → best biggest-riser ranker at 3-6mo, weakest at 1mo. A TILT not an oracle. Tail consistency (6-7/7) > trading-book WF (1/7) → supports "WF fragility partly a beta-grading artifact." `reports/right_tail_harness_2018_2026.txt`.
+
+**Open threads (priority order):** (1) Panel next steps: factor x horizon decomposition (which factor carries the tail), then 52w-high orthogonality probe (gate on corr-with-momentum), then probability calibration + abstention. (2) Robustness — the WF gate grades the beta path; re-grade on per-fold beta-neutral alpha. (3) Live forward-paper (review ~2026-08-27) is the only un-overfit evidence. Pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 
