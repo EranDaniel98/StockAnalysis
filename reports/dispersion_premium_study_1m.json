@@ -1,0 +1,341 @@
+{
+  "tenor": "1M",
+  "window_td": 21,
+  "params": {
+    "top_n": 50,
+    "min_cov": 0.99,
+    "weighting": "equal",
+    "non_overlapping": true,
+    "cor_divisor": 100.0,
+    "realized_method": "index-variance-identity, equal-weight top-N"
+  },
+  "history": {
+    "bucket_span": {
+      "first_t0": "2018-11-28",
+      "last_settle": "2025-12-05",
+      "n_buckets_offset0": 84
+    },
+    "snapshot_provenance": [
+      {
+        "snapshot": "2c853f10c6638fc0",
+        "owns_from": "2018-11-28",
+        "owns_to_excl": "2021-05-17",
+        "n_dates": 619,
+        "n_tickers": 531,
+        "spy_present": true
+      },
+      {
+        "snapshot": "04baa0a97fec8c1c",
+        "owns_from": "2021-05-17",
+        "owns_to_excl": "2022-11-28",
+        "n_dates": 774,
+        "n_tickers": 478,
+        "spy_present": true
+      },
+      {
+        "snapshot": "9f448161ca59e465",
+        "owns_from": "2022-11-28",
+        "owns_to_excl": "2026-01-03",
+        "n_dates": 777,
+        "n_tickers": 2000,
+        "spy_present": true
+      }
+    ],
+    "covid_2020_03_reachable": true,
+    "depth_caveat": "Stitched snapshots reach ~2018-11 -> 2026-01. Covers Mar-2020 COVID corr spike (snap 2c853f10c6638fc0) but NOT 2008 / Aug-2011. PASS is necessary-not-sufficient; the crash tail wants deeper history before any options spend."
+  },
+  "partA_premium_existence": {
+    "spread_stats": {
+      "n": 84,
+      "mean": 0.061209618301430145,
+      "median": 0.07218982042287361,
+      "std": 0.15612880409650884,
+      "min": -0.45063223858224116,
+      "max": 0.41075615799668974,
+      "pct_positive": 69.04761904761905
+    },
+    "ar1_adj_sharpe_of_spread": 1.363,
+    "spread_ar1": -0.003,
+    "spread_sharpe_se_approx": 0.151,
+    "interpretation": "spread = implied_corr(t) - forward realized avg pairwise corr (t->t+H)"
+  },
+  "phase_sweep": {
+    "summary": {
+      "n_offsets": 21,
+      "mean_of_means": 0.04411017296011691,
+      "median_of_means": 0.04239559980431238,
+      "mean_spread_min": 0.02949623734806833,
+      "mean_spread_max": 0.061209618301430145,
+      "median_of_medians": 0.06451266763594413,
+      "mean_pct_positive": 68.50667978034588,
+      "pct_positive_min": 63.095238095238095
+    },
+    "per_offset": [
+      {
+        "offset": 0,
+        "n": 84,
+        "mean": 0.061209618301430145,
+        "median": 0.07218982042287361,
+        "pct_positive": 69.04761904761905
+      },
+      {
+        "offset": 1,
+        "n": 84,
+        "mean": 0.05434880887272532,
+        "median": 0.06828913588266157,
+        "pct_positive": 64.28571428571429
+      },
+      {
+        "offset": 2,
+        "n": 84,
+        "mean": 0.04906410236240365,
+        "median": 0.06769382898557834,
+        "pct_positive": 72.61904761904762
+      },
+      {
+        "offset": 3,
+        "n": 84,
+        "mean": 0.047828219883769826,
+        "median": 0.06451266763594413,
+        "pct_positive": 70.23809523809523
+      },
+      {
+        "offset": 4,
+        "n": 84,
+        "mean": 0.04710001365831281,
+        "median": 0.06648357100873449,
+        "pct_positive": 71.42857142857143
+      },
+      {
+        "offset": 5,
+        "n": 84,
+        "mean": 0.037169457289394484,
+        "median": 0.06661237432438911,
+        "pct_positive": 69.04761904761905
+      },
+      {
+        "offset": 6,
+        "n": 84,
+        "mean": 0.02949623734806833,
+        "median": 0.04507145946282626,
+        "pct_positive": 65.47619047619048
+      },
+      {
+        "offset": 7,
+        "n": 84,
+        "mean": 0.04109181352085033,
+        "median": 0.04523864185415262,
+        "pct_positive": 66.66666666666666
+      },
+      {
+        "offset": 8,
+        "n": 84,
+        "mean": 0.032256454515965344,
+        "median": 0.040409689809654745,
+        "pct_positive": 63.095238095238095
+      },
+      {
+        "offset": 9,
+        "n": 84,
+        "mean": 0.034904423395787504,
+        "median": 0.0483720576773531,
+        "pct_positive": 65.47619047619048
+      },
+      {
+        "offset": 10,
+        "n": 84,
+        "mean": 0.04033741932181536,
+        "median": 0.05301331816383721,
+        "pct_positive": 70.23809523809523
+      },
+      {
+        "offset": 11,
+        "n": 84,
+        "mean": 0.03988636169457064,
+        "median": 0.06399926163055503,
+        "pct_positive": 70.23809523809523
+      },
+      {
+        "offset": 12,
+        "n": 84,
+        "mean": 0.041502412880987515,
+        "median": 0.07023324616647192,
+        "pct_positive": 70.23809523809523
+      },
+      {
+        "offset": 13,
+        "n": 84,
+        "mean": 0.042542004605023956,
+        "median": 0.06438976285395154,
+        "pct_positive": 65.47619047619048
+      },
+      {
+        "offset": 14,
+        "n": 84,
+        "mean": 0.04239559980431238,
+        "median": 0.07078325562619311,
+        "pct_positive": 66.66666666666666
+      },
+      {
+        "offset": 15,
+        "n": 84,
+        "mean": 0.04333419578843708,
+        "median": 0.07173789028393064,
+        "pct_positive": 69.04761904761905
+      },
+      {
+        "offset": 16,
+        "n": 84,
+        "mean": 0.042296119185100275,
+        "median": 0.057847959032104074,
+        "pct_positive": 66.66666666666666
+      },
+      {
+        "offset": 17,
+        "n": 84,
+        "mean": 0.04198976463359147,
+        "median": 0.06357076213213782,
+        "pct_positive": 65.47619047619048
+      },
+      {
+        "offset": 18,
+        "n": 84,
+        "mean": 0.04586040340085301,
+        "median": 0.06337065467552727,
+        "pct_positive": 71.42857142857143
+      },
+      {
+        "offset": 19,
+        "n": 83,
+        "mean": 0.0527255862084785,
+        "median": 0.07922372182822632,
+        "pct_positive": 74.69879518072288
+      },
+      {
+        "offset": 20,
+        "n": 83,
+        "mean": 0.05897461549057724,
+        "median": 0.07065591337796359,
+        "pct_positive": 71.08433734939759
+      }
+    ]
+  },
+  "by_year": {
+    "2018": {
+      "n": 1,
+      "mean_spread": -0.1892,
+      "median_spread": -0.1892,
+      "pct_positive": 0.0
+    },
+    "2019": {
+      "n": 12,
+      "mean_spread": 0.0981,
+      "median_spread": 0.1343,
+      "pct_positive": 83.3
+    },
+    "2020": {
+      "n": 12,
+      "mean_spread": 0.0853,
+      "median_spread": 0.1162,
+      "pct_positive": 58.3
+    },
+    "2021": {
+      "n": 12,
+      "mean_spread": 0.0388,
+      "median_spread": 0.0692,
+      "pct_positive": 66.7
+    },
+    "2022": {
+      "n": 12,
+      "mean_spread": 0.0201,
+      "median_spread": 0.0086,
+      "pct_positive": 50.0
+    },
+    "2023": {
+      "n": 11,
+      "mean_spread": 0.1272,
+      "median_spread": 0.1529,
+      "pct_positive": 100.0
+    },
+    "2024": {
+      "n": 12,
+      "mean_spread": 0.1096,
+      "median_spread": 0.1037,
+      "pct_positive": 91.7
+    },
+    "2025": {
+      "n": 12,
+      "mean_spread": -0.0242,
+      "median_spread": -0.0077,
+      "pct_positive": 41.7
+    }
+  },
+  "stress_windows": {
+    "2018-02": {
+      "present": false
+    },
+    "2020-03": {
+      "present": true,
+      "n": 1,
+      "mean_spread": -0.203,
+      "min_spread": -0.203,
+      "max_realized_corr": 0.5687,
+      "mean_implied_corr": 0.3657,
+      "inverted": true
+    },
+    "2022": {
+      "present": true,
+      "n": 12,
+      "mean_spread": 0.0201,
+      "min_spread": -0.1461,
+      "max_realized_corr": 0.5756,
+      "mean_implied_corr": 0.4246,
+      "inverted": false
+    },
+    "2024-08": {
+      "present": true,
+      "n": 1,
+      "mean_spread": -0.1791,
+      "min_spread": -0.1791,
+      "max_realized_corr": 0.2197,
+      "mean_implied_corr": 0.0406,
+      "inverted": true
+    },
+    "2025-04": {
+      "present": true,
+      "n": 1,
+      "mean_spread": -0.1976,
+      "min_spread": -0.1976,
+      "max_realized_corr": 0.4987,
+      "mean_implied_corr": 0.3011,
+      "inverted": true
+    }
+  },
+  "partB_short_corr_pnl_proxy": {
+    "note": "spread-proportional, vol-target sized; NOT the options book (existence gate only)",
+    "ann_sharpe_iid": 1.358,
+    "ann_sharpe_ar1_adj": 1.363,
+    "total_ret_pct": 148.73,
+    "max_dd_pct": -9.39,
+    "pct_positive": 69.0
+  },
+  "gate": {
+    "1_pct_positive_ge_60": true,
+    "2_mean_spread_clearly_positive": true,
+    "3_no_total_inversion_in_stress": false,
+    "4_phase_averaged_median_positive": true,
+    "stress_windows_present": [
+      "2020-03",
+      "2022",
+      "2024-08",
+      "2025-04"
+    ],
+    "stress_inversions": [
+      "2020-03",
+      "2024-08",
+      "2025-04"
+    ],
+    "PASS": false
+  },
+  "verdict": "GATE FAIL -> do NOT spend. TOTAL INVERSION in stress ['2020-03', '2024-08', '2025-04'] \u2014 seller unpaid when it matters. COVID Mar-2020 corr spike IS in-sample."
+}

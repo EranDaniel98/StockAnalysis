@@ -61,3 +61,23 @@ uv run python -m scripts.run_factor_backtest --snapshot-id <id> --output reports
 - `config/strategies.yaml` — strategy + factor-weight configuration
 - `config/sectors.yaml` — sector / theme definitions, watchlist
 - `config/portfolio.yaml` — holdings for P&L (gitignored; synced from Alpaca)
+
+## Session log — 2026-06-06/07 (cross-PC handoff)
+
+Local `~/.claude` memory does NOT sync across machines — this section is the portable continuity record.
+
+**Shipped (committed):**
+- **AI forward book** — isolated broad-AI 12-1 momentum top-20 HOLD book. `scripts.research.trend_forward_paper --book ai --universe-file data/universe_ai_broad_2026-06-06.txt`; UI at `/research/ai-book` (`GET /api/research/{book}`). Marked daily via a non-fatal `mark_ai_book` step in `run_daily_pipeline`. ~2x-beta, −38%-DD untested; observe, don't tune.
+- **Market news** — `/news` + `GET /api/news`, Polygon-sourced, bellwethers config-driven (`settings.yaml::market_news.bellwethers`). First news ingestion.
+- **Market outlook** — `/outlook` + `GET /api/market/outlook`: risk-on/neutral/risk-off lean (trend+VIX+news+after-hours tally) + pre/post-market moves (`PolygonClient.open_close`). "Conditions, not forecast."
+- **TradingView** — Advanced Chart on stock pages, technicals gauge on `/outlook` (`tradingview-widget.tsx`). Iframe widgets, display-only. Benign `_replaceScript` console error in dev strict-mode only.
+
+**Research findings:**
+- **News sentiment IC** (`scripts/research/news_sentiment_ic.py`): weak 1d IC +0.078 (t=2.15), decays to noise by 3d. NOT tradeable at the 63d cadence → sentiment stays dashboard-only, NOT in the composite.
+- **2026-05-25 audit caveats**: ALL fixed (value-EPS, universe-freeze, CAPM-α) — verified, doc updated above.
+- **3-window validation** (production config, corrected pipeline, phase-averaged): CAPM-α median COVID **+22.8%** / bear +1.0% / bull +9.2% — all positive, ALL FRAGILE (WF 0–44%). COVID is a WIN (overturns the old −7.9%): the daily-regime gate dodges the 2020 crash (timing, not selection; β~0.30). Reports: `reports/phase_envelope_{2c853f10c6638fc0,1c1c314850bb7368,fe045eff04a15142}.json`.
+- **Bear gate A/B**: slow gate (`--no-daily-regime`) beats daily +4.1% vs +1.0% CAPM-α (Sharpe 0.32 vs 0.11) in the bear → production trades ~3pp bear-edge for COVID crash-survival. Both still FRAGILE. `reports/phase_envelope_bear_{daily,slow}.json`.
+
+**Net verdict:** positive beta-adjusted alpha in all 3 regimes on clean data, but not robust fold-by-fold (WF fails everywhere). Real-in-aggregate, phase-fragile. Forward-paper validation of the live config still runs (review ~2026-08-27); don't resume tuning until then.
+
+**Open threads:** breadth is the real blocker (more OOS windows); slow-gate-on-COVID not yet A/B'd (the "trades bear-edge for crash-survival" COVID half is inferred, not freshly tested); PEAD 2020 coverage unconfirmed (COVID may degrade to mqv).

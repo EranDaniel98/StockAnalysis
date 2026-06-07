@@ -1,0 +1,222 @@
+{
+  "window": {
+    "start": "2016-06-03",
+    "end": "2026-05-13",
+    "n_months": 119
+  },
+  "params": {
+    "vol_target": 0.1,
+    "cost_vega_pts": 1.0,
+    "td_per_month": 21,
+    "non_overlapping": true
+  },
+  "partA_premium_existence": {
+    "vrp_variance_units": {
+      "n": 119,
+      "mean": 0.0063343651268446335,
+      "median": 0.012449776574698179,
+      "std": 0.07120964243363091,
+      "min": -0.6732516835836074,
+      "max": 0.11798721256288543,
+      "pct_positive": 82.35294117647058
+    },
+    "vrp_vol_units_decimal": {
+      "n": 119,
+      "mean": 0.0354231367302012,
+      "median": 0.04801591825622997,
+      "std": 0.0815829135546229,
+      "min": -0.5020922991398161,
+      "max": 0.19313288014187147,
+      "pct_positive": 82.35294117647058
+    },
+    "interpretation": "vrp_var = (VIX/100)^2 - forward 21td annualized realized variance"
+  },
+  "partB_harvest": {
+    "ann_sharpe_iid": 0.405,
+    "ar1": 0.207,
+    "ann_sharpe_ar1_adj": 0.328,
+    "sharpe_se_approx": 0.095,
+    "total_ret_pct": 41.74,
+    "max_dd_pct": -30.44,
+    "worst_month_pct": -14.57,
+    "best_month_pct": 2.46,
+    "mean_monthly_net_pct": 0.3376,
+    "pct_positive_months": 78.2,
+    "scale_applied": 0.0323
+  },
+  "by_year": {
+    "2016": {
+      "ret_pct": 3.37,
+      "n_months": 6,
+      "dd_pct": -0.84,
+      "negative": false
+    },
+    "2017": {
+      "ret_pct": 16.83,
+      "n_months": 12,
+      "dd_pct": -0.1,
+      "negative": false
+    },
+    "2018": {
+      "ret_pct": -8.71,
+      "n_months": 12,
+      "dd_pct": -10.71,
+      "negative": true
+    },
+    "2019": {
+      "ret_pct": 2.38,
+      "n_months": 12,
+      "dd_pct": -1.06,
+      "negative": false
+    },
+    "2020": {
+      "ret_pct": -14.96,
+      "n_months": 12,
+      "dd_pct": -25.38,
+      "negative": true
+    },
+    "2021": {
+      "ret_pct": 18.94,
+      "n_months": 12,
+      "dd_pct": -0.08,
+      "negative": false
+    },
+    "2022": {
+      "ret_pct": -1.31,
+      "n_months": 12,
+      "dd_pct": -4.22,
+      "negative": true
+    },
+    "2023": {
+      "ret_pct": 11.28,
+      "n_months": 12,
+      "dd_pct": 0.0,
+      "negative": false
+    },
+    "2024": {
+      "ret_pct": 6.42,
+      "n_months": 12,
+      "dd_pct": -5.76,
+      "negative": false
+    },
+    "2025": {
+      "ret_pct": -0.64,
+      "n_months": 12,
+      "dd_pct": -11.74,
+      "negative": true
+    },
+    "2026": {
+      "ret_pct": 6.91,
+      "n_months": 5,
+      "dd_pct": 0.0,
+      "negative": false
+    }
+  },
+  "worst_5_months": [
+    {
+      "settle": "2020-03-06",
+      "t0": "2020-02-05",
+      "vix_at_t0": 15.15,
+      "sigma_impl": 0.1515,
+      "sigma_real": 0.3512,
+      "vrp_var": -0.10042,
+      "net_ret_pct": -14.57
+    },
+    {
+      "settle": "2020-04-06",
+      "t0": "2020-03-06",
+      "vix_at_t0": 41.94,
+      "sigma_impl": 0.4194,
+      "sigma_real": 0.9215,
+      "vrp_var": -0.67325,
+      "net_ret_pct": -12.53
+    },
+    {
+      "settle": "2018-11-01",
+      "t0": "2018-10-03",
+      "vix_at_t0": 11.61,
+      "sigma_impl": 0.1161,
+      "sigma_real": 0.2356,
+      "vrp_var": -0.04201,
+      "net_ret_pct": -10.63
+    },
+    {
+      "settle": "2025-04-10",
+      "t0": "2025-03-12",
+      "vix_at_t0": 24.23,
+      "sigma_impl": 0.2423,
+      "sigma_real": 0.4937,
+      "vrp_var": -0.18504,
+      "net_ret_pct": -10.46
+    },
+    {
+      "settle": "2019-01-04",
+      "t0": "2018-12-03",
+      "vix_at_t0": 16.44,
+      "sigma_impl": 0.1644,
+      "sigma_real": 0.3206,
+      "vrp_var": -0.07573,
+      "net_ret_pct": -9.45
+    }
+  ],
+  "stress_windows": {
+    "2018-02": {
+      "present": true,
+      "n": 1,
+      "net_ret_pct": -2.72,
+      "worst_month_pct": -2.72,
+      "max_vix": 9.15,
+      "max_rv_ann": 0.0136
+    },
+    "2020-02": {
+      "present": true,
+      "n": 1,
+      "net_ret_pct": -0.15,
+      "worst_month_pct": -0.15,
+      "max_vix": 13.85,
+      "max_rv_ann": 0.0173
+    },
+    "2020-03": {
+      "present": true,
+      "n": 1,
+      "net_ret_pct": -14.57,
+      "worst_month_pct": -14.57,
+      "max_vix": 15.15,
+      "max_rv_ann": 0.1234
+    },
+    "2022": {
+      "present": true,
+      "n": 12,
+      "net_ret_pct": -1.31,
+      "worst_month_pct": -3.39,
+      "max_vix": 36.45,
+      "max_rv_ann": 0.0864
+    },
+    "2024-08": {
+      "present": true,
+      "n": 1,
+      "net_ret_pct": -5.76,
+      "worst_month_pct": -5.76,
+      "max_vix": 12.85,
+      "max_rv_ann": 0.0434
+    },
+    "2025-04": {
+      "present": true,
+      "n": 1,
+      "net_ret_pct": -10.46,
+      "worst_month_pct": -10.46,
+      "max_vix": 24.23,
+      "max_rv_ann": 0.2438
+    }
+  },
+  "ship_rule": {
+    "1_vrp_robustly_positive": true,
+    "2_ar1_sharpe_gt_1": false,
+    "3_most_years_positive": true,
+    "4_no_ruin_survivable_tail": true,
+    "years_positive": 7,
+    "years_negative": 4,
+    "PASS": false
+  },
+  "verdict": "NO-SHIP. Failed: AR(1)-adj Sharpe 0.33 <= 1.0."
+}

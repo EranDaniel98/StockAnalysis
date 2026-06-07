@@ -1,0 +1,208 @@
+{
+  "params": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "ADAUSDT",
+      "SOLUSDT",
+      "DOGEUSDT",
+      "LTCUSDT",
+      "LINKUSDT",
+      "DOTUSDT"
+    ],
+    "start": "2020-01-01",
+    "end": "2026-06-01",
+    "fees_bps": {
+      "perp_taker": 5.0,
+      "spot_taker": 10.0,
+      "slippage_per_rebalance": 2.0,
+      "annual_roll": 5.0
+    },
+    "round_trip_bps_used": 30.0,
+    "funding_per_year": 1095,
+    "days_per_year": 365
+  },
+  "headline": {
+    "net_total_return_pct": 102.039,
+    "net_cagr_pct": 11.59,
+    "annualized_sharpe": 6.615,
+    "max_drawdown_pct": -5.574,
+    "gross_annualized_sharpe": 6.685,
+    "n_days": 2344,
+    "capm_alpha_vs_btc_pct": 11.578,
+    "beta_vs_btc": 0.0003
+  },
+  "by_year": {
+    "2020": {
+      "net_return_pct": 20.464,
+      "sharpe": 10.537,
+      "max_dd_pct": -1.222,
+      "n_days": 366
+    },
+    "2021": {
+      "net_return_pct": 44.589,
+      "sharpe": 14.38,
+      "max_dd_pct": -0.273,
+      "n_days": 365
+    },
+    "2022": {
+      "net_return_pct": -4.881,
+      "sharpe": -2.484,
+      "max_dd_pct": -5.247,
+      "n_days": 365
+    },
+    "2023": {
+      "net_return_pct": 5.586,
+      "sharpe": 11.888,
+      "max_dd_pct": -0.335,
+      "n_days": 365
+    },
+    "2024": {
+      "net_return_pct": 12.259,
+      "sharpe": 15.876,
+      "max_dd_pct": -0.046,
+      "n_days": 366
+    },
+    "2025": {
+      "net_return_pct": 3.143,
+      "sharpe": 12.079,
+      "max_dd_pct": -0.222,
+      "n_days": 365
+    },
+    "2026": {
+      "net_return_pct": -0.251,
+      "sharpe": -2.142,
+      "max_dd_pct": -0.791,
+      "n_days": 152
+    }
+  },
+  "per_coin": {
+    "BTCUSDT": {
+      "n_days": 2344,
+      "mean_daily_funding_bps": 3.299,
+      "annualized_carry_pct": 12.04,
+      "mean_basis_pct": -0.015
+    },
+    "ETHUSDT": {
+      "n_days": 2344,
+      "mean_daily_funding_bps": 3.932,
+      "annualized_carry_pct": 14.351,
+      "mean_basis_pct": -0.0086
+    },
+    "BNBUSDT": {
+      "n_days": 2304,
+      "mean_daily_funding_bps": -0.073,
+      "annualized_carry_pct": -0.267,
+      "mean_basis_pct": -0.0079
+    },
+    "XRPUSDT": {
+      "n_days": 2339,
+      "mean_daily_funding_bps": 4.176,
+      "annualized_carry_pct": 15.243,
+      "mean_basis_pct": -0.0164
+    },
+    "ADAUSDT": {
+      "n_days": 2314,
+      "mean_daily_funding_bps": 3.854,
+      "annualized_carry_pct": 14.066,
+      "mean_basis_pct": -0.0137
+    },
+    "SOLUSDT": {
+      "n_days": 2087,
+      "mean_daily_funding_bps": 0.04,
+      "annualized_carry_pct": 0.144,
+      "mean_basis_pct": -0.0311
+    },
+    "DOGEUSDT": {
+      "n_days": 2153,
+      "mean_daily_funding_bps": 3.496,
+      "annualized_carry_pct": 12.76,
+      "mean_basis_pct": -0.014
+    },
+    "LTCUSDT": {
+      "n_days": 2336,
+      "mean_daily_funding_bps": 4.197,
+      "annualized_carry_pct": 15.317,
+      "mean_basis_pct": -0.0078
+    },
+    "LINKUSDT": {
+      "n_days": 2328,
+      "mean_daily_funding_bps": 3.876,
+      "annualized_carry_pct": 14.148,
+      "mean_basis_pct": -0.0111
+    },
+    "DOTUSDT": {
+      "n_days": 2110,
+      "mean_daily_funding_bps": 2.214,
+      "annualized_carry_pct": 8.083,
+      "mean_basis_pct": -0.0272
+    }
+  },
+  "walk_forward": {
+    "folds": [
+      {
+        "fold": 0,
+        "sharpe": 12.797,
+        "return_pct": 51.46,
+        "n_days": 468
+      },
+      {
+        "fold": 1,
+        "sharpe": 7.857,
+        "return_pct": 14.14,
+        "n_days": 468
+      },
+      {
+        "fold": 2,
+        "sharpe": -0.609,
+        "return_pct": -1.41,
+        "n_days": 468
+      },
+      {
+        "fold": 3,
+        "sharpe": 16.933,
+        "return_pct": 15.89,
+        "n_days": 468
+      },
+      {
+        "fold": 4,
+        "sharpe": 6.247,
+        "return_pct": 2.29,
+        "n_days": 472
+      }
+    ],
+    "mean_sharpe": 8.645,
+    "min_sharpe": -0.609,
+    "passed": false
+  },
+  "stress": {
+    "worst_observed_daily_funding_pct": -17.1661,
+    "basis_gap": {
+      "net_return_pct": 97.998,
+      "sharpe": 5.787,
+      "max_dd_pct": -5.574
+    },
+    "neg_funding_week": {
+      "net_return_pct": -44.165,
+      "sharpe": -0.403,
+      "max_dd_pct": -73.905
+    },
+    "combined": {
+      "net_return_pct": -45.281,
+      "sharpe": -0.42,
+      "max_dd_pct": -73.905
+    }
+  },
+  "verdict": {
+    "annualized_sharpe": 6.615,
+    "checks": {
+      "sharpe_gt_1_5": true,
+      "positive_every_year": false,
+      "survives_stress": false
+    },
+    "SHIP": false,
+    "tail_caveat": "Carry here = compensation for SHORT-VOL / liquidation / exchange-blowup tail risk. A cash backtest does NOT model margin calls, ADL, or a venue going down with the short perp open; the positive carry IS partly that tail premium, not pure free money. Treat any SHIP=true as 'survives in-sample carry stats', NOT as a risk-free arb."
+  }
+}
