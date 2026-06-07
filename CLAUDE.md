@@ -79,9 +79,11 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 - **Gate A/B (daily vs slow), CONFIRMED both halves** — daily-regime (production) vs `--no-daily-regime`, CAPM-α median: COVID daily **+22.8%** / slow **−3.5%**; bear daily +1.0% / slow **+4.1%**. The daily gate trades ~3pp of bear-edge for ~26pp of COVID crash-survival (asymmetric WIN → production gate validated). Slow-COVID −3.5% explains the old covid_breadth −7.9% (that was the slow gate; daily flipped it). All four FRAGILE (WF 0–33%) — robustness is orthogonal to gate choice. `reports/phase_envelope_{covid,bear}_{daily,slow}.json`.
 - **PEAD 2020 coverage CONFIRMED real** (34/40 sampled tickers have earnings ≤2020, ~quarterly in 2020-21) → the COVID +22.8% is a genuine mqv+PEAD run, not a silent mqv degrade.
 
-**Net verdict:** positive beta-adjusted alpha in all 3 regimes on clean data, but not robust fold-by-fold (WF fails everywhere). Real-in-aggregate, phase-fragile. The daily-regime gate is the validated production choice. Forward-paper validation of the live config still runs (review ~2026-08-27); don't resume tuning until then.
+- **Breadth validation (7 rolling windows 2018-2026, 12-mo step, production config)** — answers the fragility question 3 windows couldn't. **6/7 windows positive median CAPM-α (86%), median +5.0%** (even 3/4 non-overlapping positive) → edge real-in-aggregate, NOT a coin-flip. BUT mean WF-pass **20%, 0/7 ROBUST** → fragility is STRUCTURAL, more windows did not rescue it. Beta-adjusted edge only (excess often negative — low-β book lags SPY raw). Constraint: Polygon 10-yr horizon caps breadth at 2018-2026 (pre-2016 = 403, needs tier upgrade). `reports/breadth_summary_2018_2026.txt`. See `project_breadth_validation_2026_06_07`.
 
-**Open thread:** breadth is the real blocker — more OOS windows (the edge is real-in-aggregate but fold-fragile; only one ~2yr window per regime). Everything else from this session is closed.
+**Net verdict (most credible estimate to date):** the production config has a **real but modest beta-adjusted edge — ~+5% median CAPM-α, positive in 6/7 windows across 2018-2026 — that is NOT walk-forward-robust in any window.** Genuine central tendency, structural fold-fragility. Defensive/risk-managed (lags SPY on raw return in bulls). The daily-regime gate + PEAD are validated production choices. Forward-paper validation runs (review ~2026-08-27); don't resume tuning until then.
+
+**Open thread:** robustness, not breadth — WF fails in every window even with 7 windows; the fix (if any) is construction/signal quality, not more data. Pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 

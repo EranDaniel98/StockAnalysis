@@ -1,0 +1,19 @@
+
+window     CAPMa med   mean    [min..max]  %pos  WF%  Shrp  excess  verdict
+2018-20         -3.9   -2.9      [-8..+2]   33%    0  0.03   -21.4  fragile
+2019-21        +10.7  +11.7     [+4..+23]  100%   22  1.04   -12.8  fragile
+2020-22        +22.8  +22.4    [+15..+29]  100%   33  1.44   +20.4  fragile
+2021-23         +5.0   +4.8     [+1..+10]  100%    0  0.41    +7.4  fragile
+2022-24         +1.0   +2.0      [-1..+7]   78%    0  0.11    +3.1  fragile
+2023-25         +2.8   +1.8     [-7..+10]   67%   44  1.44    -0.9  fragile
+2024-26         +9.2   +9.2     [+5..+12]  100%   44  1.19    +0.5  fragile
+
+=== BREADTH (7 windows) ===
+  windows with positive median CAPM-a : 6/7 (86%)
+  median-of-window-medians            : +5.0%
+  mean-of-window-medians              : +6.8%  (spread -4..+23)
+  mean WF-pass rate across windows    : 20%
+  windows ROBUST (WF>=60 & >=70% pos) : 0/7
+  mean phases-positive across windows  : 83%
+
+CAVEAT: rolling 2yr windows on a 12-month step OVERLAP (adjacent share 1yr) -> not independent; effective N < window count. Polygon 10yr horizon caps the range at ~2017-2026. Production config (mqv+PEAD+daily-regime).
