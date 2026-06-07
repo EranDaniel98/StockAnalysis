@@ -83,7 +83,9 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 
 **Net verdict (most credible estimate to date):** the production config has a **real but modest beta-adjusted edge — ~+5% median CAPM-α, positive in 6/7 windows across 2018-2026 — that is NOT walk-forward-robust in any window.** Genuine central tendency, structural fold-fragility. Defensive/risk-managed (lags SPY on raw return in bulls). The daily-regime gate + PEAD are validated production choices. Forward-paper validation runs (review ~2026-08-27); don't resume tuning until then.
 
-**Open thread:** robustness, not breadth — WF fails in every window even with 7 windows; the fix (if any) is construction/signal quality, not more data. Pre-2016 breadth needs a Polygon tier upgrade.
+- **Selection-vs-timing split (gate-off + Treynor-Mazuy, $100M)** — isolates selection from the regime-gate timing. **Gate-OFF (always invested, β~1) selection CAPM-α positive in all 5 clean windows, median ~+5%** → the selection edge is REAL, not a timing artifact. Gate's market-TIMING is NEGATIVE (TM γ<0, several significant) — it cuts β/DD but whipsaws; the COVID crash-exit is its one big win. COVID gate-ON +22.9% vs selection-only +4.8% → the COVID headline WAS mostly the gate. NOTE: prior session phase-envelopes used the $10k default (rounding-dampened — audit #19); $100M is cleaner. NEW data flag: gate-off blew up on 2 windows (+300%/+47%) = a corrupted/delisted price (likely 2023 bank failures) the gated book dodged — worth a universe-data audit. `reports/selection_vs_timing_2018_2026.txt`, see `project_selection_vs_timing_2026_06_07`.
+
+**Open threads:** (1) robustness — WF fails every window even with 7; fix is construction/signal, not more data. (2) data-quality — the gate-off price blowups need a universe audit (delisted-in-window handling). (3) re-run the breadth/validation sweeps at $100M (prior numbers are $10k-dampened). Pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 
