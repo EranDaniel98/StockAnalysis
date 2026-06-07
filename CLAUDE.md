@@ -89,7 +89,9 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 
 - **Price-artifact guard — SHIPPED** (`src/factors/price_quality.py`, `drop_price_artifacts`; |day move|>0.80 or gap>45d). Two chokepoints: live pipeline = PER-as_of drop-on-hit (re-enters once event rolls out); backtest = WHOLE-WINDOW panel scrub (a held position rides the stitch via mark-to-market, so per-as_of isn't enough). Verified gate-off 2021-23 +304%→+8.2%; 4 tests pass; live drops 0 today.
 
-**Open threads (priority order):** (1) **Re-run validation/breadth/gate-A-B sweeps at $100M + post-guard** — the 2021-23/2022-24/2023-25 headline numbers (incl. bear gate A/B) are still $10k-dampened + artifact-contaminated. (2) Robustness — WF fails every window; fix is construction/signal, not more data. Pre-2016 breadth needs a Polygon tier upgrade.
+- **Clean re-run ($100M + post-guard) — verdict SURVIVES.** Breadth 6/7 positive, median **+4.8%** (was +5.0%; <1pp/window change → contamination did not mislead the headline). **2024-26 (bull) is now ROBUST** (WF 78%, +12.9%) — $10k rounding was hiding it → 1/7 ROBUST not 0/7. Gate matrix holds: COVID daily +22.9/slow −2.4; bear daily +0.4/slow +4.7. `reports/breadth_summary_2018_2026.txt`.
+
+**Open threads (priority order):** (1) Robustness — WF still fails 6/7 windows; the fix is construction/signal quality, not more data. (2) The live-config forward-paper test (review ~2026-08-27) is the only un-overfit evidence — let it run. Pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 
