@@ -52,6 +52,7 @@ from src.factors.exposure_scaling import (
 from src.factors.insider_cluster import insider_cluster_factor
 from src.factors.momentum import momentum_12_1, risk_managed_momentum
 from src.factors.pead import pead_factor
+from src.factors.price_quality import drop_price_artifacts
 from src.factors.quality import quality_factor
 from src.factors.regime import (
     ENTRY_SMA_WINDOW as REGIME_DEFAULT_ENTRY_SMA,
@@ -1012,6 +1013,28 @@ def _load_frozen_membership(snapshot_id: str):
 def run(args: argparse.Namespace) -> dict:
     snap = load_snapshot(args.snapshot_id)
     prices = snap.price_data
+    # Corporate-action artifact scrub of the whole-window price PANEL: a stitched
+    # two-company / delisting series (impossible single-day move or multi-month
+    # gap) corrupts BOTH factor picks AND mark-to-market of a position held
+    # across the stitch — so a per-as_of guard isn't enough for a backtest that
+    # holds positions over time; drop the ticker from the entire run. (Live
+    # picks use the lighter per-as_of guard in factors.pipeline.) See
+    # factors.price_quality / project_price_artifact_hunt.
+    if prices:
+        _panel_end = max(
+            (df.index.max() for df in prices.values()
+             if df is not None and not df.empty),
+            default=None,
+        )
+        if _panel_end is not None:
+            prices, _scrubbed = drop_price_artifacts(
+                prices, _panel_end, lookback_rows=10**9,
+            )
+            if _scrubbed:
+                logger.info(
+                    "price-artifact scrub: dropped %d stitched series: %s",
+                    len(_scrubbed), _scrubbed,
+                )
     spy = snap.spy_df
     if spy is None or spy.empty:
         raise SystemExit(f"snapshot {args.snapshot_id} has no SPY frame")

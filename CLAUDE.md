@@ -87,7 +87,9 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 
 - **Price-artifact hunt — ROOT-CAUSED:** corporate-action discontinuities (Polygon serves one ticker across reuse/rename/split/delist; a window spanning the event stitches two price regimes → fake +1000%+ jumps). Worst: META (Meta Materials→Meta Platforms 2022-06, +1395%), GEN (+5043%). ~12 tickers across 7 snapshots. The momentum factor ranks the artifact #1 → the GATED book buys it, so headline numbers for windows spanning a reuse event (2021-23, 2022-24 = bear A/B, 2023-25) are CONTAMINATED, not just gate-off. **Live picks CURRENTLY CLEAN (verified — trailing 13mo window doesn't span the events), but UNGUARDED.** Tool: `scripts/research/price_artifact_scan.py`. See `project_price_artifact_hunt_2026_06_07`.
 
-**Open threads (priority order):** (1) **SHIP the price-artifact guard** — reject/neutralize a ticker whose lookback has |day move|>~80% or a multi-month gap, in the momentum factor + price loader (protects live too). (2) Re-run validation sweeps at $100M AND post-guard (prior numbers are $10k-dampened + artifact-contaminated). (3) Robustness — WF fails every window; fix is construction/signal, not more data. Pre-2016 breadth needs a Polygon tier upgrade.
+- **Price-artifact guard — SHIPPED** (`src/factors/price_quality.py`, `drop_price_artifacts`; |day move|>0.80 or gap>45d). Two chokepoints: live pipeline = PER-as_of drop-on-hit (re-enters once event rolls out); backtest = WHOLE-WINDOW panel scrub (a held position rides the stitch via mark-to-market, so per-as_of isn't enough). Verified gate-off 2021-23 +304%→+8.2%; 4 tests pass; live drops 0 today.
+
+**Open threads (priority order):** (1) **Re-run validation/breadth/gate-A-B sweeps at $100M + post-guard** — the 2021-23/2022-24/2023-25 headline numbers (incl. bear gate A/B) are still $10k-dampened + artifact-contaminated. (2) Robustness — WF fails every window; fix is construction/signal, not more data. Pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 

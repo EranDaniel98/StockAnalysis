@@ -24,6 +24,7 @@ from typing import Optional
 
 import pandas as pd
 
+from src.factors.price_quality import drop_price_artifacts
 from src.factors.strategy_id import strategy_name
 
 logger = logging.getLogger(__name__)
@@ -294,6 +295,17 @@ def run_factor_picks(
             "dropped %d (first 5: %s)",
             min_history_days, len(prices), before, len(excluded),
             [f"{t}({n}d)" for t, n in excluded[:5]],
+        )
+
+    # Corporate-action artifact guard: drop names whose lookback window is a
+    # stitched two-company / delisting series (impossible single-day move or a
+    # multi-month gap) — the momentum factor would otherwise rank the fake jump
+    # #1 and buy it. See src.factors.price_quality.
+    prices, _artifacts = drop_price_artifacts(prices, as_of)
+    if _artifacts:
+        logger.info(
+            "Price-artifact guard: dropped %d stitched/impossible series "
+            "(first 5: %s)", len(_artifacts), _artifacts[:5],
         )
 
     universe = sorted(prices.keys())
