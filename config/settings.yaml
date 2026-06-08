@@ -70,6 +70,14 @@ price_artifact_guard:
   max_gap_days: 45                  # internal calendar gap over this = stitched
   lookback_rows: 280               # trading rows inspected (~13mo, the 12-1 window)
 
+# Trend-line watch: flags whether a ticker is holding or breaking its SMA.
+# Used for the energy-book oil-trend watch (USO/XLE 50-SMA = the line that
+# decides pullback-in-uptrend vs trend break). Display/alert only, not a trade.
+sma_watch:
+  sma_window: 50                    # SMA length in trading days
+  break_threshold_pct: 1.0          # within +/-this% of the SMA = "at the line"
+  tickers: ["USO", "XLE"]           # what to watch (oil + energy sector proxy)
+
 screening:
   stage1_max_stocks: 500            # max stocks after initial filter
   stage2_max_stocks: 50             # max stocks for deep analysis

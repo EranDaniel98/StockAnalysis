@@ -44,13 +44,14 @@ STEPS = [
     "mark_ai_book",
     "mark_momval_book",
     "momval_picks",
+    "sma_watch",
     "kill_switch_check",
 ]
 
 # Research / advisory steps — surfaced in the summary but never fail the run.
 # The AI + momentum-value forward books are research books isolated from the
 # live config; a hiccup marking one must not flip the daily exit code.
-_ADVISORY = {"mark_ai_book", "mark_momval_book", "momval_picks"}
+_ADVISORY = {"mark_ai_book", "mark_momval_book", "momval_picks", "sma_watch"}
 
 
 def _run(args: list[str], step: str) -> bool:
@@ -192,6 +193,14 @@ def main() -> int:
     results["momval_picks"] = _run(
         ["scripts.momval_picks", "--as-of", date_str],
         "momval_picks",
+    )
+
+    # 8.8 SMA trend-line watch (research, non-gating). Flags whether the
+    # watched trend proxies (USO/XLE) are holding or breaking their 50-SMA --
+    # the line behind the energy-book oil-trend call.
+    results["sma_watch"] = _run(
+        ["scripts.research.sma_watch"],
+        "sma_watch",
     )
 
     # 9. Kill-switch check (advisory in this pipeline -- the hard gate lives
