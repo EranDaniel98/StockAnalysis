@@ -76,6 +76,7 @@ price_artifact_guard:
 sma_watch:
   sma_window: 50                    # SMA length in trading days
   break_threshold_pct: 1.0          # within +/-this% of the SMA = "at the line"
+  confirm_closes: 2                 # closes that must agree before ABOVE/BELOW (de-twitch)
   tickers: ["USO", "XLE"]           # what to watch (oil + energy sector proxy)
 
 screening:

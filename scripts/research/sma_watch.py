@@ -42,20 +42,40 @@ def _daily_closes(ticker: str, lookback_days: int) -> pd.Series | None:
     return None if df is None or df.empty else df["Close"]
 
 
-def _status(last: float, sma: float, thr_pct: float) -> str:
-    """ABOVE = holding the trend; BELOW = break warning; AT_LINE = inflection."""
+def _side(close: float, sma: float, thr_pct: float) -> str:
     band = sma * thr_pct / 100.0
-    if last > sma + band:
+    if close > sma + band:
         return "ABOVE"
-    if last < sma - band:
+    if close < sma - band:
         return "BELOW"
     return "AT_LINE"
+
+
+def _status(closes: pd.Series, window: int, thr_pct: float, confirm: int) -> tuple[str, int]:
+    """Confirmed status + how many of the last `confirm` closes are on the
+    breaking side. ABOVE/BELOW require ALL `confirm` most-recent closes to sit
+    the same side of their OWN-day SMA band (de-twitches a single-close cross);
+    anything mixed = AT_LINE. Returns (status, n_below_recent)."""
+    sides = []
+    for i in range(confirm, 0, -1):
+        end = len(closes) - i + 1          # exclusive end for this day's window
+        if end < window:                   # not enough history for an SMA here
+            continue
+        sma_i = float(closes.iloc[end - window:end].mean())
+        sides.append(_side(float(closes.iloc[end - 1]), sma_i, thr_pct))
+    n_below = sum(s == "BELOW" for s in sides)
+    if sides and all(s == "BELOW" for s in sides):
+        return "BELOW", n_below
+    if sides and all(s == "ABOVE" for s in sides):
+        return "ABOVE", n_below
+    return "AT_LINE", n_below
 
 
 def build() -> dict:
     cfg = _cfg()
     window = int(cfg.get("sma_window", 50))
     thr = float(cfg.get("break_threshold_pct", 1.0))
+    confirm = max(1, int(cfg.get("confirm_closes", 2)))
     tickers = list(cfg.get("tickers", ["USO", "XLE"]))
     # Fetch ~3x the SMA window in calendar days so we always have `window` rows.
     lookback_days = window * 5 + 30
@@ -63,23 +83,27 @@ def build() -> dict:
     rows: list[dict] = []
     for t in tickers:
         closes = _daily_closes(t, lookback_days)
-        if closes is None or len(closes) < window:
+        if closes is None or len(closes) < window + confirm - 1:
             rows.append({"ticker": t, "status": "NO_DATA"})
-            logger.warning("%s: insufficient data for a %d-SMA", t, window)
+            logger.warning("%s: insufficient data for a %d-SMA + %d-close confirm",
+                           t, window, confirm)
             continue
         last = float(closes.iloc[-1])
         sma = float(closes.iloc[-window:].mean())
+        status, n_below = _status(closes, window, thr, confirm)
         rows.append({
             "ticker": t,
             "last": round(last, 2),
             "sma": round(sma, 2),
             "pct_vs_sma": round((last / sma - 1.0) * 100.0, 2),
-            "status": _status(last, sma, thr),
+            "status": status,
+            "below_of_last_n": f"{n_below}/{confirm}",
         })
 
     return {
         "sma_window": window,
         "break_threshold_pct": thr,
+        "confirm_closes": confirm,
         "watch": rows,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -93,15 +117,18 @@ def main() -> int:
     OUTPUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     w = payload["sma_window"]
-    logger.info("%d-SMA watch (%.1f%% band):", w, payload["break_threshold_pct"])
+    conf = payload["confirm_closes"]
+    logger.info("%d-SMA watch (%.1f%% band, %d-close confirm):",
+                w, payload["break_threshold_pct"], conf)
     for r in payload["watch"]:
         if r["status"] == "NO_DATA":
             logger.info("  %-5s  no data", r["ticker"])
             continue
-        flag = {"ABOVE": "holding", "AT_LINE": "AT THE LINE",
-                "BELOW": "BROKE BELOW"}[r["status"]]
-        logger.info("  %-5s  last %.2f vs %d-SMA %.2f  (%+.2f%%)  -> %s",
-                    r["ticker"], r["last"], w, r["sma"], r["pct_vs_sma"], flag)
+        flag = {"ABOVE": "holding (confirmed)", "AT_LINE": "AT THE LINE (unconfirmed)",
+                "BELOW": "BROKE BELOW (confirmed)"}[r["status"]]
+        logger.info("  %-5s  last %.2f vs %d-SMA %.2f  (%+.2f%%)  [%s below]  -> %s",
+                    r["ticker"], r["last"], w, r["sma"], r["pct_vs_sma"],
+                    r["below_of_last_n"], flag)
     logger.info("wrote %s", OUTPUT)
     return 0
 

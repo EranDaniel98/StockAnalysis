@@ -1,21 +1,24 @@
 {
   "sma_window": 50,
   "break_threshold_pct": 1.0,
+  "confirm_closes": 2,
   "watch": [
     {
       "ticker": "USO",
       "last": 133.02,
       "sma": 134.87,
       "pct_vs_sma": -1.37,
-      "status": "BELOW"
+      "status": "AT_LINE",
+      "below_of_last_n": "1/2"
     },
     {
       "ticker": "XLE",
       "last": 57.67,
       "sma": 58.15,
       "pct_vs_sma": -0.83,
-      "status": "AT_LINE"
+      "status": "AT_LINE",
+      "below_of_last_n": "0/2"
     }
   ],
-  "generated_at": "2026-06-08T08:23:38.813672+00:00"
+  "generated_at": "2026-06-08T08:25:58.619871+00:00"
 }
