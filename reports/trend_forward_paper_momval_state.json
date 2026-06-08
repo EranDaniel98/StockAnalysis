@@ -1,0 +1,297 @@
+{
+  "strategy": "momval_6_4_composite",
+  "book": "momval",
+  "start_date": "2026-06-08",
+  "universe_file": "PIT_S&P_500",
+  "universe_n": 495,
+  "params": {
+    "top_n": 24,
+    "rebalance_days": 63,
+    "cost_bps": 5.0,
+    "weights": {
+      "momentum": 0.6,
+      "value": 0.4
+    }
+  },
+  "baseline_equity": 100000.0,
+  "cash": -50.0,
+  "holdings": {
+    "APA": {
+      "shares": 118.89051372590981,
+      "entry_px": 36.57,
+      "entry_date": "2026-06-08",
+      "last_px": 36.57,
+      "mom_rank": 1,
+      "mom_z": 2.3858803747883677,
+      "mom_raw": null,
+      "val_rank": 17
+    },
+    "NEM": {
+      "shares": 43.60471454173626,
+      "entry_px": 99.71,
+      "entry_date": "2026-06-08",
+      "last_px": 99.71,
+      "mom_rank": 2,
+      "mom_z": 2.2143621300940577,
+      "mom_raw": null,
+      "val_rank": 51
+    },
+    "DAL": {
+      "shares": 54.74472534571294,
+      "entry_px": 79.42,
+      "entry_date": "2026-06-08",
+      "last_px": 79.42,
+      "mom_rank": 3,
+      "mom_z": 2.0054009254501257,
+      "mom_raw": null,
+      "val_rank": 39
+    },
+    "AES": {
+      "shares": 296.37532971755434,
+      "entry_px": 14.67,
+      "entry_date": "2026-06-08",
+      "last_px": 14.67,
+      "mom_rank": 4,
+      "mom_z": 1.975273456107457,
+      "mom_raw": null,
+      "val_rank": 12
+    },
+    "DVN": {
+      "shares": 98.18938769097836,
+      "entry_px": 44.28,
+      "entry_date": "2026-06-08",
+      "last_px": 44.28,
+      "mom_rank": 5,
+      "mom_z": 1.9371955011348767,
+      "mom_raw": null,
+      "val_rank": 46
+    },
+    "CFG": {
+      "shares": 67.95601886459085,
+      "entry_px": 63.98,
+      "entry_date": "2026-06-08",
+      "last_px": 63.98,
+      "mom_rank": 6,
+      "mom_z": 1.9243520744034055,
+      "mom_raw": null,
+      "val_rank": 83
+    },
+    "INCY": {
+      "shares": 42.46753357058529,
+      "entry_px": 102.38,
+      "entry_date": "2026-06-08",
+      "last_px": 102.38,
+      "mom_rank": 7,
+      "mom_z": 1.846773949578058,
+      "mom_raw": null,
+      "val_rank": 70
+    },
+    "STT": {
+      "shares": 26.87991398427525,
+      "entry_px": 161.75,
+      "entry_date": "2026-06-08",
+      "last_px": 161.75,
+      "mom_rank": 8,
+      "mom_z": 1.8066387847023329,
+      "mom_raw": null,
+      "val_rank": 103
+    },
+    "FDX": {
+      "shares": 13.135426244581637,
+      "entry_px": 331.0,
+      "entry_date": "2026-06-08",
+      "last_px": 331.0,
+      "mom_rank": 9,
+      "mom_z": 1.7947087069764864,
+      "mom_raw": null,
+      "val_rank": 125
+    },
+    "VLO": {
+      "shares": 16.995645715567672,
+      "entry_px": 255.82,
+      "entry_date": "2026-06-08",
+      "last_px": 255.82,
+      "mom_rank": 10,
+      "mom_z": 1.7810867589497448,
+      "mom_raw": null,
+      "val_rank": 140
+    },
+    "REGN": {
+      "shares": 6.842121468182425,
+      "entry_px": 635.45,
+      "entry_date": "2026-06-08",
+      "last_px": 635.45,
+      "mom_rank": 11,
+      "mom_z": 1.767186456940337,
+      "mom_raw": null,
+      "val_rank": 90
+    },
+    "SYF": {
+      "shares": 61.3752976701937,
+      "entry_px": 70.84,
+      "entry_date": "2026-06-08",
+      "last_px": 70.84,
+      "mom_rank": 12,
+      "mom_z": 1.7637070321570059,
+      "mom_raw": null,
+      "val_rank": 8
+    },
+    "MPC": {
+      "shares": 16.594122693624374,
+      "entry_px": 262.01,
+      "entry_date": "2026-06-08",
+      "last_px": 262.01,
+      "mom_rank": 13,
+      "mom_z": 1.7530164995102206,
+      "mom_raw": null,
+      "val_rank": 114
+    },
+    "KEY": {
+      "shares": 199.8081841432225,
+      "entry_px": 21.76,
+      "entry_date": "2026-06-08",
+      "last_px": 21.76,
+      "mom_rank": 14,
+      "mom_z": 1.745835836613621,
+      "mom_raw": null,
+      "val_rank": 58
+    },
+    "CF": {
+      "shares": 38.31021311971559,
+      "entry_px": 113.49,
+      "entry_date": "2026-06-08",
+      "last_px": 113.49,
+      "mom_rank": 16,
+      "mom_z": 1.6904738390298428,
+      "mom_raw": null,
+      "val_rank": 28
+    },
+    "C": {
+      "shares": 32.821213006390295,
+      "entry_px": 132.47,
+      "entry_date": "2026-06-08",
+      "last_px": 132.47,
+      "mom_rank": 17,
+      "mom_z": 1.6876468063933865,
+      "mom_raw": null,
+      "val_rank": 144
+    },
+    "RF": {
+      "shares": 152.3414886810274,
+      "entry_px": 28.54,
+      "entry_date": "2026-06-08",
+      "last_px": 28.54,
+      "mom_rank": 18,
+      "mom_z": 1.674794681099957,
+      "mom_raw": null,
+      "val_rank": 42
+    },
+    "NTRS": {
+      "shares": 25.504933929468656,
+      "entry_px": 170.47,
+      "entry_date": "2026-06-08",
+      "last_px": 170.47,
+      "mom_rank": 19,
+      "mom_z": 1.6610857474536325,
+      "mom_raw": null,
+      "val_rank": 128
+    },
+    "HAL": {
+      "shares": 110.97054841645028,
+      "entry_px": 39.18,
+      "entry_date": "2026-06-08",
+      "last_px": 39.18,
+      "mom_rank": 20,
+      "mom_z": 1.6536832712270952,
+      "mom_raw": null,
+      "val_rank": 180
+    },
+    "BKR": {
+      "shares": 69.46518752127372,
+      "entry_px": 62.59,
+      "entry_date": "2026-06-08",
+      "last_px": 62.59,
+      "mom_rank": 21,
+      "mom_z": 1.6353510518999193,
+      "mom_raw": null,
+      "val_rank": 168
+    },
+    "EIX": {
+      "shares": 59.29123260543464,
+      "entry_px": 73.33,
+      "entry_date": "2026-06-08",
+      "last_px": 73.33,
+      "mom_rank": 22,
+      "mom_z": 1.6192500137150543,
+      "mom_raw": null,
+      "val_rank": 15
+    },
+    "PSX": {
+      "shares": 23.748230756808617,
+      "entry_px": 183.08,
+      "entry_date": "2026-06-08",
+      "last_px": 183.08,
+      "mom_rank": 23,
+      "mom_z": 1.6140004315732033,
+      "mom_raw": null,
+      "val_rank": 136
+    },
+    "TGT": {
+      "shares": 35.472188030974316,
+      "entry_px": 122.57,
+      "entry_date": "2026-06-08",
+      "last_px": 122.57,
+      "mom_rank": 26,
+      "mom_z": 1.567597952806503,
+      "mom_raw": null,
+      "val_rank": 98
+    }
+  },
+  "rebalances": [
+    {
+      "date": "2026-06-08",
+      "picks": [
+        "APA",
+        "NEM",
+        "DAL",
+        "AES",
+        "DVN",
+        "CFG",
+        "INCY",
+        "STT",
+        "FDX",
+        "VLO",
+        "REGN",
+        "SYF",
+        "MPC",
+        "KEY",
+        "CF",
+        "C",
+        "RF",
+        "NTRS",
+        "HAL",
+        "BKR",
+        "EIX",
+        "PSX",
+        "TGT"
+      ],
+      "n": 23,
+      "equity_pre": 100000.0,
+      "turnover": 100000.0,
+      "cost": 50.0
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-06-08",
+      "equity": 99950.0,
+      "ret_pct": -0.05,
+      "spy_close": 737.55,
+      "spy_ret_pct": 0.0,
+      "excess_vs_spy_pct": -0.05
+    }
+  ],
+  "last_rebalance": "2026-06-08",
+  "spy_start_close": 737.55,
+  "last_marked": "2026-06-08"
+}

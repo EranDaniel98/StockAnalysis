@@ -42,14 +42,14 @@ STEPS = [
     "morning_briefing",
     "paper_vs_spy_snapshot",
     "mark_ai_book",
-    "momval_picks",
+    "mark_momval_book",
     "kill_switch_check",
 ]
 
 # Research / advisory steps — surfaced in the summary but never fail the run.
-# The AI forward book + momentum-value book are research books isolated from the
-# live config; a hiccup generating them must not flip the daily exit code.
-_ADVISORY = {"mark_ai_book", "momval_picks"}
+# The AI + momentum-value forward books are research books isolated from the
+# live config; a hiccup marking one must not flip the daily exit code.
+_ADVISORY = {"mark_ai_book", "mark_momval_book"}
 
 
 def _run(args: list[str], step: str) -> bool:
@@ -178,12 +178,12 @@ def main() -> int:
         "mark_ai_book",
     )
 
-    # 8.6 Momentum-value "biggest-risers" book picks (research, non-gating).
-    # Momentum-tilted composite; higher upside-precision, higher DD than the
-    # production blend. Surfaced at /research/momval-book.
-    results["momval_picks"] = _run(
-        ["scripts.momval_picks", "--as-of", date_str],
-        "momval_picks",
+    # 8.6 Mark the momentum-value forward-paper book (research, non-gating).
+    # Marks to live prices daily; rebalances on its 63td cadence via the
+    # mom+val pipeline. Surfaced at /research/momval-book.
+    results["mark_momval_book"] = _run(
+        ["scripts.research.momval_forward_paper", "--as-of", date_str],
+        "mark_momval_book",
     )
 
     # 9. Kill-switch check (advisory in this pipeline -- the hard gate lives
