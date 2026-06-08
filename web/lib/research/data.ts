@@ -67,3 +67,38 @@ export async function fetchForwardBook(book: string): Promise<ForwardBook | null
     return null;
   }
 }
+
+// ── Momentum-Value daily screener (fresh candidates, re-ranked each day) ──────
+
+export type MomvalPick = {
+  rank: number | null;
+  ticker: string;
+  composite_z: number | null;
+  mom_rank: number | null;
+  val_rank: number | null;
+  sector: string | null;
+};
+
+export type MomvalPicks = {
+  strategy: string;
+  label: string;
+  as_of: string;
+  weights: Record<string, number>;
+  universe_size: number;
+  top_n: number;
+  picks: MomvalPick[];
+};
+
+/** Today's fresh mom-val top-ranked candidates (distinct from the held book). */
+export async function fetchMomvalPicks(): Promise<MomvalPicks | null> {
+  const base = process.env.NEXT_INTERNAL_API_URL ?? "http://127.0.0.1:8000";
+  try {
+    const res = await fetch(`${base}/api/research/momval-picks`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as MomvalPicks;
+  } catch {
+    return null;
+  }
+}

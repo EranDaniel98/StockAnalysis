@@ -317,7 +317,7 @@ function StockDetail({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <TradingViewChart symbol={ticker} />
+              <TradingViewChart symbol={ticker} height={720} />
             </CardContent>
           </Card>
 

@@ -18,13 +18,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { fetchForwardBook } from "@/lib/research/data";
+import { fetchForwardBook, fetchMomvalPicks } from "@/lib/research/data";
 import { fmtNumber, fmtPct, fmtUSD, pnlColorClass } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function MomvalBookPage() {
-  const book = await fetchForwardBook("momval");
+  const [book, candidates] = await Promise.all([
+    fetchForwardBook("momval"),
+    fetchMomvalPicks(),
+  ]);
 
   if (!book) {
     return (
@@ -175,6 +178,69 @@ export default async function MomvalBookPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {candidates && candidates.picks.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Today&apos;s top-ranked candidates
+            </CardTitle>
+            <CardDescription>
+              The mom-val composite re-ranked on {candidates.as_of} (drifts daily
+              as prices/fundamentals move). <span className="text-bullish">held</span>{" "}
+              = already in the book; <span className="text-muted-foreground">new</span>{" "}
+              = ranks in today&apos;s top but not yet held (would come in at the next
+              63-day rebalance).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Ticker</TableHead>
+                  <TableHead className="text-right">Composite z</TableHead>
+                  <TableHead className="text-right">Momentum</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
+                  <TableHead className="text-right">In book?</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(() => {
+                  const held = new Set(book.holdings.map((h) => h.ticker));
+                  return candidates.picks.map((p) => {
+                    const isHeld = held.has(p.ticker);
+                    return (
+                      <TableRow key={p.ticker}>
+                        <TableCell className="text-muted-foreground font-mono">
+                          {p.rank ?? "—"}
+                        </TableCell>
+                        <TableCell className="font-mono font-medium">{p.ticker}</TableCell>
+                        <TableCell className="text-bullish text-right font-mono tabular-nums">
+                          {p.composite_z != null ? `+${fmtNumber(p.composite_z, 2)}` : "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-right font-mono tabular-nums">
+                          {p.mom_rank ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-right font-mono tabular-nums">
+                          {p.val_rank ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {isHeld ? (
+                            <span className="text-bullish text-xs font-medium">held</span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">new</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  });
+                })()}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

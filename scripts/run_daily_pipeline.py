@@ -43,13 +43,14 @@ STEPS = [
     "paper_vs_spy_snapshot",
     "mark_ai_book",
     "mark_momval_book",
+    "momval_picks",
     "kill_switch_check",
 ]
 
 # Research / advisory steps — surfaced in the summary but never fail the run.
 # The AI + momentum-value forward books are research books isolated from the
 # live config; a hiccup marking one must not flip the daily exit code.
-_ADVISORY = {"mark_ai_book", "mark_momval_book"}
+_ADVISORY = {"mark_ai_book", "mark_momval_book", "momval_picks"}
 
 
 def _run(args: list[str], step: str) -> bool:
@@ -184,6 +185,13 @@ def main() -> int:
     results["mark_momval_book"] = _run(
         ["scripts.research.momval_forward_paper", "--as-of", date_str],
         "mark_momval_book",
+    )
+
+    # 8.7 Mom-value FRESH candidates screener (research, non-gating). Re-ranks
+    # the mom+val top-24 daily so /research/momval-book can show held-vs-new.
+    results["momval_picks"] = _run(
+        ["scripts.momval_picks", "--as-of", date_str],
+        "momval_picks",
     )
 
     # 9. Kill-switch check (advisory in this pipeline -- the hard gate lives
