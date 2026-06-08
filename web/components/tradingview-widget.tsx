@@ -83,6 +83,55 @@ export function TradingViewChart({
   );
 }
 
+/** Reported financials (income / balance-sheet / cash-flow) for one symbol.
+ * Display-only TradingView data — actuals as filed, NOT a forecast. */
+export function TradingViewFinancials({
+  symbol,
+  height = 460,
+}: {
+  symbol: string;
+  height?: number;
+}) {
+  return (
+    <TradingViewWidget
+      height={height}
+      scriptSrc="https://s3.tradingview.com/external-embedding/embed-widget-financials.js"
+      config={{
+        symbol,
+        displayMode: "regular",
+        width: "100%",
+        colorTheme: "dark",
+        isTransparent: true,
+        largeChartUrl: "",
+        locale: "en",
+      }}
+    />
+  );
+}
+
+/** Company description / sector / basic profile for one symbol (display-only). */
+export function TradingViewProfile({
+  symbol,
+  height = 380,
+}: {
+  symbol: string;
+  height?: number;
+}) {
+  return (
+    <TradingViewWidget
+      height={height}
+      scriptSrc="https://s3.tradingview.com/external-embedding/embed-widget-symbol-profile.js"
+      config={{
+        symbol,
+        width: "100%",
+        colorTheme: "dark",
+        isTransparent: true,
+        locale: "en",
+      }}
+    />
+  );
+}
+
 /** Oscillator + moving-average "buy/sell/neutral" gauge for one symbol. */
 export function TradingViewTechnicals({
   symbol,

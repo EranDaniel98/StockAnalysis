@@ -183,61 +183,89 @@ export default async function MomvalBookPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="text-base">
-              Today&apos;s top-ranked candidates
+              Today&apos;s top-ranked candidates — why each ranks
             </CardTitle>
             <CardDescription>
               The mom-val composite re-ranked on {candidates.as_of} (drifts daily
               as prices/fundamentals move). <span className="text-bullish">held</span>{" "}
               = already in the book; <span className="text-muted-foreground">new</span>{" "}
-              = ranks in today&apos;s top but not yet held (would come in at the next
-              63-day rebalance).
+              = ranks in today&apos;s top but not yet held (comes in at the next
+              63-day rebalance). Each &ldquo;why&rdquo; is grounded ONLY in the
+              factor ranks + EDGAR point-in-time fundamentals shown
+              {candidates.ai_model ? ` (${candidates.ai_model})` : ""} — not advice,
+              and never invented. EDGAR carries no price-derived ratios (P/E etc.),
+              so they are intentionally absent.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">#</TableHead>
-                  <TableHead>Ticker</TableHead>
-                  <TableHead className="text-right">Composite z</TableHead>
-                  <TableHead className="text-right">Momentum</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">In book?</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(() => {
-                  const held = new Set(book.holdings.map((h) => h.ticker));
-                  return candidates.picks.map((p) => {
-                    const isHeld = held.has(p.ticker);
-                    return (
-                      <TableRow key={p.ticker}>
-                        <TableCell className="text-muted-foreground font-mono">
-                          {p.rank ?? "—"}
-                        </TableCell>
-                        <TableCell className="font-mono font-medium">{p.ticker}</TableCell>
-                        <TableCell className="text-bullish text-right font-mono tabular-nums">
+          <CardContent className="space-y-3">
+            {(() => {
+              const held = new Set(book.holdings.map((h) => h.ticker));
+              const fundChips = (p: (typeof candidates.picks)[number]) =>
+                (
+                  [
+                    ["12-1 ret", p.trailing_12_1],
+                    ["rev gr", p.revenue_growth_yoy],
+                    ["EPS gr", p.earnings_growth_yoy],
+                    ["margin", p.profit_margin],
+                    ["op margin", p.operating_margin],
+                    ["div yld", p.dividend_yield],
+                  ] as const
+                )
+                  .filter(([, v]) => v != null)
+                  .map(([label, v]) => (
+                    <span
+                      key={label}
+                      className="bg-muted/40 rounded px-1.5 py-0.5 font-mono text-[11px]"
+                    >
+                      <span className="text-muted-foreground">{label} </span>
+                      <span className={pnlColorClass((v as number))}>
+                        {fmtPct((v as number) * 100, 0, true)}
+                      </span>
+                    </span>
+                  ));
+              return candidates.picks.map((p) => {
+                const isHeld = held.has(p.ticker);
+                const chips = fundChips(p);
+                return (
+                  <div
+                    key={p.ticker}
+                    className="border-border/40 rounded-md border px-3 py-2.5"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-muted-foreground font-mono text-xs">
+                          #{p.rank ?? "—"}
+                        </span>
+                        <span className="font-mono font-medium">{p.ticker}</span>
+                        {p.name ? (
+                          <span className="text-muted-foreground truncate text-xs">
+                            {p.name}
+                          </span>
+                        ) : null}
+                        {isHeld ? (
+                          <span className="text-bullish text-xs font-medium">held</span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">new</span>
+                        )}
+                      </div>
+                      <div className="text-muted-foreground shrink-0 font-mono text-xs tabular-nums">
+                        z{" "}
+                        <span className="text-bullish">
                           {p.composite_z != null ? `+${fmtNumber(p.composite_z, 2)}` : "—"}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-right font-mono tabular-nums">
-                          {p.mom_rank ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-right font-mono tabular-nums">
-                          {p.val_rank ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {isHeld ? (
-                            <span className="text-bullish text-xs font-medium">held</span>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">new</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  });
-                })()}
-              </TableBody>
-            </Table>
+                        </span>{" "}
+                        · mom {p.mom_rank ?? "—"} · val {p.val_rank ?? "—"}
+                      </div>
+                    </div>
+                    {p.why ? (
+                      <p className="text-foreground/90 mt-1.5 text-sm">{p.why}</p>
+                    ) : null}
+                    {chips.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1">{chips}</div>
+                    ) : null}
+                  </div>
+                );
+              });
+            })()}
           </CardContent>
         </Card>
       ) : null}

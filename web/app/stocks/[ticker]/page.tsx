@@ -28,7 +28,11 @@ import { FactorChips } from "@/components/factor-chips";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreboardTile } from "@/components/portfolio/scoreboard-tile";
-import { TradingViewChart } from "@/components/tradingview-widget";
+import {
+  TradingViewChart,
+  TradingViewFinancials,
+  TradingViewProfile,
+} from "@/components/tradingview-widget";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -318,6 +322,36 @@ function StockDetail({
             </CardHeader>
             <CardContent>
               <TradingViewChart symbol={ticker} height={720} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                Reported financials — TradingView
+              </CardTitle>
+              <CardDescription className="text-[11px]">
+                Income / balance-sheet / cash-flow as filed — actuals, not a
+                forecast. Independent of our EDGAR factor panel.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TradingViewFinancials symbol={ticker} height={460} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
+                Company profile — TradingView
+              </CardTitle>
+              <CardDescription className="text-[11px]">
+                Sector, industry &amp; business description so you know what the
+                name actually does.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TradingViewProfile symbol={ticker} height={380} />
             </CardContent>
           </Card>
 

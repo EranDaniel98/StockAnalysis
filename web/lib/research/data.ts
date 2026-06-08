@@ -73,10 +73,20 @@ export async function fetchForwardBook(book: string): Promise<ForwardBook | null
 export type MomvalPick = {
   rank: number | null;
   ticker: string;
+  name: string | null;
   composite_z: number | null;
   mom_rank: number | null;
   val_rank: number | null;
   sector: string | null;
+  why: string | null;
+  trailing_12_1: number | null;
+  revenue_growth_yoy: number | null;
+  earnings_growth_yoy: number | null;
+  profit_margin: number | null;
+  operating_margin: number | null;
+  debt_to_equity: number | null;
+  dividend_yield: number | null;
+  free_cash_flow: number | null;
 };
 
 export type MomvalPicks = {
@@ -86,6 +96,8 @@ export type MomvalPicks = {
   weights: Record<string, number>;
   universe_size: number;
   top_n: number;
+  horizon_note: string;
+  ai_model: string | null;
   picks: MomvalPick[];
 };
 

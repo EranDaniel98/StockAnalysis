@@ -67,13 +67,27 @@ class ForwardBookResponse(BaseModel):
 
 
 class MomvalPick(BaseModel):
-    """One name in the momentum-value (biggest-risers) book."""
+    """One name in the momentum-value (biggest-risers) book, with the
+    EDGAR fundamentals + trailing return + grounded AI 'why' that justify it."""
     rank: Optional[int] = None
     ticker: str
+    name: Optional[str] = None
     composite_z: Optional[float] = None
     mom_rank: Optional[int] = None
     val_rank: Optional[int] = None
     sector: Optional[str] = None
+    # The grounded 'why to buy' so the book is not acted on blindly.
+    why: Optional[str] = None
+    trailing_12_1: Optional[float] = None
+    # EDGAR point-in-time fundamentals (price-derived ratios are absent —
+    # EDGAR carries no price). Fractions (0.31 = +31%), not percents.
+    revenue_growth_yoy: Optional[float] = None
+    earnings_growth_yoy: Optional[float] = None
+    profit_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    free_cash_flow: Optional[float] = None
 
 
 class MomvalPicksResponse(BaseModel):
@@ -86,5 +100,6 @@ class MomvalPicksResponse(BaseModel):
     universe_size: int
     top_n: int = Field(ge=0)
     horizon_note: str
+    ai_model: Optional[str] = None
     picks: list[MomvalPick]
     generated_at: str
