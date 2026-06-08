@@ -21,6 +21,7 @@ import {
   Microscope,
   Newspaper,
   Play,
+  Rocket,
   Search,
   Sparkles,
   TrendingUp,
@@ -95,6 +96,12 @@ const NAV: NavLink[] = [
     label: "AI book",
     icon: Cpu,
     description: "Broad-AI 12-1 momentum forward-paper book",
+  },
+  {
+    href: "/research/momval-book",
+    label: "Mom-Value book",
+    icon: Rocket,
+    description: "Biggest-risers book (momentum 0.6 / value 0.4)",
   },
   {
     href: "/backtests",

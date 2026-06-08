@@ -212,6 +212,8 @@ def run_factor_picks(
     min_z: float | None = None,
     require_pead: bool = False,
     min_history_days: int | None = None,
+    composite_factors: str = "mqv",
+    factor_weights: dict[str, float] | None = None,
 ) -> FactorPicksResult:
     """Compute today's composite-factor picks.
 
@@ -361,7 +363,30 @@ def run_factor_picks(
         len(mom), len(qual), len(val), len(pead),
     )
 
-    composite = combine_factors(factor_frames, min_overlap=min_overlap)
+    # Default path (composite_factors="mqv", no factor_weights) is byte-identical
+    # to the equal-weight production blend. A non-default config (e.g. the
+    # momentum-tilted "biggest-risers" book: composite_factors="mv",
+    # factor_weights={"momentum":0.6,"value":0.4}) selects a factor SUBSET and
+    # passes a weight vector to combine. See project_factor_horizon_decomp.
+    _weights = None
+    if composite_factors != "mqv" or factor_weights:
+        _by_name = {"momentum": mom, "quality": qual, "value": val}
+        if include_pead:
+            _by_name["pead"] = pead
+        _letter = {"m": "momentum", "q": "quality", "v": "value"}
+        wanted = [_letter[c] for c in composite_factors if c in _letter]
+        if include_pead:
+            wanted.append("pead")
+        factor_frames = [_by_name[n] for n in wanted]
+        factors_used = list(wanted)
+        if sector_neutral_quality and "quality" in wanted:
+            factors_used.append("sector_neutral")
+        fw = factor_weights or {}
+        _weights = [float(fw.get(n, 1.0)) for n in wanted]
+
+    composite = combine_factors(
+        factor_frames, min_overlap=min_overlap, weights=_weights,
+    )
     if composite.empty:
         logger.error("Composite factor returned no names")
         return FactorPicksResult(

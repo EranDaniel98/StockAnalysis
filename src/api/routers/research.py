@@ -21,6 +21,7 @@ from src.api.schemas.research import (
     ForwardBookHolding,
     ForwardBookMark,
     ForwardBookResponse,
+    MomvalPicksResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,25 @@ def _build_holdings(state: dict) -> list[ForwardBookHolding]:
     # Selection order: by momentum rank (the sole criterion), unranked last.
     out.sort(key=lambda h: h.mom_rank if h.mom_rank is not None else 10**9)
     return out
+
+
+@router.get("/momval-picks", response_model=MomvalPicksResponse)
+def get_momval_picks() -> MomvalPicksResponse:
+    """Latest momentum-value 'biggest-risers' book picks (read-only).
+
+    Defined BEFORE the /{book} catch-all so it isn't swallowed as book='momval-
+    picks'. Reads the file written by scripts.momval_picks."""
+    path = REPORTS_DIR / "momval_picks_latest.json"
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="No momval picks yet. Run scripts.momval_picks.",
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=500, detail=f"Bad momval picks file: {e}")
+    return MomvalPicksResponse(**data)
 
 
 @router.get("/{book}", response_model=ForwardBookResponse)

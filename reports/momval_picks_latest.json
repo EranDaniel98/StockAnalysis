@@ -1,0 +1,211 @@
+{
+  "strategy": "momval_6_4",
+  "label": "Momentum-Value (biggest-risers)",
+  "as_of": "2026-06-08",
+  "weights": {
+    "momentum": 0.6,
+    "value": 0.4
+  },
+  "factors_used": [
+    "momentum",
+    "value"
+  ],
+  "universe_size": 495,
+  "top_n": 24,
+  "horizon_note": "Tuned for UPSIDE precision at a 3-6 month horizon. Higher drawdowns than the production blend (research: median maxDD ~-19% vs -14%). Observe, do not size as the core.",
+  "picks": [
+    {
+      "rank": 1,
+      "ticker": "APA",
+      "composite_z": 2.3858803747883677,
+      "mom_rank": 28,
+      "val_rank": 17,
+      "sector": "Energy"
+    },
+    {
+      "rank": 2,
+      "ticker": "NEM",
+      "composite_z": 2.2143621300940577,
+      "mom_rank": 32,
+      "val_rank": 51,
+      "sector": "Basic Materials"
+    },
+    {
+      "rank": 3,
+      "ticker": "DAL",
+      "composite_z": 2.0054009254501257,
+      "mom_rank": 73,
+      "val_rank": 39,
+      "sector": "Industrials"
+    },
+    {
+      "rank": 4,
+      "ticker": "AES",
+      "composite_z": 1.975273456107457,
+      "mom_rank": 96,
+      "val_rank": 12,
+      "sector": "Utilities"
+    },
+    {
+      "rank": 5,
+      "ticker": "DVN",
+      "composite_z": 1.9371955011348767,
+      "mom_rank": 79,
+      "val_rank": 46,
+      "sector": "Energy"
+    },
+    {
+      "rank": 6,
+      "ticker": "CFG",
+      "composite_z": 1.9243520744034055,
+      "mom_rank": 56,
+      "val_rank": 83,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 7,
+      "ticker": "INCY",
+      "composite_z": 1.846773949578058,
+      "mom_rank": 77,
+      "val_rank": 70,
+      "sector": "Healthcare"
+    },
+    {
+      "rank": 8,
+      "ticker": "STT",
+      "composite_z": 1.8066387847023329,
+      "mom_rank": 61,
+      "val_rank": 103,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 9,
+      "ticker": "FDX",
+      "composite_z": 1.7947087069764864,
+      "mom_rank": 48,
+      "val_rank": 125,
+      "sector": "Industrials"
+    },
+    {
+      "rank": 10,
+      "ticker": "VLO",
+      "composite_z": 1.7810867589497448,
+      "mom_rank": 40,
+      "val_rank": 140,
+      "sector": "Energy"
+    },
+    {
+      "rank": 11,
+      "ticker": "REGN",
+      "composite_z": 1.767186456940337,
+      "mom_rank": 76,
+      "val_rank": 90,
+      "sector": "Healthcare"
+    },
+    {
+      "rank": 12,
+      "ticker": "SYF",
+      "composite_z": 1.7637070321570059,
+      "mom_rank": 132,
+      "val_rank": 8,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 13,
+      "ticker": "MPC",
+      "composite_z": 1.7530164995102206,
+      "mom_rank": 62,
+      "val_rank": 114,
+      "sector": "Energy"
+    },
+    {
+      "rank": 14,
+      "ticker": "KEY",
+      "composite_z": 1.745835836613621,
+      "mom_rank": 101,
+      "val_rank": 58,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 15,
+      "ticker": "BK",
+      "composite_z": 1.7406732400913534,
+      "mom_rank": 68,
+      "val_rank": 108,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 16,
+      "ticker": "CF",
+      "composite_z": 1.6904738390298428,
+      "mom_rank": 130,
+      "val_rank": 28,
+      "sector": "Basic Materials"
+    },
+    {
+      "rank": 17,
+      "ticker": "C",
+      "composite_z": 1.6876468063933865,
+      "mom_rank": 52,
+      "val_rank": 144,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 18,
+      "ticker": "RF",
+      "composite_z": 1.674794681099957,
+      "mom_rank": 123,
+      "val_rank": 42,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 19,
+      "ticker": "NTRS",
+      "composite_z": 1.6610857474536325,
+      "mom_rank": 67,
+      "val_rank": 128,
+      "sector": "Financial Services"
+    },
+    {
+      "rank": 20,
+      "ticker": "HAL",
+      "composite_z": 1.6536832712270952,
+      "mom_rank": 33,
+      "val_rank": 180,
+      "sector": "Energy"
+    },
+    {
+      "rank": 21,
+      "ticker": "BKR",
+      "composite_z": 1.6353510518999193,
+      "mom_rank": 44,
+      "val_rank": 168,
+      "sector": "Energy"
+    },
+    {
+      "rank": 22,
+      "ticker": "EIX",
+      "composite_z": 1.6192500137150543,
+      "mom_rank": 150,
+      "val_rank": 15,
+      "sector": "Utilities"
+    },
+    {
+      "rank": 23,
+      "ticker": "PSX",
+      "composite_z": 1.6140004315732033,
+      "mom_rank": 69,
+      "val_rank": 136,
+      "sector": "Energy"
+    },
+    {
+      "rank": 26,
+      "ticker": "TGT",
+      "composite_z": 1.567597952806503,
+      "mom_rank": 102,
+      "val_rank": 98,
+      "sector": "Consumer Defensive"
+    }
+  ],
+  "generated_at": "2026-06-08T05:02:21.173595+00:00"
+}

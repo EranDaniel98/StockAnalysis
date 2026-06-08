@@ -64,3 +64,27 @@ class ForwardBookResponse(BaseModel):
     # The standing risk caveat baked into the CLI status print -- surfaced
     # so the UI shows it next to every number, not buried in a runbook.
     risk_note: str
+
+
+class MomvalPick(BaseModel):
+    """One name in the momentum-value (biggest-risers) book."""
+    rank: Optional[int] = None
+    ticker: str
+    composite_z: Optional[float] = None
+    mom_rank: Optional[int] = None
+    val_rank: Optional[int] = None
+    sector: Optional[str] = None
+
+
+class MomvalPicksResponse(BaseModel):
+    """Daily picks of the momentum-value 'biggest-risers' book (read-only)."""
+    strategy: str
+    label: str
+    as_of: str
+    weights: dict[str, float]
+    factors_used: list[str]
+    universe_size: int
+    top_n: int = Field(ge=0)
+    horizon_note: str
+    picks: list[MomvalPick]
+    generated_at: str
