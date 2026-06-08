@@ -325,3 +325,26 @@ strategies:
       hold_lower: 40
       sell: 25
     time_stop_days: 365
+
+# =============================================================================
+# Momentum-Value "biggest-risers" book (research / second book)
+# Momentum-tilted composite tuned for upside precision at a 3-6mo horizon.
+# Higher drawdowns than the production blend — observe, do not size as the core.
+# Used by scripts/momval_picks.py + scripts/research/momval_forward_paper.py.
+# =============================================================================
+momval_book:
+  weights:
+    momentum: 0.6
+    value: 0.4
+  top_n: 24
+  max_sector_pct: 30.0          # per-sector cap as % of top_n (null to disable)
+  min_history_days: 504
+  ai_model: "claude-sonnet-4-6" # LLM for the per-pick "why to buy" rationale
+  # Forward-paper book params:
+  rebalance_days: 63
+  cost_bps: 5.0
+  baseline_equity: 100000.0
+  risk_note: >-
+    Momentum-tilted biggest-risers book — higher upside in trends but deeper
+    drawdowns (research: median maxDD ~-19% vs the production blend's -14%) and
+    lower risk-adjusted alpha. Local paper, no broker.

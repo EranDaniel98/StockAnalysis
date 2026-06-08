@@ -33,7 +33,12 @@ from scripts.research.trend_forward_paper import (  # noqa: E402
 )
 
 STATE_PATH = ROOT / "reports" / "trend_forward_paper_momval_state.json"
-WEIGHTS = {"momentum": 0.6, "value": 0.4}
+
+
+def _cfg() -> dict:
+    """momval_book config (weights, params, risk note) from strategies.yaml."""
+    from src.config_loader import Config
+    return Config().strategies.get("momval_book", {})
 
 
 def _load_state() -> dict | None:
@@ -48,11 +53,13 @@ def _save_state(state: dict) -> None:
 def _momval_picks(as_of: pd.Timestamp, top_n: int) -> pd.DataFrame:
     """Today's mom+val(0.6/0.4) top-N over the live PIT S&P 500."""
     from src.factors.pipeline import run_factor_picks
+    cfg = _cfg()
     res = run_factor_picks(
         as_of=as_of, top_n=top_n,
-        composite_factors="mv", factor_weights=WEIGHTS,
+        composite_factors="mv",
+        factor_weights=cfg.get("weights", {"momentum": 0.6, "value": 0.4}),
         include_pead=False, sector_neutral_quality=False,
-        min_overlap=1, min_history_days=504,
+        min_overlap=1, min_history_days=int(cfg.get("min_history_days", 504)),
     )
     return res.top_n, res.universe_size
 
@@ -154,16 +161,18 @@ def _print_status(state: dict) -> None:
             since = (h.get("last_px", h["entry_px"]) / h["entry_px"] - 1.0) if h.get("entry_px") else None
             print(f"  #{h.get('mom_rank'):>3} {t:>6} z={h.get('mom_z'):+.2f}  "
                   f"since {since*100:+.2f}%" if since is not None else f"  {t}")
-    print("\n*** RISK: momentum-tilted biggest-risers book — higher upside in trends but deeper "
-          "drawdowns (~-19% median vs the production blend's -14%) + lower risk-adjusted alpha. ***")
+    note = state.get("risk_note") or _cfg().get("risk_note") or ""
+    if note:
+        print(f"\n*** RISK: {note.strip()} ***")
 
 
 def main() -> int:
+    cfg = _cfg()
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--top-n", type=int, default=24)
-    ap.add_argument("--rebalance-days", type=int, default=63)
-    ap.add_argument("--cost-bps", type=float, default=5.0)
-    ap.add_argument("--baseline", type=float, default=100_000.0)
+    ap.add_argument("--top-n", type=int, default=int(cfg.get("top_n", 24)))
+    ap.add_argument("--rebalance-days", type=int, default=int(cfg.get("rebalance_days", 63)))
+    ap.add_argument("--cost-bps", type=float, default=float(cfg.get("cost_bps", 5.0)))
+    ap.add_argument("--baseline", type=float, default=float(cfg.get("baseline_equity", 100_000.0)))
     ap.add_argument("--as-of", default=None)
     ap.add_argument("--force-rebalance", action="store_true")
     ap.add_argument("--status", action="store_true")
@@ -187,7 +196,9 @@ def main() -> int:
             "start_date": as_of.date().isoformat(),
             "universe_file": "PIT_S&P_500", "universe_n": 0,
             "params": {"top_n": args.top_n, "rebalance_days": args.rebalance_days,
-                       "cost_bps": args.cost_bps, "weights": WEIGHTS},
+                       "cost_bps": args.cost_bps,
+                       "weights": cfg.get("weights", {"momentum": 0.6, "value": 0.4})},
+            "risk_note": (cfg.get("risk_note") or "").strip(),
             "baseline_equity": args.baseline, "cash": args.baseline,
             "holdings": {}, "rebalances": [], "history": [],
         }

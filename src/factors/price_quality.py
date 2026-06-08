@@ -19,15 +19,32 @@ from __future__ import annotations
 
 import pandas as pd
 
-# A real S&P large-cap close-to-close move essentially never exceeds this;
-# above it is a ticker-change / delisting stitch, not a market move. (Buyout
-# pops and crashes top out ~40-50%.)
+# Defaults (used if config/settings.yaml::price_artifact_guard is absent). A
+# real S&P large-cap close-to-close move essentially never exceeds MAX_DAILY_MOVE
+# (buyout pops/crashes top out ~40-50%); markets never close ~MAX_GAP_DAYS days.
 MAX_DAILY_MOVE = 0.80
-# Markets never close ~45 calendar days; a gap this large = missing / stitched
-# data, not a real holiday/weekend (those are <=4 days).
 MAX_GAP_DAYS = 45
-# Trading rows of history to inspect — ~13 months, the 12-1 momentum window.
-LOOKBACK_ROWS = 280
+LOOKBACK_ROWS = 280  # ~13 months, the 12-1 momentum window
+
+_CFG: tuple[float, int, int] | None = None
+
+
+def _thresholds() -> tuple[float, int, int]:
+    """(max_daily_move, max_gap_days, lookback_rows) from config; cached.
+    Falls back to the module defaults if config is unreadable."""
+    global _CFG
+    if _CFG is None:
+        try:
+            from src.config_loader import Config
+            g = Config().get("price_artifact_guard", default=None) or {}
+        except Exception:  # noqa: BLE001
+            g = {}
+        _CFG = (
+            float(g.get("max_daily_move", MAX_DAILY_MOVE)),
+            int(g.get("max_gap_days", MAX_GAP_DAYS)),
+            int(g.get("lookback_rows", LOOKBACK_ROWS)),
+        )
+    return _CFG
 
 
 def has_price_artifact(

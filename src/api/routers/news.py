@@ -47,14 +47,15 @@ def _bellwethers(config: Config) -> list[str]:
 PICKS_DIR = Path("data/daily_picks")
 AI_BOOK_STATE = Path("reports") / "trend_forward_paper_ai_state.json"
 
-# Per-ticker article cap and how many tickers to fan out over. Keep the fan-out
-# bounded so one page load stays well under Polygon's rate limit.
-_PER_TICKER = 10
-_MAX_ARTICLES = 60
+# Fallbacks for the per-ticker cap / total cap / cache TTL — overridable via
+# config/settings.yaml::market_news (per_ticker_limit, max_articles,
+# cache_ttl_seconds). Keep the fan-out bounded under Polygon's rate limit.
+_PER_TICKER_FALLBACK = 10
+_MAX_ARTICLES_FALLBACK = 60
+_CACHE_TTL_FALLBACK = 300
 
 # In-process cache: news doesn't change second-to-second and the fan-out is
 # ~20 HTTP calls, so serve a few-minutes-stale feed rather than refetch per load.
-_CACHE_TTL_S = 300
 _cache: dict[tuple, tuple[float, NewsResponse]] = {}
 
 
@@ -131,7 +132,9 @@ def _to_article(raw: dict, focus: set[str]) -> NewsArticle | None:
     )
 
 
-def _gather_news(tickers: list[str], lookback_days: int) -> list[NewsArticle]:
+def _gather_news(
+    tickers: list[str], lookback_days: int, per_ticker: int, max_articles: int,
+) -> list[NewsArticle]:
     """Concurrent per-ticker fan-out → deduped, reverse-chronological feed."""
     client = PolygonClient()
     since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).date().isoformat()
@@ -139,7 +142,7 @@ def _gather_news(tickers: list[str], lookback_days: int) -> list[NewsArticle]:
 
     def _one(t: str) -> list[dict]:
         try:
-            return client.news(t, limit=_PER_TICKER, published_gte=since)
+            return client.news(t, limit=per_ticker, published_gte=since)
         except PolygonError as e:
             logger.warning("Polygon news failed for %s: %s", t, e)
             return []
@@ -152,7 +155,7 @@ def _gather_news(tickers: list[str], lookback_days: int) -> list[NewsArticle]:
                 if art and art.id not in by_id:
                     by_id[art.id] = art
     articles = sorted(by_id.values(), key=lambda a: a.published_utc, reverse=True)
-    return articles[:_MAX_ARTICLES]
+    return articles[:max_articles]
 
 
 async def compute_market_news(
@@ -171,13 +174,18 @@ async def compute_market_news(
                 tickers.append(t)
                 seen.add(t)
 
-    cache_key = (tuple(tickers), lookback_days)
+    per_ticker = int(config.get("market_news", "per_ticker_limit", default=_PER_TICKER_FALLBACK))
+    max_articles = int(config.get("market_news", "max_articles", default=_MAX_ARTICLES_FALLBACK))
+    cache_ttl = int(config.get("market_news", "cache_ttl_seconds", default=_CACHE_TTL_FALLBACK))
+
+    cache_key = (tuple(tickers), lookback_days, per_ticker, max_articles)
     now = time.time()
     cached = _cache.get(cache_key)
-    if cached and now - cached[0] < _CACHE_TTL_S:
+    if cached and now - cached[0] < cache_ttl:
         return cached[1]
 
-    articles = await asyncio.to_thread(_gather_news, tickers, lookback_days)
+    articles = await asyncio.to_thread(
+        _gather_news, tickers, lookback_days, per_ticker, max_articles)
     counts = Counter(a.sentiment for a in articles if a.sentiment)
     resp = NewsResponse(
         generated_at=datetime.now(timezone.utc),

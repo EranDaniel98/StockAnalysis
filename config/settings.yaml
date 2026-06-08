@@ -48,6 +48,27 @@ market_news:
     - "TSLA"
     - "JPM"
   lookback_days: 4                  # default news window for the feed + outlook
+  per_ticker_limit: 10              # Polygon articles fetched per bellwether
+  max_articles: 60                  # cap on the deduped feed
+  cache_ttl_seconds: 300            # in-process feed cache TTL
+
+# /api/market/outlook — the risk-on/neutral/risk-off "lean" tally. All cutoffs
+# tunable; the lean needs >= |lean_threshold| net signal to call a side.
+market_outlook:
+  index_proxies: ["SPY", "QQQ", "DIA", "IWM"]   # pre/post-market movers shown
+  vix_calm_below: 20.0              # VIX under this = bullish signal
+  vix_stress_above: 25.0            # VIX over this = bearish signal
+  news_net_threshold: 5             # |pos - neg| over this = a news tilt
+  afterhours_threshold_pct: 0.2     # |SPY after-hours %| over this = a signal
+  lean_threshold: 2                 # |net signal score| to call risk-on/off
+
+# Corporate-action price-artifact guard (src/factors/price_quality.py). A
+# stitched ticker-reuse/delisting series shows an impossible single-day move or
+# a multi-month gap; the momentum factor would otherwise rank the fake jump #1.
+price_artifact_guard:
+  max_daily_move: 0.80              # |close-to-close| over this = not a real move
+  max_gap_days: 45                  # internal calendar gap over this = stitched
+  lookback_rows: 280               # trading rows inspected (~13mo, the 12-1 window)
 
 screening:
   stage1_max_stocks: 500            # max stocks after initial filter

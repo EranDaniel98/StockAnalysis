@@ -25,7 +25,26 @@ from src.market_data.polygon import PolygonClient, bars_to_frame
 logger = logging.getLogger(__name__)
 
 # Index/sector ETFs whose extended-hours moves stand in for "the market".
+# Defaults; overridable via config/settings.yaml::market_outlook.
 INDEX_PROXIES = ["SPY", "QQQ", "DIA", "IWM"]
+
+_MO: dict | None = None
+
+
+def _mo() -> dict:
+    """config/settings.yaml::market_outlook (thresholds + proxies); cached."""
+    global _MO
+    if _MO is None:
+        try:
+            from src.config_loader import Config
+            _MO = Config().get("market_outlook", default=None) or {}
+        except Exception:  # noqa: BLE001
+            _MO = {}
+    return _MO
+
+
+def index_proxies() -> list[str]:
+    return list(_mo().get("index_proxies", INDEX_PROXIES))
 
 _CAVEAT = (
     "Conditions read, not a forecast. This is a blunt tally of objective "
@@ -102,14 +121,17 @@ def _vix_signal(regime: MarketRegime) -> OutlookSignal:
     vix = regime.vix_level
     if vix is None:
         return OutlookSignal(name="VIX", detail="VIX unavailable", tilt="neutral")
-    tilt = "bullish" if vix < 20 else "bearish" if vix > 25 else "neutral"
+    calm = float(_mo().get("vix_calm_below", 20.0))
+    stress = float(_mo().get("vix_stress_above", 25.0))
+    tilt = "bullish" if vix < calm else "bearish" if vix > stress else "neutral"
     return OutlookSignal(name="VIX", detail=f"VIX {vix:.1f}", tilt=tilt)
 
 
 def _news_signal(counts: dict[str, int]) -> OutlookSignal:
     pos, neg = counts.get("positive", 0), counts.get("negative", 0)
     net = pos - neg
-    tilt = "bullish" if net >= 5 else "bearish" if net <= -5 else "neutral"
+    thr = int(_mo().get("news_net_threshold", 5))
+    tilt = "bullish" if net >= thr else "bearish" if net <= -thr else "neutral"
     return OutlookSignal(
         name="News sentiment", detail=f"{pos}↑ / {neg}↓ across feed (net {net:+d})",
         tilt=tilt,
@@ -121,7 +143,8 @@ def _afterhours_signal(prepost: list[PrePostMove]) -> OutlookSignal:
     if not spy or spy.afterhours_pct is None:
         return OutlookSignal(name="After-hours", detail="SPY after-hours unavailable", tilt="neutral")
     ah = spy.afterhours_pct
-    tilt = "bullish" if ah > 0.2 else "bearish" if ah < -0.2 else "neutral"
+    thr = float(_mo().get("afterhours_threshold_pct", 0.2))
+    tilt = "bullish" if ah > thr else "bearish" if ah < -thr else "neutral"
     return OutlookSignal(name="After-hours", detail=f"SPY after-hours {ah:+.2f}%", tilt=tilt)
 
 
@@ -143,8 +166,9 @@ def build_outlook(
     score = sum(_TILT_SCORE[s.tilt] for s in signals)
     n_bull = sum(1 for s in signals if s.tilt == "bullish")
     n_bear = sum(1 for s in signals if s.tilt == "bearish")
-    # Require a clear ±2 majority to call a side; otherwise neutral.
-    lean = "risk_on" if score >= 2 else "risk_off" if score <= -2 else "neutral"
+    # Require a clear ±lean_threshold majority to call a side; otherwise neutral.
+    thr = int(_mo().get("lean_threshold", 2))
+    lean = "risk_on" if score >= thr else "risk_off" if score <= -thr else "neutral"
     return MarketOutlook(
         as_of=regime.as_of,
         session_date=session_date or regime.as_of.date().isoformat(),

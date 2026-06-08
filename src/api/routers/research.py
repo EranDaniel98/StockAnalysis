@@ -163,5 +163,7 @@ def get_forward_book(book: str) -> ForwardBookResponse:
         n_holdings=len(state.get("holdings", {})),
         holdings=_build_holdings(state),
         history=marks,
-        risk_note=_RISK_NOTE,
+        # Each book may carry its own risk_note in state (e.g. the momval book);
+        # fall back to the trend/AI note for the pure-momentum books.
+        risk_note=state.get("risk_note") or _RISK_NOTE,
     )

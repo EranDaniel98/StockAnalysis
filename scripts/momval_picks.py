@@ -1,23 +1,17 @@
-"""Momentum-Value "biggest-risers" book — daily picks.
+"""Momentum-Value "biggest-risers" book — daily picks, enriched.
 
-A SECOND book alongside the risk-balanced production composite. The right-tail
-research (project_factor_horizon_decomp / right_tail_variant) showed momentum
-carries the biggest-riser signal (lift 2.08 vs the equal blend's 1.25) and that
-quality/PEAD DILUTE it. This book is momentum 0.6 / value 0.4 (quality + PEAD
-dropped) over the live PIT S&P 500 — tuned for UPSIDE precision at a 3-6 month
-horizon, NOT risk-adjusted stability.
+Momentum-tilted composite (weights from config/strategies.yaml::momval_book)
+over the live PIT S&P 500, quality + PEAD dropped. For each pick this gathers
+the EDGAR fundamentals + trailing return that justify it, and an AI "why to buy"
+GROUNDED in those numbers — so the book is not a black box you act on blindly.
 
-HONEST RISK (measured): vs the production blend this book has higher upside in
-trends but deeper drawdowns (~-19% median / -24% worst vs -14% / -18%) and a
-LOWER risk-adjusted alpha. Observe it; it is not a replacement for the
-production book.
-
-    uv run python -m scripts.momval_picks                 # today's picks
-    uv run python -m scripts.momval_picks --as-of 2026-06-05 --top-n 24
+    uv run python -m scripts.momval_picks                 # today's picks + why
+    uv run python -m scripts.momval_picks --no-ai         # skip the LLM rationale
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -28,7 +22,21 @@ import pandas as pd
 logger = logging.getLogger("momval_picks")
 
 OUTPUT = Path("reports") / "momval_picks_latest.json"
-WEIGHTS = {"momentum": 0.6, "value": 0.4}
+
+# EDGAR fundamental fields surfaced per pick (price-derived ratios like P/E are
+# NOT in the EDGAR panel — they need a live price — so they're intentionally
+# absent; we show what the filings actually carry).
+_FUND_FIELDS = (
+    "name", "sector", "revenue_growth_yoy", "earnings_growth_yoy",
+    "profit_margin", "operating_margin", "debt_to_equity",
+    "dividend_yield", "free_cash_flow",
+)
+
+
+def _cfg() -> dict:
+    """momval_book config (weights, top_n, sector cap, model, risk note)."""
+    from src.config_loader import Config  # loads .env + the yamls
+    return Config().strategies.get("momval_book", {})
 
 
 def _coerce(v):
@@ -38,39 +46,139 @@ def _coerce(v):
         f = float(v)
     except (TypeError, ValueError):
         return None
-    return None if f != f else f  # drop NaN
+    return None if f != f else f
 
 
-def build(as_of: pd.Timestamp, top_n: int, max_sector_pct: float | None) -> dict:
+def _trailing_returns(tickers: list[str], as_of: pd.Timestamp) -> dict[str, float]:
+    """12-1 momentum return (close[~21d ago]/close[~252d ago]-1) per ticker."""
+    from scripts.research.trend_forward_paper import _close_at_offset, _polygon_daily
+    start = (as_of - pd.Timedelta(days=420)).date().isoformat()
+    prices = _polygon_daily(tickers, start, as_of.date().isoformat())
+    out: dict[str, float] = {}
+    for t in tickers:
+        df = prices.get(t)
+        if df is None or df.empty:
+            continue
+        num = _close_at_offset(df, as_of, 21)
+        den = _close_at_offset(df, as_of, 252)
+        if num and den and den > 0:
+            out[t] = num / den - 1.0
+    return out
+
+
+def _fundamentals(tickers: list[str], as_of: pd.Timestamp) -> dict[str, dict]:
+    from src.factors.pipeline import _load_fundamentals_sync
+    loader = _load_fundamentals_sync(tickers)
+    out: dict[str, dict] = {}
+    for t in tickers:
+        snap = loader.lookup(t, as_of)
+        out[t] = {} if snap is None else {
+            f: (getattr(snap, f) if f in ("name", "sector") else _coerce(getattr(snap, f, None)))
+            for f in _FUND_FIELDS
+        }
+    return out
+
+
+def _fmt_pct(v):
+    return f"{v*100:+.0f}%" if isinstance(v, (int, float)) else "—"
+
+
+def _ai_rationales(picks: list[dict], model: str) -> dict[str, str]:
+    """One grounded Claude call -> {ticker: 'why to buy'}. Uses ONLY the supplied
+    factor + fundamental numbers; instructed not to speculate."""
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.warning("ANTHROPIC_API_KEY not set — skipping AI rationale.")
+        return {}
+    lines = [
+        f"{p['ticker']} ({p.get('name') or p['ticker']}, {p.get('sector') or '?'}): "
+        f"composite z {p['composite_z']:+.2f}; momentum rank {p['mom_rank']}/{p['universe_size']} "
+        f"(12-1 return {_fmt_pct(p.get('trailing_12_1'))}); value rank {p['val_rank']}; "
+        f"rev growth {_fmt_pct(p.get('revenue_growth_yoy'))}, EPS growth {_fmt_pct(p.get('earnings_growth_yoy'))}, "
+        f"profit margin {_fmt_pct(p.get('profit_margin'))}, debt/equity {p.get('debt_to_equity')}, "
+        f"div yield {_fmt_pct(p.get('dividend_yield'))}."
+        for p in picks
+    ]
+    system = (
+        "You write a one-sentence, factual 'why this ranks' note for each stock in a "
+        "MOMENTUM-VALUE quant book (it targets the biggest risers over 3-6 months and runs "
+        "deeper drawdowns than a balanced book). Use ONLY the numbers provided — never invent "
+        "fundamentals, news, or price targets, and never give buy/sell advice. State which leg "
+        "drives the rank (momentum, value, or both) and flag any caveat visible IN THE NUMBERS "
+        "(e.g. high debt, negative margin, weak value rank so it's momentum-only). <=30 words "
+        "each. Return ONLY a JSON object {ticker: sentence}."
+    )
+
+    async def _go():
+        from src.research_agent.llm_client import AnthropicClient
+        resp = await AnthropicClient().create(
+            model=model, system=system, tools=[],
+            messages=[{"role": "user", "content": "Stocks:\n" + "\n".join(lines)}],
+            max_tokens=2048,
+        )
+        # content is a list of {type, text} blocks; join the text ones.
+        return "".join(b.get("text", "") for b in resp.content if b.get("type") == "text")
+
+    try:
+        raw = asyncio.run(_go())
+    except Exception as e:  # noqa: BLE001
+        logger.warning("AI rationale call failed (%s) — continuing without it.", e)
+        return {}
+    blob = raw[raw.find("{"): raw.rfind("}") + 1]
+    try:
+        return {k.upper(): v for k, v in json.loads(blob).items()}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("AI rationale parse failed (%s); raw head: %r", e, raw[:200])
+        return {}
+
+
+def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict:
     from src.factors.pipeline import run_factor_picks
+    cfg = _cfg()
+    weights = cfg.get("weights", {"momentum": 0.6, "value": 0.4})
+    top_n = int(cfg.get("top_n", 24))
+    max_sector_pct = cfg.get("max_sector_pct", 30.0)
+    model = model_override or cfg.get("ai_model", "claude-sonnet-4-6")
 
     res = run_factor_picks(
         as_of=as_of, top_n=top_n,
-        composite_factors="mv", factor_weights=WEIGHTS,
+        composite_factors="mv", factor_weights=weights,
         include_pead=False, sector_neutral_quality=False,
-        min_overlap=1, max_sector_pct=max_sector_pct, min_history_days=504,
+        min_overlap=1, max_sector_pct=max_sector_pct,
+        min_history_days=int(cfg.get("min_history_days", 504)),
     )
+    tickers = res.top_n["ticker"].tolist()
+    funds = _fundamentals(tickers, as_of)
+    rets = _trailing_returns(tickers, as_of)
+
     picks = []
     for _, r in res.top_n.iterrows():
+        t = str(r.get("ticker"))
+        f = funds.get(t, {})
         picks.append({
             "rank": int(r.get("rank")) if pd.notna(r.get("rank")) else None,
-            "ticker": str(r.get("ticker")),
+            "ticker": t, "name": f.get("name"),
             "composite_z": _coerce(r.get("z_score")),
             "mom_rank": int(r["mom_rank"]) if pd.notna(r.get("mom_rank")) else None,
             "val_rank": int(r["val_rank"]) if pd.notna(r.get("val_rank")) else None,
-            "sector": r.get("sector") if "sector" in res.top_n.columns else None,
+            "sector": f.get("sector") or (r.get("sector") if "sector" in res.top_n.columns else None),
+            "trailing_12_1": _coerce(rets.get(t)),
+            "universe_size": res.universe_size,
+            **{k: f.get(k) for k in _FUND_FIELDS if k not in ("name", "sector")},
         })
+
+    if use_ai:
+        why = _ai_rationales(picks, model)
+        for p in picks:
+            p["why"] = why.get(p["ticker"].upper())
+
     return {
-        "strategy": "momval_6_4",
-        "label": "Momentum-Value (biggest-risers)",
-        "as_of": as_of.date().isoformat(),
-        "weights": WEIGHTS,
-        "factors_used": res.factors_used,
-        "universe_size": res.universe_size,
+        "strategy": "momval_6_4", "label": "Momentum-Value (biggest-risers)",
+        "as_of": as_of.date().isoformat(), "weights": weights,
+        "factors_used": res.factors_used, "universe_size": res.universe_size,
         "top_n": len(picks),
-        "horizon_note": "Tuned for UPSIDE precision at a 3-6 month horizon. "
-                        "Higher drawdowns than the production blend (research: "
-                        "median maxDD ~-19% vs -14%). Observe, do not size as the core.",
+        "horizon_note": cfg.get("risk_note", "").strip(),
+        "ai_model": model if use_ai else None,
         "picks": picks,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -78,27 +186,23 @@ def build(as_of: pd.Timestamp, top_n: int, max_sector_pct: float | None) -> dict
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--as-of", default=None, help="YYYY-MM-DD (default: today UTC)")
-    ap.add_argument("--top-n", type=int, default=24)
-    ap.add_argument("--max-sector-pct", type=float, default=30.0,
-                    help="per-sector cap as %% of top_n (None to disable)")
+    ap.add_argument("--as-of", default=None)
+    ap.add_argument("--no-ai", action="store_true", help="skip the LLM why-to-buy")
+    ap.add_argument("--model", default=None, help="override momval_book.ai_model")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     as_of = pd.Timestamp(args.as_of) if args.as_of else \
         pd.Timestamp(datetime.now(timezone.utc).date())
-    payload = build(as_of, args.top_n, args.max_sector_pct)
+    payload = build(as_of, not args.no_ai, args.model)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
-    logger.info("MOMVAL 6/4 picks for %s (%d names, universe %d):",
-                payload["as_of"], payload["top_n"], payload["universe_size"])
-    for p in payload["picks"][:12]:
-        logger.info("  #%-2s %-6s z=%s  mom#%s val#%s",
-                    p["rank"], p["ticker"],
-                    f"{p['composite_z']:+.2f}" if p["composite_z"] is not None else "—",
-                    p["mom_rank"], p["val_rank"])
+    logger.info("MOMVAL picks for %s (%d names):", payload["as_of"], payload["top_n"])
+    for p in payload["picks"][:8]:
+        logger.info("  #%-2s %-6s z=%+.2f  why: %s", p["rank"], p["ticker"],
+                    p["composite_z"] or 0.0, (p.get("why") or "—")[:90])
     logger.info("wrote %s", OUTPUT)
     return 0
 

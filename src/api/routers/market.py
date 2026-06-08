@@ -12,9 +12,9 @@ from src.api.routers.news import compute_market_news
 from src.api.schemas.market import MarketOutlook, MarketRegime
 from src.api.schemas.sectors import SectorsResponse
 from src.api.services.market_outlook import (
-    INDEX_PROXIES,
     build_outlook,
     fetch_prepost,
+    index_proxies,
 )
 from src.api.services.market_regime import compute_regime_sync
 from src.api.services.sectors import compute_sectors_sync
@@ -59,6 +59,6 @@ async def get_outlook(config: Config = Depends(get_config)) -> MarketOutlook:
     regime, news, (session_date, prepost) = await asyncio.gather(
         asyncio.to_thread(compute_regime_sync, config),
         compute_market_news(config),
-        asyncio.to_thread(fetch_prepost, INDEX_PROXIES),
+        asyncio.to_thread(fetch_prepost, index_proxies()),
     )
     return build_outlook(regime, news.sentiment_counts, session_date, prepost)
