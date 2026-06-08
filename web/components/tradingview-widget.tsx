@@ -101,7 +101,9 @@ export function TradingViewFinancials({
         displayMode: "regular",
         width: "100%",
         colorTheme: "dark",
-        isTransparent: true,
+        // These data widgets paint a light card when transparent — keep their
+        // own dark background so they don't flash white against the dark app.
+        isTransparent: false,
         largeChartUrl: "",
         locale: "en",
       }}
@@ -125,7 +127,7 @@ export function TradingViewProfile({
         symbol,
         width: "100%",
         colorTheme: "dark",
-        isTransparent: true,
+        isTransparent: false,
         locale: "en",
       }}
     />
