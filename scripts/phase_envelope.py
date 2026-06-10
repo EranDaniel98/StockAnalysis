@@ -41,7 +41,11 @@ def _run_one(snap: str, rebal_days: int, offset: int, base_args: list[str]) -> d
     return {"offset": offset, "alpha": r["alpha_vs_spy_pct"],
             "capm": r.get("capm_alpha_pct", 0.0), "beta": r.get("beta", 0.0),
             "sharpe": r["metrics"]["ann_sharpe"], "total": r["metrics"]["total_return_pct"],
-            "maxdd": r["metrics"]["max_drawdown_pct"], "wf_pass": bool(r["walk_forward"]["passed"])}
+            "maxdd": r["metrics"]["max_drawdown_pct"], "wf_pass": bool(r["walk_forward"]["passed"]),
+            # Beta-neutral re-grade: per-fold CAPM alpha on live folds only
+            # (see _walk_forward_folds). passed_capm absent on old outputs.
+            "wf_capm_pass": bool(r["walk_forward"].get("passed_capm", False)),
+            "wf_live_folds": r["walk_forward"].get("n_live_folds")}
 
 
 def main():
@@ -75,6 +79,7 @@ def main():
     pct_pos_capm = 100 * sum(c > 0 for c in capms) / n
     pct_pos_excess = 100 * sum(a > 0 for a in alphas) / n
     wf_rate = 100 * sum(r["wf_pass"] for r in rows) / n
+    wf_capm_rate = 100 * sum(r["wf_capm_pass"] for r in rows) / n
 
     def _stats(xs: list[float]) -> dict:
         return {"mean": round(statistics.mean(xs), 2), "median": round(statistics.median(xs), 2),
@@ -85,6 +90,7 @@ def main():
         "excess_return": {**_stats(alphas), "pct_phases_positive": round(pct_pos_excess, 0)},
         "sharpe": _stats(sharpes),
         "wf_pass_rate_pct": round(wf_rate, 0),
+        "wf_capm_pass_rate_pct": round(wf_capm_rate, 0),
     }
     # Judge on CAPM alpha, not excess return: a regime-gated/cash-heavy book's
     # excess return flatters it (sitting in cash through a selloff beats a
@@ -101,33 +107,43 @@ def main():
     if n < MIN_PHASES:
         verdict = (f"INCONCLUSIVE -- only {n} phases sampled (need >= {MIN_PHASES}; "
                    f"lower --step for a denser sweep before trusting a verdict)")
+        verdict_bn = verdict
     else:
-        robust = (
-            c["median"] > 0
-            and pct_pos_capm >= 70
-            and wf_rate >= 60
-            and c["std"] < abs(c["mean"]) * 1.5
-            and (c["max"] - c["min"]) <= 25
-        )
-        verdict = ("ROBUST across phases" if robust
+        def _robust(wf_pct: float) -> bool:
+            return (
+                c["median"] > 0
+                and pct_pos_capm >= 70
+                and wf_pct >= 60
+                and c["std"] < abs(c["mean"]) * 1.5
+                and (c["max"] - c["min"]) <= 25
+            )
+        verdict = ("ROBUST across phases" if _robust(wf_rate)
                    else "PHASE-LUCK / FRAGILE -- do not trust a single offset")
+        # Same criteria, but the WF leg graded on per-fold CAPM alpha (live
+        # folds only) instead of the raw fold path — strips the beta artifact
+        # where a low-beta gated book fails bull folds for lagging SPY.
+        verdict_bn = ("ROBUST across phases (beta-neutral WF)" if _robust(wf_capm_rate)
+                      else "PHASE-LUCK / FRAGILE (beta-neutral WF)")
 
     report = {"snapshot": args.snapshot_id, "base_args": args.base_args,
-              "n_phases": n, "per_phase": rows, "envelope": env, "verdict": verdict}
+              "n_phases": n, "per_phase": rows, "envelope": env,
+              "verdict": verdict, "verdict_beta_neutral": verdict_bn}
     out = ROOT / "reports" / f"phase_envelope_{args.snapshot_id}.json"
     out.write_text(json.dumps(report, indent=2))
 
-    print(f"\n{'offset':>7}{'capmA%':>9}{'excess%':>9}{'beta':>6}{'sharpe':>8}{'maxDD%':>9}{'WF':>5}")
+    print(f"\n{'offset':>7}{'capmA%':>9}{'excess%':>9}{'beta':>6}{'sharpe':>8}{'maxDD%':>9}{'WF':>5}{'WFa':>5}")
     for r in rows:
         print(f"{r['offset']:>7}{r['capm']:>+9.2f}{r['alpha']:>+9.2f}{r['beta']:>6.2f}"
-              f"{r['sharpe']:>8.2f}{r['maxdd']:>9.2f}{'  ok' if r['wf_pass'] else '  --':>5}")
+              f"{r['sharpe']:>8.2f}{r['maxdd']:>9.2f}{'  ok' if r['wf_pass'] else '  --':>5}"
+              f"{'  ok' if r['wf_capm_pass'] else '  --':>5}")
     print(f"\nCAPM-ALPHA envelope: mean {c['mean']:+.1f}%  median {c['median']:+.1f}%  "
           f"std {c['std']:.1f}  [{c['min']:+.1f} .. {c['max']:+.1f}]")
     a = env["excess_return"]
     print(f"excess-return (beta-blind): mean {a['mean']:+.1f}%  median {a['median']:+.1f}%")
-    print(f"  {pct_pos_capm:.0f}% of phases CAPM-positive | WF-pass {wf_rate:.0f}% | "
-          f"Sharpe median {env['sharpe']['median']:.2f}")
+    print(f"  {pct_pos_capm:.0f}% of phases CAPM-positive | WF-pass {wf_rate:.0f}% "
+          f"(beta-neutral {wf_capm_rate:.0f}%) | Sharpe median {env['sharpe']['median']:.2f}")
     print(f"\nVERDICT: {verdict}")
+    print(f"VERDICT (beta-neutral WF): {verdict_bn}")
     print(f"wrote {out}")
 
 

@@ -50,9 +50,11 @@ def main(argv: list[str]) -> int:
             "med": c["median"], "mean": c["mean"], "min": c["min"], "max": c["max"],
             "pos": c["pct_phases_positive"],
             "wf": d["envelope"]["wf_pass_rate_pct"],
+            "wfa": d["envelope"].get("wf_capm_pass_rate_pct"),
             "sharpe": d["envelope"]["sharpe"]["median"],
             "excess": d["envelope"]["excess_return"]["median"],
             "robust": "ROBUST" in d["verdict"],
+            "robust_bn": "ROBUST" in d.get("verdict_beta_neutral", ""),
         })
 
     if not rows:
@@ -60,12 +62,14 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(f"\n{'window':10}{'CAPMa med':>10}{'mean':>7}{'[min..max]':>14}"
-          f"{'%pos':>6}{'WF%':>5}{'Shrp':>6}{'excess':>8}  verdict")
+          f"{'%pos':>6}{'WF%':>5}{'WFa%':>6}{'Shrp':>6}{'excess':>8}  verdict (path | beta-neutral)")
     for r in rows:
+        wfa = f"{r['wfa']:>6.0f}" if r["wfa"] is not None else f"{'—':>6}"
         print(f"{r['label']:10}{r['med']:>+10.1f}{r['mean']:>+7.1f}"
               f"{('['+format(r['min'],'+.0f')+'..'+format(r['max'],'+.0f')+']'):>14}"
-              f"{r['pos']:>5.0f}%{r['wf']:>5.0f}{r['sharpe']:>6.2f}{r['excess']:>+8.1f}"
-              f"  {'ROBUST' if r['robust'] else 'fragile'}")
+              f"{r['pos']:>5.0f}%{r['wf']:>5.0f}{wfa}{r['sharpe']:>6.2f}{r['excess']:>+8.1f}"
+              f"  {'ROBUST' if r['robust'] else 'fragile'} | "
+              f"{'ROBUST' if r['robust_bn'] else 'fragile'}")
 
     meds = [r["med"] for r in rows]
     n = len(rows)
@@ -77,7 +81,12 @@ def main(argv: list[str]) -> int:
     print(f"  mean-of-window-medians              : {statistics.mean(meds):+.1f}%  "
           f"(spread {min(meds):+.0f}..{max(meds):+.0f})")
     print(f"  mean WF-pass rate across windows    : {statistics.mean(r['wf'] for r in rows):.0f}%")
+    wfas = [r["wfa"] for r in rows if r["wfa"] is not None]
+    if wfas:
+        print(f"  mean BETA-NEUTRAL WF-pass rate      : {statistics.mean(wfas):.0f}%")
     print(f"  windows ROBUST (WF>=60 & >=70% pos) : {n_robust}/{n}")
+    n_robust_bn = sum(r["robust_bn"] for r in rows)
+    print(f"  windows ROBUST under beta-neutral WF: {n_robust_bn}/{n}")
     print(f"  mean phases-positive across windows  : {statistics.mean(r['pos'] for r in rows):.0f}%")
     print("\nCAVEAT: rolling 2yr windows on a 12-month step OVERLAP (adjacent share 1yr) "
           "-> not independent; effective N < window count. Polygon 10yr horizon caps the "

@@ -500,11 +500,23 @@ def _capm_alpha_beta(strat_rets: pd.Series, spy_rets: pd.Series) -> tuple[float,
     return ((1.0 + alpha_daily) ** 252 - 1.0) * 100.0, beta
 
 
-def _walk_forward_folds(daily_rets: pd.Series, n_folds: int = 5) -> dict:
+def _walk_forward_folds(daily_rets: pd.Series, n_folds: int = 5,
+                        spy_daily: pd.Series | None = None) -> dict:
     """Split daily_rets into ``n_folds`` contiguous folds and report
-    each fold's Sharpe + return. Mirrors the gating used elsewhere."""
+    each fold's Sharpe + return. Mirrors the gating used elsewhere.
+
+    When ``spy_daily`` is given, each fold also gets a per-fold CAPM grade
+    (Jensen alpha/beta) and the result carries ``passed_capm`` — the
+    BETA-NEUTRAL re-grade. The Sharpe gate grades the fold's raw path, so a
+    low-beta regime-gated book fails bull folds for lagging SPY (a beta
+    artifact, not a selection failure). ``passed_capm`` asks only: was
+    selection alpha positive in every fold the book was actually live?
+    Cash folds (< 21 non-zero days) carry no selection evidence and are
+    excluded; fewer than 3 live folds = not enough evidence to pass."""
     if daily_rets.empty or len(daily_rets) < n_folds:
-        return {"folds": [], "mean_sharpe": 0.0, "min_sharpe": 0.0, "passed": False}
+        return {"folds": [], "mean_sharpe": 0.0, "min_sharpe": 0.0, "passed": False,
+                "passed_capm": False, "n_live_folds": 0}
+    min_live_days = 21
     fold_size = len(daily_rets) // n_folds
     folds = []
     for i in range(n_folds):
@@ -513,24 +525,41 @@ def _walk_forward_folds(daily_rets: pd.Series, n_folds: int = 5) -> dict:
         chunk = daily_rets.iloc[start:end]
         sharpe = _annualize_sharpe(chunk)
         ret_pct = (1 + chunk).prod() - 1
-        folds.append({
+        fold = {
             "fold": i,
             "sharpe": round(sharpe, 3),
             "return_pct": round(ret_pct * 100, 2),
             "n_days": len(chunk),
-        })
+        }
+        if spy_daily is not None:
+            a, b = _capm_alpha_beta(chunk, spy_daily)
+            live = int((chunk != 0).sum())
+            fold.update({"capm_alpha_pct": round(a, 2), "beta": round(b, 3),
+                         "n_live_days": live, "live": live >= min_live_days})
+        folds.append(fold)
     sharpes = [f["sharpe"] for f in folds]
     mean_s = float(np.mean(sharpes))
     min_s = float(np.min(sharpes))
     # Strict gate: every fold > 0 AND mean ≥ 0.5 (matches the engine's
     # walk_forward.passed convention).
     passed = all(s > 0 for s in sharpes) and mean_s >= 0.5
-    return {
+    out = {
         "folds": folds,
         "mean_sharpe": round(mean_s, 3),
         "min_sharpe": round(min_s, 3),
         "passed": passed,
     }
+    if spy_daily is not None:
+        live_folds = [f for f in folds if f["live"]]
+        out["n_live_folds"] = len(live_folds)
+        out["passed_capm"] = (
+            len(live_folds) >= 3
+            and all(f["capm_alpha_pct"] > 0 for f in live_folds)
+        )
+        if live_folds:
+            out["mean_capm_alpha_pct"] = round(
+                float(np.mean([f["capm_alpha_pct"] for f in live_folds])), 2)
+    return out
 
 
 def _close_on(prices: dict[str, pd.DataFrame], ticker: str, date: pd.Timestamp) -> float | None:
@@ -934,7 +963,7 @@ def _compute_metrics_and_assemble(
 
     years = max(1e-6, (calendar[-1] - calendar[0]).days / 365.25)
     cagr = (1 + total_return) ** (1 / years) - 1
-    wf = _walk_forward_folds(daily_rets, n_folds=5)
+    wf = _walk_forward_folds(daily_rets, n_folds=5, spy_daily=spy_daily)
 
     return {
         "strategy": args.strategy_label,
