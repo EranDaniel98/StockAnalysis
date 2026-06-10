@@ -101,7 +101,9 @@ Local `~/.claude` memory does NOT sync across machines — this section is the p
 
 - **Beta-neutral WF re-grade — DONE 2026-06-10, hypothesis REFUTED.** Per-fold CAPM-α grading (`passed_capm` in `run_factor_backtest`; both grades in `phase_envelope` + `breadth_summary`): beta-neutral WF-pass = **0% in all 7 windows** vs path-gate 25%/1-ROBUST — STRICTER, not looser. 2024-26 loses ROBUST (its passing folds rode beta: e.g. fold +5.7% return, α −8.2%). Fold-level α is EPISODIC; ~100d fold α noise ≈ ±10-15pp swamps a ~+5%/yr edge, so all-folds-positive WF is an edge-MAGNITUDE test our edge can't pass in principle — fragility ≠ beta artifact, it's the phase-luck capstone at fold granularity. Judge configs on breadth + envelopes, not strict WF. Caveat: non-frozen-earnings snapshots read the live PEAD cache → small cross-session drift (2024-26 med +12.9→+9.0). `reports/breadth_summary_2018_2026.txt`.
 
-**Open threads:** ALL FOUR CLOSED (right-tail→momval book 2026-06-08; 52w-high KILLED; calibration+abstention SHIPPED; beta-neutral WF re-grade REFUTED — all 2026-06-10). Next gate: live forward-paper review ~2026-08-27 (don't resume tuning before). Smaller items: freeze PEAD earnings into snapshots (kills the live-cache drift); pre-2016 breadth needs a Polygon tier upgrade.
+- **PEAD earnings sidecar — FIXED 2026-06-10.** Pre-freeze snapshots no longer drift: first PEAD run freezes the live cache to `<snap>/earnings_sidecar.parquet` (outside the content hash, fundamentals_pit.json pattern) and round-trips through the frozen format so run 1 == run N bit-identical (verified, equity curve included). Serialization centralized in `snapshot.earnings_to_long/earnings_from_long`. Breadth-trio sidecars pre-frozen (sidecars are local-only — regenerable, not in git).
+
+**Open threads:** ALL FOUR CLOSED (right-tail→momval book 2026-06-08; 52w-high KILLED; calibration+abstention SHIPPED; beta-neutral WF re-grade REFUTED — all 2026-06-10), + earnings-drift fixed. Next gate: live forward-paper review ~2026-08-27 (don't resume tuning before). Remaining: pre-2016 breadth needs a Polygon tier upgrade.
 
 ### Other-PC setup (what's NOT in git)
 
