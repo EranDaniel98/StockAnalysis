@@ -200,6 +200,68 @@ def _compute_snapshot_id(
     return h.hexdigest()[:16]
 
 
+def earnings_to_long(earnings_history: Mapping[str, pd.DataFrame] | None) -> pd.DataFrame | None:
+    """Serialize per-ticker earnings frames to the frozen long form
+    (ticker, earnings_date, surprise_pct, reported_eps), or None when
+    nothing is freezable. Single source of truth for the frozen-earnings
+    format — used by the snapshot build AND the post-hoc sidecar freeze
+    (run_factor_backtest) so both paths stay byte-compatible."""
+    if not earnings_history:
+        return None
+    rows = []
+    for ticker, df in earnings_history.items():
+        if df is None or df.empty:
+            continue
+        # Each earnings frame has earnings dates either as the
+        # index or as a column. Normalize to a 1-col long form.
+        dates = None
+        if isinstance(df.index, pd.DatetimeIndex):
+            dates = df.index
+        elif "Earnings Date" in df.columns:
+            dates = pd.to_datetime(df["Earnings Date"])
+        elif "earnings_date" in df.columns:
+            dates = pd.to_datetime(df["earnings_date"])
+        if dates is None or len(dates) == 0:
+            continue
+        d = pd.DataFrame({"ticker": ticker,
+                          "earnings_date": pd.to_datetime(dates)})
+        if d["earnings_date"].dt.tz is not None:
+            d["earnings_date"] = d["earnings_date"].dt.tz_localize(None)
+        # Freeze the PEAD inputs too — surprise % + reported EPS — not just
+        # dates, so a snapshot reproduces PEAD without the live cache.
+        sp = df["Surprise(%)"] if "Surprise(%)" in df.columns else None
+        re_ = df["Reported EPS"] if "Reported EPS" in df.columns else None
+        d["surprise_pct"] = (pd.to_numeric(sp, errors="coerce").to_numpy()
+                             if sp is not None else pd.NA)
+        d["reported_eps"] = (pd.to_numeric(re_, errors="coerce").to_numpy()
+                             if re_ is not None else pd.NA)
+        rows.append(d)
+    if not rows:
+        return None
+    return pd.concat(rows, ignore_index=True).sort_values(
+        ["ticker", "earnings_date"]).reset_index(drop=True)
+
+
+def earnings_from_long(earn_long: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Inverse of ``earnings_to_long`` — rebuild the per-ticker frames the
+    engine consumes (DatetimeIndex 'Earnings Date', Surprise(%) / Reported
+    EPS columns)."""
+    earnings_history: dict[str, pd.DataFrame] = {}
+    if earn_long is None or earn_long.empty:
+        return earnings_history
+    earn_long = earn_long.copy()
+    earn_long["earnings_date"] = pd.to_datetime(earn_long["earnings_date"])
+    for ticker, group in earn_long.groupby("ticker"):
+        df = group.drop(columns=["ticker"]).rename(
+            columns={"earnings_date": "Earnings Date",
+                     "surprise_pct": "Surprise(%)",
+                     "reported_eps": "Reported EPS"},
+        ).copy()
+        df = df.set_index("Earnings Date").sort_index()
+        earnings_history[str(ticker)] = df
+    return earnings_history
+
+
 def _normalize_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Engine convention: tz-naive DatetimeIndex named 'Date' (or
     unnamed), OHLCV columns including 'Close'. Snapshot stores
@@ -315,40 +377,10 @@ def write_snapshot(
 
     # ----- earnings.parquet (long form: ticker, earnings_date) -----
     n_with_earn = 0
-    if earnings_history:
-        rows = []
-        for ticker, df in earnings_history.items():
-            if df is None or df.empty:
-                continue
-            # Each earnings frame has earnings dates either as the
-            # index or as a column. Normalize to a 1-col long form.
-            dates = None
-            if isinstance(df.index, pd.DatetimeIndex):
-                dates = df.index
-            elif "Earnings Date" in df.columns:
-                dates = pd.to_datetime(df["Earnings Date"])
-            elif "earnings_date" in df.columns:
-                dates = pd.to_datetime(df["earnings_date"])
-            if dates is None or len(dates) == 0:
-                continue
-            d = pd.DataFrame({"ticker": ticker,
-                              "earnings_date": pd.to_datetime(dates)})
-            if d["earnings_date"].dt.tz is not None:
-                d["earnings_date"] = d["earnings_date"].dt.tz_localize(None)
-            # Freeze the PEAD inputs too — surprise % + reported EPS — not just
-            # dates, so a snapshot reproduces PEAD without the live cache.
-            sp = df["Surprise(%)"] if "Surprise(%)" in df.columns else None
-            re_ = df["Reported EPS"] if "Reported EPS" in df.columns else None
-            d["surprise_pct"] = (pd.to_numeric(sp, errors="coerce").to_numpy()
-                                 if sp is not None else pd.NA)
-            d["reported_eps"] = (pd.to_numeric(re_, errors="coerce").to_numpy()
-                                 if re_ is not None else pd.NA)
-            rows.append(d)
-            n_with_earn += 1
-        if rows:
-            earn_long = pd.concat(rows, ignore_index=True).sort_values(
-                ["ticker", "earnings_date"]).reset_index(drop=True)
-            earn_long.to_parquet(staging / EARNINGS_FILE, index=False)
+    earn_long = earnings_to_long(earnings_history)
+    if earn_long is not None:
+        n_with_earn = int(earn_long["ticker"].nunique())
+        earn_long.to_parquet(staging / EARNINGS_FILE, index=False)
 
     # ----- compute content hashes & snapshot id -----
     content_hashes = {
@@ -463,17 +495,7 @@ def load_snapshot(
     earnings_history: dict[str, pd.DataFrame] = {}
     earn_path = snap / EARNINGS_FILE
     if earn_path.exists():
-        earn_long = pd.read_parquet(earn_path)
-        earn_long["earnings_date"] = pd.to_datetime(earn_long["earnings_date"])
-        for ticker, group in earn_long.groupby("ticker"):
-            # Engine consumes a DataFrame indexed by earnings date.
-            df = group.drop(columns=["ticker"]).rename(
-                columns={"earnings_date": "Earnings Date",
-                         "surprise_pct": "Surprise(%)",
-                         "reported_eps": "Reported EPS"},
-            ).copy()
-            df = df.set_index("Earnings Date").sort_index()
-            earnings_history[str(ticker)] = df
+        earnings_history = earnings_from_long(pd.read_parquet(earn_path))
 
     return SnapshotInputs(
         price_data=price_data,

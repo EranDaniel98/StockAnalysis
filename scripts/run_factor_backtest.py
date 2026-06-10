@@ -588,14 +588,30 @@ def _mark_to_market(
 def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers: list[str],
                                      snap=None):
     """PEAD analyzer needs per-ticker earnings histories. Prefer the snapshot's
-    FROZEN earnings (reproducible) when present; else fall back to the live
-    cache (older snapshots built without frozen earnings)."""
+    FROZEN earnings (reproducible) when present; else freeze the live cache
+    into a SIDECAR in the snapshot dir on first use and read it back ever
+    after — same pattern as fundamentals_pit.json. Snapshots built before
+    earnings freezing (e.g. the 2020-22 / 2022-24 / 2024-26 breadth trio)
+    otherwise re-read the live cache each session, which gains rows as
+    earnings land -> cross-session result drift (observed 2026-06-10:
+    2024-26 CAPM-alpha median +12.9 -> +9.0)."""
     if not args.include_pead:
         return None
     frozen = getattr(snap, "earnings_history", None) if snap is not None else None
     if frozen:
         logger.info("Using FROZEN snapshot earnings for PEAD (%d tickers).", len(frozen))
         return frozen
+
+    from src.storage.snapshot import earnings_from_long, earnings_to_long
+    snapshot_id = getattr(args, "snapshot_id", None)
+    sidecar = (Path("data/snapshots") / snapshot_id / "earnings_sidecar.parquet"
+               if snapshot_id else None)
+    if sidecar is not None and sidecar.exists():
+        histories = earnings_from_long(pd.read_parquet(sidecar))
+        logger.info("Using SIDECAR frozen earnings for PEAD (%d tickers): %s",
+                    len(histories), sidecar)
+        return histories
+
     from src.factors.earnings_cache import load_earnings_histories
     logger.info("Loading earnings histories for PEAD...")
     histories = load_earnings_histories(
@@ -607,7 +623,16 @@ def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers:
         sum(1 for h in histories.values() if h is not None),
         len(universe_tickers),
     )
-    return histories
+    earn_long = earnings_to_long(histories)
+    if sidecar is not None and earn_long is not None and sidecar.parent.is_dir():
+        earn_long.to_parquet(sidecar, index=False)
+        logger.info("Froze SIDECAR earnings (%d tickers) to %s",
+                    int(earn_long["ticker"].nunique()), sidecar)
+    # Round-trip through the frozen format so the FIRST run uses exactly what
+    # later runs will read back (the live frames carry extra columns — e.g.
+    # EPS Estimate — that the frozen form drops; using them once would make
+    # run 1 differ from run N).
+    return earnings_from_long(earn_long) if earn_long is not None else histories
 
 
 def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: list[str]):
