@@ -356,3 +356,11 @@ momval_book:
   dispersion_guard:
     reference_file: reports/momval_dispersion_reference.json
     abstain_quantile: 0.75
+  # yfinance analyst consensus per pick — ADVISORY CONTEXT in the why-to-buy,
+  # never a factor input (no PIT history to backtest + herding risk).
+  analyst_context: true
+  # Deploy-on-guard-clear plan: when the dispersion guard clears, the plan is
+  # this notional equal-weight across today's top-N. One-time Telegram/log
+  # alert on the caution->clear transition. Plan display only — no execution.
+  deploy_watch:
+    notional: 10000.0

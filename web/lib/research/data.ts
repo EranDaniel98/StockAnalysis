@@ -87,6 +87,10 @@ export type MomvalPick = {
   debt_to_equity: number | null;
   dividend_yield: number | null;
   free_cash_flow: number | null;
+  analyst_buy: number | null;
+  analyst_hold: number | null;
+  analyst_sell: number | null;
+  analyst_target_upside_pct: number | null;
 };
 
 export type DispersionGuard = {
@@ -94,6 +98,14 @@ export type DispersionGuard = {
   percentile_2018_2026: number;
   abstain_quantile: number;
   caution: boolean;
+  note: string;
+};
+
+export type DeployWatch = {
+  notional_usd: number;
+  clear: boolean;
+  just_cleared: boolean;
+  per_name_usd: number;
   note: string;
 };
 
@@ -107,6 +119,7 @@ export type MomvalPicks = {
   horizon_note: string;
   ai_model: string | null;
   dispersion_guard: DispersionGuard | null;
+  deploy_watch: DeployWatch | null;
   picks: MomvalPick[];
 };
 

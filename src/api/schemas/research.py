@@ -88,6 +88,11 @@ class MomvalPick(BaseModel):
     debt_to_equity: Optional[float] = None
     dividend_yield: Optional[float] = None
     free_cash_flow: Optional[float] = None
+    # yfinance analyst consensus — advisory context only, never in the rank.
+    analyst_buy: Optional[int] = None
+    analyst_hold: Optional[int] = None
+    analyst_sell: Optional[int] = None
+    analyst_target_upside_pct: Optional[float] = None
 
 
 class DispersionGuard(BaseModel):
@@ -98,6 +103,16 @@ class DispersionGuard(BaseModel):
     percentile_2018_2026: float
     abstain_quantile: float
     caution: bool
+    note: str
+
+
+class DeployWatch(BaseModel):
+    """Deploy-on-guard-clear plan: notional split equally across the top-N
+    once the dispersion guard clears. Display only — no execution."""
+    notional_usd: float
+    clear: bool
+    just_cleared: bool
+    per_name_usd: float
     note: str
 
 
@@ -113,5 +128,6 @@ class MomvalPicksResponse(BaseModel):
     horizon_note: str
     ai_model: Optional[str] = None
     dispersion_guard: Optional[DispersionGuard] = None
+    deploy_watch: Optional[DeployWatch] = None
     picks: list[MomvalPick]
     generated_at: str

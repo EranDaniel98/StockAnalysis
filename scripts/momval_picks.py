@@ -83,6 +83,91 @@ def _fmt_pct(v):
     return f"{v*100:+.0f}%" if isinstance(v, (int, float)) else "—"
 
 
+def _analyst_recs(tickers: list[str]) -> dict[str, dict]:
+    """yfinance analyst consensus per ticker — ADVISORY CONTEXT ONLY.
+
+    Never a factor input: analyst recs have no point-in-time history (so the
+    backtest can't grade them) and a documented herding problem. This is the
+    same consensus data the TradingView widgets display, from a source we can
+    actually read (TradingView's widgets are sealed iframes, no public API)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    import yfinance as yf
+
+    def one(t: str) -> tuple[str, dict | None]:
+        try:
+            tk = yf.Ticker(t)
+            out: dict = {}
+            rs = tk.recommendations_summary
+            if rs is not None and not rs.empty and "period" in rs.columns:
+                cur = rs[rs["period"] == "0m"]
+                if not cur.empty:
+                    r = cur.iloc[0]
+                    buy = int(r.get("strongBuy", 0)) + int(r.get("buy", 0))
+                    hold = int(r.get("hold", 0))
+                    sell = int(r.get("sell", 0)) + int(r.get("strongSell", 0))
+                    if buy + hold + sell > 0:
+                        out.update({"analyst_buy": buy, "analyst_hold": hold,
+                                    "analyst_sell": sell})
+            tgt = tk.analyst_price_targets or {}
+            mean, cur_px = _coerce(tgt.get("mean")), _coerce(tgt.get("current"))
+            if mean and cur_px and cur_px > 0:
+                out["analyst_target_upside_pct"] = round(mean / cur_px - 1.0, 4)
+            return t, (out or None)
+        except Exception:  # noqa: BLE001 — yfinance is flaky; context is optional
+            return t, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        return {t: d for t, d in ex.map(one, tickers) if d}
+
+
+def _deploy_watch(guard: dict | None, n_picks: int, cfg: dict) -> dict | None:
+    """Deploy-on-guard-clear plan: when the dispersion guard clears (regime
+    where the selection edge was historically present), the plan is notional
+    split equally across today's top-N. Fires a one-time alert on the
+    caution->clear transition (previous state read from yesterday's JSON)."""
+    dw = cfg.get("deploy_watch") or {}
+    notional = float(dw.get("notional", 0) or 0)
+    if guard is None or notional <= 0 or n_picks == 0:
+        return None
+    prev_caution = None
+    if OUTPUT.exists():
+        try:
+            prev = json.loads(OUTPUT.read_text(encoding="utf-8"))
+            prev_caution = (prev.get("dispersion_guard") or {}).get("caution")
+        except Exception:  # noqa: BLE001
+            pass
+    clear = not guard["caution"]
+    just_cleared = clear and prev_caution is True
+    per_name = round(notional / n_picks, 2)
+    plan = {
+        "notional_usd": notional,
+        "clear": clear,
+        "just_cleared": just_cleared,
+        "per_name_usd": per_name,
+        "note": (
+            f"DEPLOY WINDOW OPEN — dispersion guard clear (percentile "
+            f"{guard['percentile_2018_2026']:.0%} < {guard['abstain_quantile']:.0%}): "
+            f"plan = ${notional:,.0f} equal-weight across today's top-{n_picks} "
+            f"(${per_name:,.2f}/name). Judge at 3-6 months."
+            if clear else
+            f"Deploy watch armed: waiting for momentum dispersion to drop below "
+            f"the {guard['abstain_quantile']:.0%} reference percentile "
+            f"(currently {guard['percentile_2018_2026']:.0%})."
+        ),
+    }
+    if just_cleared:
+        logger.warning("DEPLOY WATCH: %s", plan["note"])
+        try:
+            from src.alerts.telegram_bot import TelegramAlerter
+            from src.config_loader import Config
+            TelegramAlerter(Config())._send_message(
+                f"MOMVAL deploy window OPEN: {plan['note']}")
+        except Exception as e:  # noqa: BLE001 — alerting is best-effort
+            logger.info("telegram alert skipped (%s)", e)
+    return plan
+
+
 def _dispersion_guard(composite: pd.DataFrame, cfg: dict) -> dict | None:
     """Momentum-dispersion abstention flag (calibration_abstention study).
 
@@ -126,13 +211,22 @@ def _ai_rationales(picks: list[dict], model: str) -> dict[str, str]:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         logger.warning("ANTHROPIC_API_KEY not set — skipping AI rationale.")
         return {}
+    def _an(p: dict) -> str:
+        if p.get("analyst_buy") is None:
+            return ""
+        s = (f" Analyst consensus (context only): {p['analyst_buy']}B/"
+             f"{p['analyst_hold']}H/{p['analyst_sell']}S")
+        if p.get("analyst_target_upside_pct") is not None:
+            s += f", mean target {_fmt_pct(p['analyst_target_upside_pct'])} vs price"
+        return s + "."
+
     lines = [
         f"{p['ticker']} ({p.get('name') or p['ticker']}, {p.get('sector') or '?'}): "
         f"composite z {p['composite_z']:+.2f}; momentum rank {p['mom_rank']}/{p['universe_size']} "
         f"(12-1 return {_fmt_pct(p.get('trailing_12_1'))}); value rank {p['val_rank']}; "
         f"rev growth {_fmt_pct(p.get('revenue_growth_yoy'))}, EPS growth {_fmt_pct(p.get('earnings_growth_yoy'))}, "
         f"profit margin {_fmt_pct(p.get('profit_margin'))}, debt/equity {p.get('debt_to_equity')}, "
-        f"div yield {_fmt_pct(p.get('dividend_yield'))}."
+        f"div yield {_fmt_pct(p.get('dividend_yield'))}." + _an(p)
         for p in picks
     ]
     system = (
@@ -141,8 +235,10 @@ def _ai_rationales(picks: list[dict], model: str) -> dict[str, str]:
         "deeper drawdowns than a balanced book). Use ONLY the numbers provided — never invent "
         "fundamentals, news, or price targets, and never give buy/sell advice. State which leg "
         "drives the rank (momentum, value, or both) and flag any caveat visible IN THE NUMBERS "
-        "(e.g. high debt, negative margin, weak value rank so it's momentum-only). <=30 words "
-        "each. Return ONLY a JSON object {ticker: sentence}."
+        "(e.g. high debt, negative margin, weak value rank so it's momentum-only). Analyst "
+        "consensus, when shown, is CONTEXT, not part of the quant rank — mention it only when "
+        "it clearly disagrees with the factor view (e.g. sell-heavy consensus on a top rank). "
+        "<=30 words each. Return ONLY a JSON object {ticker: sentence}."
     )
 
     async def _go():
@@ -186,6 +282,7 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
     tickers = res.top_n["ticker"].tolist()
     funds = _fundamentals(tickers, as_of)
     rets = _trailing_returns(tickers, as_of)
+    analysts = _analyst_recs(tickers) if cfg.get("analyst_context", True) else {}
 
     picks = []
     for _, r in res.top_n.iterrows():
@@ -201,6 +298,7 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
             "trailing_12_1": _coerce(rets.get(t)),
             "universe_size": res.universe_size,
             **{k: f.get(k) for k in _FUND_FIELDS if k not in ("name", "sector")},
+            **(analysts.get(t) or {}),
         })
 
     if use_ai:
@@ -211,6 +309,7 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
     guard = _dispersion_guard(res.composite, cfg)
     if guard and guard["caution"]:
         logger.warning("DISPERSION GUARD: %s", guard["note"])
+    deploy = _deploy_watch(guard, len(picks), cfg)
 
     return {
         "strategy": "momval_6_4", "label": "Momentum-Value (biggest-risers)",
@@ -220,6 +319,7 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
         "horizon_note": cfg.get("risk_note", "").strip(),
         "ai_model": model if use_ai else None,
         "dispersion_guard": guard,
+        "deploy_watch": deploy,
         "picks": picks,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

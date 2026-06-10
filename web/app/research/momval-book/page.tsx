@@ -220,10 +220,21 @@ export default async function MomvalBookPage() {
                 </p>
               )
             ) : null}
+            {candidates.deploy_watch ? (
+              <p
+                className={
+                  candidates.deploy_watch.clear
+                    ? "text-bullish text-xs font-medium"
+                    : "text-muted-foreground text-xs"
+                }
+              >
+                {candidates.deploy_watch.note}
+              </p>
+            ) : null}
             {(() => {
               const held = new Set(book.holdings.map((h) => h.ticker));
-              const fundChips = (p: (typeof candidates.picks)[number]) =>
-                (
+              const fundChips = (p: (typeof candidates.picks)[number]) => {
+                const chips = (
                   [
                     ["12-1 ret", p.trailing_12_1],
                     ["rev gr", p.revenue_growth_yoy],
@@ -245,6 +256,34 @@ export default async function MomvalBookPage() {
                       </span>
                     </span>
                   ));
+                if (p.analyst_buy != null) {
+                  chips.push(
+                    <span
+                      key="analysts"
+                      className="bg-muted/40 rounded px-1.5 py-0.5 font-mono text-[11px]"
+                      title="yfinance analyst consensus — context only, not part of the quant rank"
+                    >
+                      <span className="text-muted-foreground">analysts </span>
+                      {p.analyst_buy}B/{p.analyst_hold ?? 0}H/{p.analyst_sell ?? 0}S
+                    </span>,
+                  );
+                }
+                if (p.analyst_target_upside_pct != null) {
+                  chips.push(
+                    <span
+                      key="target"
+                      className="bg-muted/40 rounded px-1.5 py-0.5 font-mono text-[11px]"
+                      title="mean analyst price target vs current price — context only"
+                    >
+                      <span className="text-muted-foreground">tgt </span>
+                      <span className={pnlColorClass(p.analyst_target_upside_pct)}>
+                        {fmtPct(p.analyst_target_upside_pct * 100, 0, true)}
+                      </span>
+                    </span>,
+                  );
+                }
+                return chips;
+              };
               return candidates.picks.map((p) => {
                 const isHeld = held.has(p.ticker);
                 const chips = fundChips(p);
