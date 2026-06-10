@@ -157,7 +157,8 @@ def _attach_per_factor_ranks(
 ) -> pd.DataFrame:
     """Merge per-factor ranks into the top-N table for the markdown UI."""
     out = top.merge(
-        mom[["ticker", "rank"]].rename(columns={"rank": "mom_rank"}),
+        mom[["ticker", "rank", "raw"]].rename(
+            columns={"rank": "mom_rank", "raw": "mom_raw"}),
         on="ticker", how="left",
     )
     out = out.merge(

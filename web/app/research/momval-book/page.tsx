@@ -198,6 +198,28 @@ export default async function MomvalBookPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {candidates.dispersion_guard ? (
+              candidates.dispersion_guard.caution ? (
+                <div className="border-border/40 bg-amber-500/10 flex items-start gap-2 rounded-md border px-3 py-2 text-xs text-amber-200 dark:text-amber-300">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    <span className="font-medium">Low-confidence regime.</span>{" "}
+                    {candidates.dispersion_guard.note} Momentum dispersion{" "}
+                    {fmtNumber(candidates.dispersion_guard.mom_dispersion_iqr, 3)} = percentile{" "}
+                    {Math.round(candidates.dispersion_guard.percentile_2018_2026 * 100)}{" "}
+                    of 2018-2026.
+                  </span>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Dispersion guard: momentum dispersion{" "}
+                  {fmtNumber(candidates.dispersion_guard.mom_dispersion_iqr, 3)} (percentile{" "}
+                  {Math.round(candidates.dispersion_guard.percentile_2018_2026 * 100)}{" "}
+                  of 2018-2026) — regime in which the selection edge was
+                  historically present.
+                </p>
+              )
+            ) : null}
             {(() => {
               const held = new Set(book.holdings.map((h) => h.ticker));
               const fundChips = (p: (typeof candidates.picks)[number]) =>

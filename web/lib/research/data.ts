@@ -89,6 +89,14 @@ export type MomvalPick = {
   free_cash_flow: number | null;
 };
 
+export type DispersionGuard = {
+  mom_dispersion_iqr: number;
+  percentile_2018_2026: number;
+  abstain_quantile: number;
+  caution: boolean;
+  note: string;
+};
+
 export type MomvalPicks = {
   strategy: string;
   label: string;
@@ -98,6 +106,7 @@ export type MomvalPicks = {
   top_n: number;
   horizon_note: string;
   ai_model: string | null;
+  dispersion_guard: DispersionGuard | null;
   picks: MomvalPick[];
 };
 

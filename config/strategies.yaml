@@ -348,3 +348,11 @@ momval_book:
     Momentum-tilted biggest-risers book — higher upside in trends but deeper
     drawdowns (research: median maxDD ~-19% vs the production blend's -14%) and
     lower risk-adjusted alpha. Local paper, no broker.
+  # Dispersion abstention guard (calibration_abstention study 2026-06-10):
+  # when the cross-sectional IQR of 12-1 momentum is in the worst (highest)
+  # quartile of the 2018-2026 reference, the selection edge was historically
+  # absent (traded sel +3.4/+6.2 vs skipped -0.1/+1.5 at 63/126td). Advisory
+  # flag on the screener, not a hard gate.
+  dispersion_guard:
+    reference_file: reports/momval_dispersion_reference.json
+    abstain_quantile: 0.75

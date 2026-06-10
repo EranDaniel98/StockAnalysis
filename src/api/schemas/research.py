@@ -90,6 +90,17 @@ class MomvalPick(BaseModel):
     free_cash_flow: Optional[float] = None
 
 
+class DispersionGuard(BaseModel):
+    """Momentum-dispersion abstention flag (calibration_abstention study
+    2026-06-10): in the worst quartile of 2018-2026 cross-sectional momentum
+    dispersion the composite's selection edge was historically absent."""
+    mom_dispersion_iqr: float
+    percentile_2018_2026: float
+    abstain_quantile: float
+    caution: bool
+    note: str
+
+
 class MomvalPicksResponse(BaseModel):
     """Daily picks of the momentum-value 'biggest-risers' book (read-only)."""
     strategy: str
@@ -101,5 +112,6 @@ class MomvalPicksResponse(BaseModel):
     top_n: int = Field(ge=0)
     horizon_note: str
     ai_model: Optional[str] = None
+    dispersion_guard: Optional[DispersionGuard] = None
     picks: list[MomvalPick]
     generated_at: str

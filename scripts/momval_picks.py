@@ -83,6 +83,42 @@ def _fmt_pct(v):
     return f"{v*100:+.0f}%" if isinstance(v, (int, float)) else "—"
 
 
+def _dispersion_guard(composite: pd.DataFrame, cfg: dict) -> dict | None:
+    """Momentum-dispersion abstention flag (calibration_abstention study).
+
+    Live IQR of 12-1 momentum raw over the full cross-section, percentiled
+    against the frozen 2018-2026 reference. Above ``abstain_quantile`` the
+    selection edge was historically absent. Advisory, not a hard gate."""
+    g = cfg.get("dispersion_guard") or {}
+    ref_path = Path(g.get("reference_file", "reports/momval_dispersion_reference.json"))
+    if "mom_raw" not in composite.columns or not ref_path.exists():
+        return None
+    raw = composite["mom_raw"].dropna()
+    if len(raw) < 50:
+        return None
+    iqr = float(raw.quantile(0.75) - raw.quantile(0.25))
+    ref = json.loads(ref_path.read_text(encoding="utf-8"))
+    vals = sorted(r["mom_disp"] for r in ref["values"])
+    pctile = sum(1 for v in vals if v <= iqr) / len(vals)
+    abstain_q = float(g.get("abstain_quantile", 0.75))
+    caution = pctile >= abstain_q
+    return {
+        "mom_dispersion_iqr": round(iqr, 4),
+        "percentile_2018_2026": round(pctile, 3),
+        "abstain_quantile": abstain_q,
+        "caution": caution,
+        "note": (
+            "HIGH momentum dispersion — in the worst quartile of 2018-2026; the "
+            "composite's biggest-risers edge was historically ABSENT in this regime "
+            "(walk-forward: skipped dates sel -0.1%/3mo vs traded +3.4%). Treat "
+            "today's ranking as low-confidence."
+            if caution else
+            "Momentum dispersion normal — regime in which the selection edge "
+            "was historically present."
+        ),
+    }
+
+
 def _ai_rationales(picks: list[dict], model: str) -> dict[str, str]:
     """One grounded Claude call -> {ticker: 'why to buy'}. Uses ONLY the supplied
     factor + fundamental numbers; instructed not to speculate."""
@@ -172,6 +208,10 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
         for p in picks:
             p["why"] = why.get(p["ticker"].upper())
 
+    guard = _dispersion_guard(res.composite, cfg)
+    if guard and guard["caution"]:
+        logger.warning("DISPERSION GUARD: %s", guard["note"])
+
     return {
         "strategy": "momval_6_4", "label": "Momentum-Value (biggest-risers)",
         "as_of": as_of.date().isoformat(), "weights": weights,
@@ -179,6 +219,7 @@ def build(as_of: pd.Timestamp, use_ai: bool, model_override: str | None) -> dict
         "top_n": len(picks),
         "horizon_note": cfg.get("risk_note", "").strip(),
         "ai_model": model if use_ai else None,
+        "dispersion_guard": guard,
         "picks": picks,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

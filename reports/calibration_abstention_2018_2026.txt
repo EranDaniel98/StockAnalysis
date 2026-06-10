@@ -1,0 +1,79 @@
+[rtk] /!\ No hook installed â€” run `rtk init -g` for automatic token savings
+[2018-20] loading acd1e7401c6484cf...
+[2018-20] scoring 18 new dates...
+[2019-21] loading a36c9bfd0c353b53...
+[2019-21] scoring 12 new dates...
+[2020-22] loading 2c853f10c6638fc0...
+[2020-22] scoring 12 new dates...
+[2021-23] loading 57016c1293f136cd...
+[2021-23] scoring 18 new dates...
+[2022-24] loading 1c1c314850bb7368...
+[2022-24] scoring 12 new dates...
+[2023-25] loading a347da6750f42939...
+[2023-25] scoring 18 new dates...
+[2024-26] loading fe045eff04a15142...
+[2024-26] scoring 18 new dates...
+
+dataset: 56612 name-rows, 108 unique dates (2018-01-09 .. 2025-06-13)
+
+==========================================================================
+CALIBRATION + ABSTENTION — momval(0.6/0.4) top-24, walk-forward
+==========================================================================
+
+### Calibration, X=63td — walk-forward reliability (49707 pick-rows over 108 dates)
+  rank bin  pred P  realized       n
+      0-2%   0.171     0.195    1045
+      2-5%   0.130     0.137    1492
+     5-10%   0.086     0.099    2481
+    10-20%   0.100     0.099    4961
+    20-40%   0.090     0.095    9921
+   40-100%   0.101     0.096   29807
+  Brier 0.0897 vs base-rate(0.10) 0.0898 -> skill +0.168%
+
+### Calibration, X=126td — walk-forward reliability (48102 pick-rows over 108 dates)
+  rank bin  pred P  realized       n
+      0-2%   0.160     0.228    1012
+      2-5%   0.109     0.134    1444
+     5-10%   0.083     0.096    2400
+    10-20%   0.089     0.098    4801
+    20-40%   0.099     0.100    9600
+   40-100%   0.102     0.094   28845
+  Brier 0.0895 vs base-rate(0.10) 0.0897 -> skill +0.226%
+
+### Abstention, X=63td — walk-forward trade/skip per feature (threshold = past q0.5 on the bad side, direction = sign of past corr with sel)
+   feature corr(sel)  cover  sel all  sel trd  sel skp prec all prec trd   win
+  mom_disp    -0.176    38%    +1.97    +3.60    +0.66    0.167    0.167   3/4
+     top_z    +0.133    51%    +1.97    +3.00    +0.94    0.167    0.167   3/5
+     agree    -0.115    41%    +1.97    +0.75    +2.15    0.167    0.083   1/5
+   breadth    +0.060    48%    +1.97    +1.58    +3.24    0.167    0.167   2/4
+       vix    -0.122    46%    +1.97    +3.43    +0.44    0.167    0.167   3/4
+ spy_trend    +0.024    59%    +1.97    +1.98    +1.97    0.167    0.146   1/5
+
+### Abstention, X=126td — walk-forward trade/skip per feature (threshold = past q0.5 on the bad side, direction = sign of past corr with sel)
+   feature corr(sel)  cover  sel all  sel trd  sel skp prec all prec trd   win
+  mom_disp    -0.239    35%    +3.81    +6.99    +2.45    0.167    0.167   4/5
+     top_z    -0.028    38%    +3.81    +3.25    +4.34    0.167    0.167   4/5
+     agree    -0.083    28%    +3.81    +5.61    +2.86    0.167    0.167   2/4
+   breadth    +0.072    50%    +3.81    +2.45    +6.46    0.167    0.167   1/4
+       vix    -0.185    45%    +3.81    +6.46    +2.59    0.167    0.208   1/5
+ spy_trend    +0.094    62%    +3.81    +2.91    +5.96    0.167    0.167   1/4
+
+### Abstention, X=63td — walk-forward trade/skip per feature (threshold = past q0.75 on the bad side, direction = sign of past corr with sel)
+   feature corr(sel)  cover  sel all  sel trd  sel skp prec all prec trd   win
+  mom_disp    -0.176    67%    +1.97    +3.36    -0.14    0.167    0.167   3/4
+     top_z    +0.133    68%    +1.97    +3.00    +0.91    0.167    0.167   4/5
+     agree    -0.115    69%    +1.97    +0.94    +4.62    0.167    0.125   1/5
+   breadth    +0.060    67%    +1.97    +2.50    -0.93    0.167    0.167   2/4
+       vix    -0.122    74%    +1.97    +3.01    +0.12    0.167    0.167   2/5
+ spy_trend    +0.024    78%    +1.97    +2.65    +1.16    0.167    0.167   3/5
+
+### Abstention, X=126td — walk-forward trade/skip per feature (threshold = past q0.75 on the bad side, direction = sign of past corr with sel)
+   feature corr(sel)  cover  sel all  sel trd  sel skp prec all prec trd   win
+  mom_disp    -0.239    62%    +3.81    +6.16    +1.47    0.167    0.167   4/5
+     top_z    -0.028    64%    +3.81    +4.44    +3.47    0.167    0.167   1/5
+     agree    -0.083    47%    +3.81    +6.46    +1.71    0.167    0.208   3/5
+   breadth    +0.072    65%    +3.81    +3.38    +5.13    0.167    0.208   2/4
+       vix    -0.185    74%    +3.81    +5.00    +0.74    0.167    0.208   2/5
+ spy_trend    +0.094    78%    +3.81    +4.06    +3.31    0.167    0.167   3/5
+
+CAVEATS: ~108 unique monthly dates, overlapping 63/126td outcomes -> few independent obs; 6 features x 2 horizons = multiplicity. Believe a feature only if it helps on BOTH horizons and most windows. Calibration bins below MIN_BIN_TRAIN=30 fall back to the 0.10 base rate.
