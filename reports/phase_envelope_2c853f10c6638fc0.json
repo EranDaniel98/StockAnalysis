@@ -5,13 +5,15 @@
   "per_phase": [
     {
       "offset": 0,
-      "alpha": 26.77,
-      "capm": 23.35,
+      "alpha": 25.52,
+      "capm": 22.91,
       "beta": 0.378,
-      "sharpe": 1.475,
-      "total": 72.97,
-      "maxdd": -9.88,
-      "wf_pass": true
+      "sharpe": 1.457,
+      "total": 71.72,
+      "maxdd": -10.13,
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 7,
@@ -21,17 +23,21 @@
       "sharpe": 1.092,
       "total": 48.92,
       "maxdd": -10.69,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 14,
-      "alpha": 10.65,
-      "capm": 17.27,
-      "beta": 0.373,
-      "sharpe": 1.31,
-      "total": 56.85,
+      "alpha": 6.84,
+      "capm": 15.91,
+      "beta": 0.371,
+      "sharpe": 1.239,
+      "total": 53.04,
       "maxdd": -10.67,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 21,
@@ -41,47 +47,57 @@
       "sharpe": 1.446,
       "total": 67.11,
       "maxdd": -10.46,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 28,
-      "alpha": 38.21,
-      "capm": 27.56,
-      "beta": 0.366,
-      "sharpe": 1.674,
-      "total": 84.41,
+      "alpha": 31.22,
+      "capm": 25.08,
+      "beta": 0.369,
+      "sharpe": 1.562,
+      "total": 77.42,
       "maxdd": -10.65,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 35,
-      "alpha": 36.03,
-      "capm": 27.68,
-      "beta": 0.328,
-      "sharpe": 1.714,
-      "total": 82.23,
+      "alpha": 29.0,
+      "capm": 25.13,
+      "beta": 0.331,
+      "sharpe": 1.596,
+      "total": 75.2,
       "maxdd": -9.2,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 42,
-      "alpha": 18.19,
-      "capm": 21.51,
-      "beta": 0.323,
-      "sharpe": 1.401,
-      "total": 64.39,
-      "maxdd": -11.36,
-      "wf_pass": false
+      "alpha": 11.82,
+      "capm": 19.1,
+      "beta": 0.327,
+      "sharpe": 1.284,
+      "total": 58.02,
+      "maxdd": -11.15,
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 49,
-      "alpha": 31.61,
-      "capm": 26.98,
-      "beta": 0.306,
-      "sharpe": 1.571,
-      "total": 77.81,
-      "maxdd": -12.35,
-      "wf_pass": false
+      "alpha": 21.62,
+      "capm": 23.39,
+      "beta": 0.305,
+      "sharpe": 1.422,
+      "total": 67.82,
+      "maxdd": -12.13,
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 56,
@@ -91,34 +107,38 @@
       "sharpe": 1.379,
       "total": 65.77,
       "maxdd": -11.47,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     }
   ],
   "envelope": {
     "capm_alpha": {
-      "mean": 22.55,
+      "mean": 21.12,
       "median": 22.89,
-      "std": 4.35,
+      "std": 3.67,
       "min": 14.31,
-      "max": 27.68,
+      "max": 25.13,
       "pct_phases_positive": 100.0
     },
     "excess_return": {
-      "mean": 22.74,
+      "mean": 18.8,
       "median": 20.91,
-      "std": 11.01,
+      "std": 9.23,
       "min": 2.72,
-      "max": 38.21,
+      "max": 31.22,
       "pct_phases_positive": 100.0
     },
     "sharpe": {
-      "mean": 1.45,
-      "median": 1.45,
-      "std": 0.18,
+      "mean": 1.39,
+      "median": 1.42,
+      "std": 0.15,
       "min": 1.09,
-      "max": 1.71
+      "max": 1.6
     },
-    "wf_pass_rate_pct": 33.0
+    "wf_pass_rate_pct": 33.0,
+    "wf_capm_pass_rate_pct": 0.0
   },
-  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset"
+  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset",
+  "verdict_beta_neutral": "PHASE-LUCK / FRAGILE (beta-neutral WF)"
 }

@@ -11,7 +11,9 @@
       "sharpe": -0.01,
       "total": -1.58,
       "maxdd": -17.29,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 7,
@@ -21,7 +23,9 @@
       "sharpe": -0.259,
       "total": -7.04,
       "maxdd": -17.83,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 14,
@@ -31,7 +35,9 @@
       "sharpe": -0.189,
       "total": -5.42,
       "maxdd": -17.12,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 21,
@@ -41,7 +47,9 @@
       "sharpe": -0.079,
       "total": -3.45,
       "maxdd": -17.59,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 28,
@@ -51,7 +59,9 @@
       "sharpe": 0.519,
       "total": 9.8,
       "maxdd": -11.83,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 35,
@@ -61,7 +71,9 @@
       "sharpe": 0.522,
       "total": 10.01,
       "maxdd": -11.55,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 42,
@@ -71,7 +83,9 @@
       "sharpe": 0.297,
       "total": 5.82,
       "maxdd": -12.91,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 49,
@@ -81,7 +95,9 @@
       "sharpe": 0.022,
       "total": -0.85,
       "maxdd": -14.71,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     },
     {
       "offset": 56,
@@ -91,7 +107,9 @@
       "sharpe": 0.413,
       "total": 8.02,
       "maxdd": -12.34,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 4
     }
   ],
   "envelope": {
@@ -118,7 +136,9 @@
       "min": -0.26,
       "max": 0.52
     },
-    "wf_pass_rate_pct": 0.0
+    "wf_pass_rate_pct": 0.0,
+    "wf_capm_pass_rate_pct": 0.0
   },
-  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset"
+  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset",
+  "verdict_beta_neutral": "PHASE-LUCK / FRAGILE (beta-neutral WF)"
 }

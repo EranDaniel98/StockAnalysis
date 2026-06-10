@@ -1,19 +1,43 @@
+[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
 
-window     CAPMa med   mean    [min..max]  %pos  WF%  Shrp  excess  verdict
-2018-20         -4.0   -2.9      [-8..+2]   33%    0  0.02   -21.7  fragile
-2019-21        +10.8  +11.2     [+4..+18]  100%   22  1.04   -12.5  fragile
-2020-22        +22.9  +22.6    [+14..+28]  100%   33  1.45   +20.9  fragile
-2021-23         +4.8   +4.8     [+1..+10]  100%    0  0.40    +7.2  fragile
-2022-24         +0.4   +1.3      [-3..+6]   78%    0  0.06    +1.9  fragile
-2023-25         +1.9   +1.5     [-7..+10]   67%   56  1.41    -2.2  fragile
-2024-26        +12.9  +12.3     [+8..+17]  100%   78  1.38   +10.3  ROBUST
+window     CAPMa med   mean    [min..max]  %pos  WF%  WFa%  Shrp  excess  verdict (path | beta-neutral)
+2018-20         -4.0   -2.9      [-8..+2]   33%    0     0  0.02   -21.7  fragile | fragile
+2019-21        +10.8  +11.2     [+4..+18]  100%   22     0  1.04   -12.5  fragile | fragile
+2020-22        +22.9  +21.1    [+14..+25]  100%   33     0  1.42   +20.9  fragile | fragile
+2021-23         +4.8   +4.8     [+1..+10]  100%    0     0  0.40    +7.2  fragile | fragile
+2022-24         +0.8   +1.5      [-2..+6]   78%    0     0  0.09    +2.6  fragile | fragile
+2023-25         +1.9   +1.5     [-7..+10]   67%   56     0  1.41    -2.2  fragile | fragile
+2024-26         +9.0   +9.4     [+4..+13]  100%   67     0  1.20    +0.3  ROBUST | fragile
 
 === BREADTH (7 windows) ===
   windows with positive median CAPM-a : 6/7 (86%)
   median-of-window-medians            : +4.8%
-  mean-of-window-medians              : +7.1%  (spread -4..+23)
-  mean WF-pass rate across windows    : 27%
+  mean-of-window-medians              : +6.6%  (spread -4..+23)
+  mean WF-pass rate across windows    : 25%
+  mean BETA-NEUTRAL WF-pass rate      : 0%
   windows ROBUST (WF>=60 & >=70% pos) : 1/7
+  windows ROBUST under beta-neutral WF: 0/7
   mean phases-positive across windows  : 83%
 
 CAVEAT: rolling 2yr windows on a 12-month step OVERLAP (adjacent share 1yr) -> not independent; effective N < window count. Polygon 10yr horizon caps the range at ~2017-2026. Production config (mqv+PEAD+daily-regime).
+
+BETA-NEUTRAL RE-GRADE VERDICT (2026-06-10): the "WF fragility is a beta-grading
+artifact" hypothesis is REFUTED. Re-grading every fold on its own CAPM alpha
+(live folds only, cash folds excluded) makes the gate STRICTER, not looser:
+beta-neutral WF-pass = 0% in all 7 windows (path gate: 25% mean, 1 ROBUST).
+The one path-ROBUST window (2024-26) loses its stamp — its passing folds were
+passing on beta, not selection.
+
+Interpretation: window-level alpha is real (6/7 positive, 83% of phases) but
+fold-level alpha is EPISODIC — every 2yr window contains at least one ~100d
+fold with negative selection alpha, at every phase. Statistical-power caveat:
+a ~100d fold alpha estimate carries roughly +/-10-15pp annualized noise, so
+all-folds-positive is only passable when edge >> fold noise; a ~+5%/yr edge
+cannot clear it even in principle. The fold-fragility verdict therefore mostly
+restates the phase-luck capstone at fold granularity — small edge, large
+short-window noise — with the beta excuse now eliminated.
+
+NOTE: window stats shifted slightly vs the 2026-06-07 run (e.g. 2024-26 med
++12.9 -> +9.0) — snapshots without frozen earnings read the LIVE earnings
+cache for PEAD, which has new rows since. Cross-run caveat, not a bug in the
+re-grade (both grades computed on identical runs).

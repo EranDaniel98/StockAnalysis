@@ -11,7 +11,9 @@
       "sharpe": 1.292,
       "total": 49.56,
       "maxdd": -17.06,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 7,
@@ -21,7 +23,9 @@
       "sharpe": 1.133,
       "total": 40.82,
       "maxdd": -14.51,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 14,
@@ -31,7 +35,9 @@
       "sharpe": 0.818,
       "total": 27.92,
       "maxdd": -16.01,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 21,
@@ -41,7 +47,9 @@
       "sharpe": 1.034,
       "total": 35.01,
       "maxdd": -13.75,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 28,
@@ -51,7 +59,9 @@
       "sharpe": 1.414,
       "total": 54.03,
       "maxdd": -13.58,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 35,
@@ -61,7 +71,9 @@
       "sharpe": 1.421,
       "total": 51.34,
       "maxdd": -10.32,
-      "wf_pass": false
+      "wf_pass": false,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 42,
@@ -71,7 +83,9 @@
       "sharpe": 1.442,
       "total": 52.13,
       "maxdd": -10.46,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 49,
@@ -81,7 +95,9 @@
       "sharpe": 1.865,
       "total": 72.95,
       "maxdd": -9.86,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     },
     {
       "offset": 56,
@@ -91,7 +107,9 @@
       "sharpe": 1.731,
       "total": 64.99,
       "maxdd": -9.92,
-      "wf_pass": true
+      "wf_pass": true,
+      "wf_capm_pass": false,
+      "wf_live_folds": 5
     }
   ],
   "envelope": {
@@ -118,7 +136,9 @@
       "min": 0.82,
       "max": 1.86
     },
-    "wf_pass_rate_pct": 56.0
+    "wf_pass_rate_pct": 56.0,
+    "wf_capm_pass_rate_pct": 0.0
   },
-  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset"
+  "verdict": "PHASE-LUCK / FRAGILE -- do not trust a single offset",
+  "verdict_beta_neutral": "PHASE-LUCK / FRAGILE (beta-neutral WF)"
 }
