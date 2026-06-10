@@ -1,0 +1,65 @@
+[rtk] /!\ No hook installed â€” run `rtk init -g` for automatic token savings
+[2018-20] loading acd1e7401c6484cf...
+[2018-20] scoring 18 dates x 5 schemes...
+[2019-21] loading a36c9bfd0c353b53...
+[2019-21] scoring 18 dates x 5 schemes...
+[2020-22] loading 2c853f10c6638fc0...
+[2020-22] scoring 18 dates x 5 schemes...
+[2021-23] loading 57016c1293f136cd...
+[2021-23] scoring 18 dates x 5 schemes...
+[2022-24] loading 1c1c314850bb7368...
+[2022-24] scoring 12 dates x 5 schemes...
+[2023-25] loading a347da6750f42939...
+[2023-25] scoring 18 dates x 5 schemes...
+[2024-26] loading fe045eff04a15142...
+[2024-26] scoring 18 dates x 5 schemes...
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\Eran Daniel\Desktop\Personal\StockNew\scripts\research\high_52w_probe.py", line 213, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Users\Eran Daniel\Desktop\Personal\StockNew\scripts\research\high_52w_probe.py", line 206, in main
+    print("\nGATE RULE: median |spearman| \u2273 0.90 \u2192 momentum clone, ignore the tail table. "
+  File "C:\Users\Eran Daniel\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2273' in position 31: character maps to <undefined>
+
+==========================================================================
+52W-HIGH PROBE — orthogonality gate
+==========================================================================
+window     spearman(h52,mom)  top-24 overlap  ndates
+2018-20                0.600            0.06      18
+2019-21                0.726            0.10      18
+2020-22                0.628            0.08      18
+2021-23                0.354            0.04      18
+2022-24                0.762            0.12      12
+2023-25                0.706            0.12      18
+2024-26                0.589            0.10      18
+POOLED                 0.646            0.08     120
+
+==========================================================================
+52W-HIGH PROBE — tail value, top-24 vs realized top-decile risers
+random precision = 0.10 (lift 1.0 = no skill)
+==========================================================================
+
+### Horizon X = 63td (~3mo)
+scheme           precis@K  lift sel_ret%  rankIC win>rand
+mom_only            0.208  2.08    +3.90  +0.019      7/7
+h52_only            0.062  0.62    -0.54  +0.009      0/7
+mom+h52(5/5)        0.083  0.83    +1.12  +0.011      2/7
+mom+val(6/4)        0.167  1.67    +1.42  +0.033      6/7
+m+v+h(5/3/2)        0.083  0.83    +0.48  +0.022      4/7
+
+### Horizon X = 126td (~6mo)
+scheme           precis@K  lift sel_ret%  rankIC win>rand
+mom_only            0.208  2.08    +7.07  +0.077      7/7
+h52_only            0.083  0.83    -1.04  +0.017      1/7
+mom+h52(5/5)        0.125  1.25    +0.35  +0.055      3/7
+mom+val(6/4)        0.167  1.67    +2.22  +0.081      6/7
+m+v+h(5/3/2)        0.125  1.25    +0.30  +0.064      3/7
+
+GATE RULE: median |spearman| >= ~0.90 -> momentum clone, ignore the tail table. Moderate corr (~0.5-0.8) is EXPECTED (mechanically related); then judge on whether any h-blend beats mom_only / mom+val(6/4) on lift + sel_ret per window.
+
+VERDICT (2026-06-10): KILL. Gate passes (pooled spearman 0.646, top-24 overlap only 8% â€” NOT a momentum clone) but the orthogonal component is ANTI-tail: h52_only lift 0.62 @3mo / 0.83 @6mo (below random), sel_ret negative. Every blend containing h dilutes the baselines (mom+h52 0.83 vs mom_only 2.08; m+v+h 0.83/1.25 vs mom+val 1.67). Names at their 52w high are steady grinders, not biggest-risers. Do NOT add to the momval book.
