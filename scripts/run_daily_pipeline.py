@@ -54,6 +54,19 @@ STEPS = [
 _ADVISORY = {"mark_ai_book", "mark_momval_book", "momval_picks", "sma_watch"}
 
 
+def _step_timeout_seconds() -> float | None:
+    """Per-step wall-clock cap from config. None disables the cap."""
+    try:
+        from src.config_loader import Config
+
+        minutes = float(Config().get(
+            "pipeline", "step_timeout_minutes", default=30,
+        ) or 0)
+    except Exception:  # noqa: BLE001 — config trouble must not kill the run
+        minutes = 30.0
+    return minutes * 60.0 if minutes > 0 else None
+
+
 def _run(args: list[str], step: str) -> bool:
     logger.info("=" * 60)
     logger.info("STEP: %s", step)
@@ -65,6 +78,7 @@ def _run(args: list[str], step: str) -> bool:
             ["uv", "run", "python", "-m", *args],
             check=False,
             shell=False,
+            timeout=_step_timeout_seconds(),
         )
         if result.returncode != 0:
             logger.error("STEP %s exit code %d", step, result.returncode)
@@ -75,8 +89,38 @@ def _run(args: list[str], step: str) -> bool:
         # emit step_completed and the web step-ladder shows them stuck/failed.
         logger.info("STEP %s exit code 0", step)
         return True
+    except subprocess.TimeoutExpired:
+        # Keep the "STEP <name> exit code <n>" shape the SSE parser keys on.
+        logger.error("STEP %s exit code -1 (timed out after %s)",
+                     step, _step_timeout_seconds())
+        return False
     except Exception as e:  # noqa: BLE001
         logger.error("STEP %s exception: %s", step, e)
+        return False
+
+
+def _db_preflight() -> bool:
+    """SELECT 1 against Postgres before any step runs.
+
+    daily_factor_picks needs the EDGAR PIT fundamentals in Postgres; a
+    dead DB would crash step 1 with a stack trace half an hour into the
+    run. Failing here instead gives the unattended operator one clear
+    alert before anything starts.
+    """
+    try:
+        from sqlalchemy import text
+
+        from src.db.session import get_sessionmaker, run_with_dispose
+
+        async def _ping():
+            async with get_sessionmaker()() as session:
+                await session.execute(text("SELECT 1"))
+
+        run_with_dispose(_ping())
+        logger.info("DB pre-flight OK")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.error("DB pre-flight FAILED: %s", e)
         return False
 
 
@@ -98,6 +142,15 @@ def main() -> int:
     date_us = date_str.replace("-", "_")
     Path("reports").mkdir(exist_ok=True)
     Path("data/daily_picks").mkdir(parents=True, exist_ok=True)
+
+    if not _db_preflight():
+        from src.alerts.telegram_bot import send_ops_alert
+
+        send_ops_alert(
+            f"❌ daily pipeline {date_str}: Postgres unreachable "
+            f"(DB pre-flight failed). No steps ran; no trades today."
+        )
+        return 1
 
     results: dict[str, bool] = {}
 
@@ -233,7 +286,15 @@ def main() -> int:
     print("Next: review reports/morning_briefing_{}.md first.".format(date_us))
     print()
     # Advisory/research steps don't gate the exit code.
-    return 0 if all(results.get(s, False) for s in STEPS if s not in _ADVISORY) else 1
+    failed = [s for s in STEPS if s not in _ADVISORY and not results.get(s, False)]
+    if failed:
+        from src.alerts.telegram_bot import send_ops_alert
+
+        send_ops_alert(
+            f"❌ daily pipeline {date_str}: {len(failed)} step(s) FAILED: "
+            f"{', '.join(failed)}. Check logs before trading."
+        )
+    return 0 if not failed else 1
 
 
 if __name__ == "__main__":

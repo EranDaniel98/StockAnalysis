@@ -86,11 +86,20 @@ class CircuitBreakerThresholds:
     0.0 disables."""
 
     @classmethod
-    def from_config(cls, config) -> "CircuitBreakerThresholds":
-        cb = (
+    def from_config(cls, config, *, live: bool = False) -> "CircuitBreakerThresholds":
+        """``live=True`` overlays ``trading.live.circuit_breakers`` on the
+        base block — live money gets its own (tighter) caps without
+        forking the paper config."""
+        cb = dict(
             config.get("trading", "circuit_breakers", default={})
             if config is not None else {}
         )
+        if live:
+            overlay = (
+                config.get("trading", "live", "circuit_breakers", default={})
+                if config is not None else {}
+            ) or {}
+            cb.update(overlay)
         return cls(
             max_daily_loss_pct=float(cb.get("max_daily_loss_pct", 0.0) or 0.0),
             max_drawdown_halt_pct=float(cb.get("max_drawdown_halt_pct", 0.0) or 0.0),
@@ -146,11 +155,12 @@ class TradingSafetyGate:
         self._thresholds = thresholds
 
     @classmethod
-    def from_config(cls, config) -> "TradingSafetyGate":
+    def from_config(cls, config, *, live: bool = False) -> "TradingSafetyGate":
         """Build a gate from the project config + env override.
 
         Env var wins: STOCKNEW_TRADING_ENABLED=1 forces enabled even if
         the YAML says false; =0 forces disabled. Unset → use YAML.
+        ``live=True`` applies the trading.live circuit-breaker overlay.
         """
         env = _env_trading_enabled()
         if env is not None:
@@ -167,7 +177,7 @@ class TradingSafetyGate:
         )
         return cls(
             trading_enabled=enabled,
-            thresholds=CircuitBreakerThresholds.from_config(config),
+            thresholds=CircuitBreakerThresholds.from_config(config, live=live),
         )
 
     @property

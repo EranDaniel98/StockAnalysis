@@ -161,7 +161,7 @@ def _deploy_watch(guard: dict | None, n_picks: int, cfg: dict) -> dict | None:
         try:
             from src.alerts.telegram_bot import TelegramAlerter
             from src.config_loader import Config
-            TelegramAlerter(Config())._send_message(
+            TelegramAlerter(Config()).send_text(
                 f"MOMVAL deploy window OPEN: {plan['note']}")
         except Exception as e:  # noqa: BLE001 — alerting is best-effort
             logger.info("telegram alert skipped (%s)", e)

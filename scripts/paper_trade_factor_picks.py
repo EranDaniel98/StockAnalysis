@@ -219,27 +219,33 @@ def _run_kill_switch_gate(args) -> dict:
 
 # ─── broker setup + sizing ───────────────────────────────────────────
 
-def _open_alpaca_client():
-    """Construct an Alpaca PAPER client + safety gate. Returns (client,
-    account_dict). Equity is validated >0 before returning."""
+def _open_alpaca_client(paper: bool = True):
+    """Construct an Alpaca client + safety gate. Returns (client,
+    account_dict). Equity is validated >0 before returning.
+
+    ``paper=False`` builds the LIVE client (and the tighter
+    trading.live circuit-breaker overlay); construction enforces the
+    three live-mode guards in AlpacaClient — this function adds nothing
+    on top of them, by design."""
     from src.config_loader import Config
     from src.execution.alpaca import AlpacaClient
     from src.execution.safety_gates import TradingSafetyGate
 
     config = Config()
-    gate = TradingSafetyGate.from_config(config)
-    client = AlpacaClient(safety_gate=gate)
+    gate = TradingSafetyGate.from_config(config, live=not paper)
+    client = AlpacaClient(safety_gate=gate, paper=paper)
 
+    endpoint = "PAPER" if paper else "LIVE"
     account = client.get_account()
     equity = float(account.get("equity", account.get("cash", 0.0)) or 0.0)
     cash = float(account.get("cash", 0.0) or 0.0)
     buying_power = float(account.get("buying_power", cash) or cash)
     logger.info(
-        "Alpaca PAPER: equity=$%.2f  cash=$%.2f  buying_power=$%.2f",
-        equity, cash, buying_power,
+        "Alpaca %s: equity=$%.2f  cash=$%.2f  buying_power=$%.2f",
+        endpoint, equity, cash, buying_power,
     )
     if equity <= 0:
-        raise SystemExit("Paper account has zero equity -- top it up.")
+        raise SystemExit(f"{endpoint} account has zero equity -- top it up.")
     return client, {"equity": equity, "cash": cash, "buying_power": buying_power}
 
 
@@ -582,7 +588,7 @@ def _print_sanity_summary(sanity_summary: dict) -> None:
 
 # ─── execution ──────────────────────────────────────────────────────
 
-def _confirm_execution(args, sells: list, buys: list) -> bool:
+def _confirm_execution(args, sells: list, buys: list, endpoint: str = "PAPER") -> bool:
     """Y/N prompt before live submission. Returns False if operator aborts;
     True otherwise (including when not interactive)."""
     if not (args.confirm and sys.stdin.isatty()):
@@ -597,7 +603,7 @@ def _confirm_execution(args, sells: list, buys: list) -> bool:
     )
     prompt = (
         f"\n*** CONFIRM ***  About to submit {len(sells)} CLOSES + "
-        f"{n_opens} OPENs to Alpaca PAPER. Continue? [y/N]: "
+        f"{n_opens} OPENs to Alpaca {endpoint}. Continue? [y/N]: "
     )
     response = input(prompt).strip().lower()
     if response not in ("y", "yes"):
@@ -832,7 +838,7 @@ def _write_execution_log(
 
 # ─── orchestration ───────────────────────────────────────────────────
 
-def _flatten_on_block(args, payload: dict) -> int:
+def _flatten_on_block(args, payload: dict, *, paper: bool = True) -> int:
     """Regime gate is OFF (empty picks + a gate flag) -> exit the book to cash.
 
     This realizes the backtest's --daily-regime exit LIVE: run daily, the book
@@ -850,7 +856,7 @@ def _flatten_on_block(args, payload: dict) -> int:
                    reason, payload.get("as_of"))
     if args.execute:
         os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
-    client, _ = _open_alpaca_client()
+    client, _ = _open_alpaca_client(paper=paper)
     positions = client.get_positions()
     if not positions:
         logger.info("Gate off + already flat (no open positions) — nothing to do.")
@@ -871,12 +877,13 @@ def _flatten_on_block(args, payload: dict) -> int:
     return 0
 
 
-def main() -> int:
+def main(paper: bool = True) -> int:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     args = _parse_args()
+    endpoint = "PAPER" if paper else "LIVE"
 
     # Bracket defaults live in config (nothing hardcoded); CLI flags override.
     if args.atr_multiplier is None or args.risk_reward is None:
@@ -899,7 +906,7 @@ def main() -> int:
         gate = payload.get("gate", {})
         if gate.get("trend_blocked") or gate.get("vix_blocked"):
             # Regime gate is OFF -> flatten to cash (daily-regime exit, live).
-            return _flatten_on_block(args, payload)
+            return _flatten_on_block(args, payload, paper=paper)
         raise SystemExit("Picks file's longs list is empty.")
     logger.info(
         "Loaded %d longs%s for %s from strategy=%s",
@@ -924,16 +931,17 @@ def main() -> int:
     if args.execute:
         os.environ["STOCKNEW_TRADING_ENABLED"] = "1"
         logger.warning(
-            "EXECUTE MODE: orders will be submitted to Alpaca PAPER. NOTE: "
+            "EXECUTE MODE: orders will be submitted to Alpaca %s. NOTE: "
             "--execute force-enables trading via env override, intentionally "
             "bypassing config trading.trading_enabled -- that YAML flag does NOT "
-            "gate this script. The real safety stop here is NOT passing --execute."
+            "gate this script. The real safety stop here is NOT passing --execute.",
+            endpoint,
         )
     else:
         logger.info(
             "DRY-RUN: no orders will be submitted. Pass --execute to trade."
         )
-    client, account = _open_alpaca_client()
+    client, account = _open_alpaca_client(paper=paper)
     equity = account["equity"]
 
     sizing = _compute_sizing(args, equity, n_longs, n_shorts, long_short_mode)
@@ -968,7 +976,7 @@ def main() -> int:
         print("\n*** DRY RUN -- nothing submitted. Pass --execute to trade. ***\n")
         return 0
 
-    if not _confirm_execution(args, sells, buys):
+    if not _confirm_execution(args, sells, buys, endpoint):
         return 0
 
     print("\n=== EXECUTING ===")

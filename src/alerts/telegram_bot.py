@@ -9,6 +9,27 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def send_ops_alert(message):
+    """Best-effort ops alert (pipeline failures, gate refusals, heartbeats).
+
+    Builds its own Config + TelegramAlerter so call sites stay one line.
+    Never raises — an unconfigured or unreachable Telegram must not break
+    the pipeline or block a trading decision. Returns True if the send
+    was attempted (config enabled + bot built), False otherwise.
+    """
+    try:
+        from src.config_loader import Config
+
+        alerter = TelegramAlerter(Config())
+        if not alerter.enabled or alerter._get_bot() is None:
+            return False
+        alerter.send_text(message)
+        return True
+    except Exception as e:  # noqa: BLE001 — alerting is best-effort
+        logger.info("telegram ops alert skipped (%s)", e)
+        return False
+
+
 class TelegramAlerter:
     def __init__(self, config):
         self.config = config
@@ -72,6 +93,18 @@ class TelegramAlerter:
             return
 
         message = self._format_summary(recommendations, strategy_name)
+        self._send_message(message)
+
+    def send_text(self, message):
+        """Send a free-form text message (ops alerts, heartbeats).
+
+        Public entry point for callers outside the recommendation flow
+        (pipeline failure alerts, pre-trade gate refusals, daily-cron
+        heartbeats). Honors the config enable flag; never raises.
+        """
+        if not self.enabled:
+            logger.info("Telegram alerts disabled in config")
+            return
         self._send_message(message)
 
     def _send_message(self, message):

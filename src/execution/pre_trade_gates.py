@@ -28,6 +28,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _alert_refusal(gate: str, reason: str) -> None:
+    """Best-effort Telegram on a gate refusal. Unattended, a SystemExit
+    that only lands in a log nobody reads is indistinguishable from a
+    quiet success — the refusal must page."""
+    from src.alerts.telegram_bot import send_ops_alert
+
+    send_ops_alert(f"🛑 trading REFUSED — {gate}: {reason}")
+
+
 def run_drift_gate(args: Any) -> None:
     """Refuse to trade if today's picks composition has drifted from the
     trailing baseline (universe shrink, factor coverage collapse, sector
@@ -57,6 +66,13 @@ def run_drift_gate(args: Any) -> None:
                 logger.error("  FAIL %s: %s", c.name, c.message)
         if not args.override_drift:
             print(format_markdown(report))
+            _alert_refusal(
+                "drift gate FAIL",
+                "; ".join(
+                    f"{c.name}: {c.message}"
+                    for c in report.checks if c.status == "fail"
+                ),
+            )
             raise SystemExit(
                 "\nRefusing to trade -- drift detector failed. "
                 "Investigate the FAILs above. To override (NOT "
@@ -99,6 +115,7 @@ def run_kill_switch_gate(args: Any, strategy_label: str) -> dict:
     if status == "triggered":
         logger.error("KILL SWITCH TRIGGERED: %s", payload["message"])
         if not args.override_kill_switch:
+            _alert_refusal("kill switch TRIGGERED", payload["message"])
             raise SystemExit(
                 "\nRefusing to trade -- live α kill switch triggered. "
                 "Inspect reports/kill_switch.json and decide whether the "
@@ -226,6 +243,11 @@ def run_sanity_gate(
             if o:
                 logger.error("  %s: %s", t, o.reason)
         if not args.override_sanity_errors:
+            _alert_refusal(
+                "sanity gate transport errors",
+                f"{len(gate_errors)} call failure(s) on "
+                f"{', '.join(sorted(set(gate_errors)))}",
+            )
             raise SystemExit(
                 "\nRefusing to trade -- sanity gate had transport errors "
                 "on the calls above. The previous behaviour (silently "

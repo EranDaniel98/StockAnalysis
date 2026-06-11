@@ -297,6 +297,27 @@ trading:
     # as a sanity backstop (a $10k order would still get refused).
     max_order_value_usd: 5000
 
+  # Live-money overrides, overlaid on the base circuit_breakers when the
+  # safety gate is built with live=True (scripts/live_trade_factor_picks).
+  # Dormant until the forward-paper review (~2026-08-27) passes and the
+  # account is funded; tighter than paper because real dollars get the
+  # half-size first-two-weeks treatment from the pre-funding checklist.
+  live:
+    circuit_breakers:
+      max_daily_loss_pct: -0.02
+      max_drawdown_halt_pct: -0.10
+      # Live book is the production top-24 only; 30 leaves rebalance
+      # overlap headroom without paper's 60-position legacy slack.
+      max_open_positions: 30
+      max_order_value_usd: 3000
+
+# --- Daily pipeline (scripts/run_daily_pipeline.py) ---
+pipeline:
+  # Hard wall-clock cap per pipeline step. A hung step (stuck network
+  # fetch, dead DB connection) is killed and marked failed instead of
+  # silently eating the unattended trading day.
+  step_timeout_minutes: 30
+
 # --- Alerts ---
 alerts:
   telegram:

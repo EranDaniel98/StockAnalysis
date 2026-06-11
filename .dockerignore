@@ -1,0 +1,30 @@
+# Keep the cron image lean: only the Python app + checked-in data files.
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.env
+.env.local
+
+# Frontend is not deployed from this image (web app stays local).
+web/
+
+# Regenerable / local-only trees. The checked-in parts of data/ (e.g.
+# data/universe/*.csv) are NOT excluded -- the entrypoint seeds them
+# onto the volume.
+data/snapshots/
+data/*_cache/
+data/cache.db
+data/*.db
+data/ohlcv/
+reports/
+# ...except the frozen momval dispersion reference (strategies.yaml
+# dispersion_guard reads it; it's checked into git, not regenerable).
+!reports/momval_dispersion_reference.json
+logs/
+htmlcov/
+.coverage*
+.idea
+.vscode
+.playwright-mcp/
