@@ -49,6 +49,7 @@ from src.factors.exposure_scaling import (
     DEFAULT_SMOOTHING_WINDOW as EXPOSURE_DEFAULT_SMOOTHING,
     exposure_at,
 )
+from src.factors.filing_delta import FilingDeltaLoader, filing_delta_factor, sidecar_path
 from src.factors.insider_cluster import insider_cluster_factor
 from src.factors.momentum import momentum_12_1, risk_managed_momentum
 from src.factors.pead import pead_factor
@@ -272,9 +273,14 @@ def _parse_args() -> argparse.Namespace:
                         "in reality; raise this for stress scenarios.")
     p.add_argument("--factor",
                    default="momentum",
-                   choices=("momentum", "quality", "value", "composite"),
+                   choices=("momentum", "quality", "value", "composite",
+                            "filing_delta"),
                    help="Which factor to rank by. composite = "
-                        "equal-weight rank-blend of all three.")
+                        "equal-weight rank-blend of all three. "
+                        "filing_delta = Lazy-Prices 10-K/10-Q textual-"
+                        "staleness (higher similarity = bullish); needs "
+                        "the snapshot's filing_delta_signal.json sidecar "
+                        "(scripts.research.build_filing_delta_sidecar).")
     p.add_argument("--composite-factors", default="mqv",
                    help="Which factors to include in the composite. "
                         "Subset of 'mqv' (e.g. 'mv' drops quality). Default "
@@ -374,6 +380,7 @@ def _resolve_ranking(
     include_pead: bool = False,
     earnings_histories: dict | None = None,
     pead_drift_window: int = 60,
+    filing_delta_loader: FilingDeltaLoader | None = None,
 ) -> tuple[pd.DataFrame, str]:
     """Dispatch to the requested factor. Returns ``(ranking, regime_label)``.
 
@@ -398,6 +405,16 @@ def _resolve_ranking(
         return quality_factor(fund_loader, universe_tickers, as_of), "low_vix"
     if factor == "value":
         return value_factor(fund_loader, prices, universe_tickers, as_of), "low_vix"
+    if factor == "filing_delta":
+        if filing_delta_loader is None:
+            raise ValueError(
+                "factor='filing_delta' requires a filing_delta_loader "
+                "(snapshot sidecar filing_delta_signal.json)"
+            )
+        return (
+            filing_delta_factor(filing_delta_loader, universe_tickers, as_of),
+            "low_vix",
+        )
     if factor == "composite":
         # Ablation support: composite_factors='mqv' (default) uses all
         # three; 'mv' drops quality; 'qv' drops momentum; etc.
@@ -633,6 +650,27 @@ def _load_earnings_histories_if_pead(args: argparse.Namespace, universe_tickers:
     # EPS Estimate — that the frozen form drops; using them once would make
     # run 1 differ from run N).
     return earnings_from_long(earn_long) if earn_long is not None else histories
+
+
+def _load_filing_delta_if_needed(args: argparse.Namespace) -> FilingDeltaLoader | None:
+    """Lazy-Prices sidecar (filing_delta_signal.json), frozen per snapshot by
+    scripts.research.build_filing_delta_sidecar — same optional-sidecar
+    pattern as the PEAD earnings sidecar. Only --factor filing_delta reads it."""
+    if args.factor != "filing_delta":
+        return None
+    path = sidecar_path(args.snapshot_id)
+    if not path.exists():
+        raise SystemExit(
+            f"--factor filing_delta needs {path}; build it first:\n"
+            f"  uv run python -m scripts.research.build_filing_delta_sidecar "
+            f"--snapshot-id {args.snapshot_id}"
+        )
+    loader = FilingDeltaLoader.from_json(path)
+    logger.info(
+        "Loaded filing-delta sidecar: %d tickers with scored filings (%s)",
+        len(loader.tickers), path,
+    )
+    return loader
 
 
 def _load_fundamentals_if_needed(args: argparse.Namespace, universe_tickers: list[str]):
@@ -1104,6 +1142,7 @@ def run(args: argparse.Namespace) -> dict:
         )
     earnings_histories = _load_earnings_histories_if_pead(args, universe_tickers, snap)
     fund_loader = _load_fundamentals_if_needed(args, universe_tickers)
+    filing_delta_loader = _load_filing_delta_if_needed(args)
     sectors = _load_sectors_if_sn_quality(args, universe_tickers)
     calendar = _build_trading_calendar(spy, snap.manifest)
     if args.regime_file:
@@ -1231,6 +1270,7 @@ def run(args: argparse.Namespace) -> dict:
                 include_pead=args.include_pead,
                 earnings_histories=earnings_histories,
                 pead_drift_window=args.pead_drift_window,
+                filing_delta_loader=filing_delta_loader,
             )
             if ranking.empty:
                 # audit C2: don't silently skip — a skipped rebalance drifts

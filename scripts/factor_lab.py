@@ -33,6 +33,8 @@ warnings.filterwarnings("ignore")
 
 from src.factors.accruals_pit import AccrualsPITLoader
 from src.factors.earnings_cache import load_earnings_histories
+from src.factors.filing_delta import SIDECAR_FILENAME as FILING_DELTA_SIDECAR
+from src.factors.filing_delta import FilingDeltaLoader
 from src.factors.fundamentals_pit_loader import FundamentalsPITLoader
 from src.factors.momentum import momentum_12_1
 from src.factors.pead import pead_factor
@@ -94,6 +96,8 @@ class Ctx:
         self.fund = FundamentalsPITLoader.from_json(d / "fundamentals_pit.json")
         ap = d / "accruals_pit.json"
         self.accr = AccrualsPITLoader.from_json(ap) if ap.exists() else None
+        fdp = d / FILING_DELTA_SIDECAR
+        self.fdelta = FilingDeltaLoader.from_json(fdp) if fdp.exists() else None
         rows = json.loads((d / "fundamentals_pit.json").read_text(encoding="utf-8"))
         self.sector_of = {r["ticker"]: r["sector"] for r in rows if r.get("sector")}
         self.universe = sorted(set(self.panel.columns))
@@ -195,6 +199,16 @@ def base_signals(ctx: Ctx, i: int) -> dict[str, pd.Series]:
                      ("ni_growth", ng), ("sue_lite", sue)):
             if d:
                 out[k] = pd.Series(d)
+    # Lazy-Prices filing-delta (optional per-snapshot sidecar; higher
+    # similarity = staler filing = bullish; NaN when no eligible filing)
+    if ctx.fdelta is not None:
+        fdv = {}
+        for t in ctx.universe:
+            v = ctx.fdelta.value(t, ts)
+            if v is not None:
+                fdv[t] = v
+        if fdv:
+            out["filing_delta"] = pd.Series(fdv)
     # fundamental-trajectory + cash legs (need filing history)
     aod = _as_of_dt(ts)
     dom, deg, fcta, mcv, dlev_raw, d2e_lvl = {}, {}, {}, {}, {}, {}
